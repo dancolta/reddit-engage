@@ -1,0 +1,60 @@
+# Locked 2026-05-24 post stress-test.
+# 22 subs: 5 Tier 1 + 17 Tier 2.
+
+blog_aliases:
+  Playbook: https://www.nodesparks.com/blog/saas-replacement-playbook
+  Apollo:   https://www.nodesparks.com/blog/apollo-alternative-custom-outreach-agent
+  BillCom:  https://www.nodesparks.com/blog/replace-bill-com-slack-invoice-agent
+
+subreddits:
+  # === TIER 1 — daily-scan, consistent engagement ===
+  - {name: smallbusiness, tier: 1, bucket: operator, weight: 1.2,
+     backing_blogs: [Playbook, Apollo, BillCom],
+     gate_overrides: {post_age_hours: 4, comment_ceiling: 25, velocity_floor: 5, pain_keywords_min: 1}}
+
+  - {name: SaaS, tier: 1, bucket: operator, weight: 1.1,
+     backing_blogs: [Playbook, Apollo, BillCom],
+     gate_overrides: {post_age_hours: 6, comment_ceiling: 40, velocity_floor: 3, pain_keywords_min: 1}}
+
+  - {name: Entrepreneur, tier: 1, bucket: operator, weight: 0.9,
+     backing_blogs: [Playbook, Apollo],
+     gate_overrides: {post_age_hours: 4, comment_ceiling: 25, velocity_floor: 5, pain_keywords_min: 1}}
+
+  - {name: sales, tier: 1, bucket: operator, weight: 1.2,
+     backing_blogs: [Apollo],
+     gate_overrides: {post_age_hours: 4, comment_ceiling: 15, velocity_floor: 2, pain_keywords_min: 1}}
+
+  - {name: nocode, tier: 1, bucket: builder, weight: 1.3,
+     backing_blogs: [Playbook],
+     gate_overrides: {post_age_hours: 8, comment_ceiling: 20, velocity_floor: 1, pain_keywords_min: 1}}
+
+  # === TIER 2 — opportunistic, strict gates ===
+
+  # --- Finance ops ---
+  - {name: Bookkeeping, tier: 2, bucket: operator, saturation: wide_open, weight: 1.4, backing_blogs: [BillCom]}
+  - {name: Accounting, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [BillCom, Playbook]}
+  - {name: CFO, tier: 2, bucket: operator, saturation: medium, weight: 1.1, backing_blogs: [Playbook, BillCom]}
+  - {name: nonprofit, tier: 2, bucket: operator, saturation: medium, weight: 1.0, backing_blogs: [Playbook]}
+
+  # --- Sales / RevOps ---
+  - {name: SalesOperations, tier: 2, bucket: operator, saturation: wide_open, weight: 1.3, backing_blogs: [Apollo, Playbook]}
+  - {name: RevOps, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [Apollo, Playbook], sub_size_override: true}
+  - {name: coldemail, tier: 2, bucket: operator, saturation: medium, weight: 1.2, backing_blogs: [Apollo]}
+
+  # --- Marketing ops ---
+  - {name: marketing, tier: 2, bucket: operator, saturation: high, weight: 0.9, backing_blogs: [Playbook]}
+  - {name: marketingautomation, tier: 2, bucket: operator, saturation: medium, weight: 1.1, backing_blogs: [Playbook, Apollo]}
+  - {name: CustomerSuccess, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [Playbook]}
+  - {name: PPC, tier: 2, bucket: operator, saturation: medium, weight: 0.8, backing_blogs: [Playbook]}
+
+  # --- Recruiting ---
+  - {name: recruiting, tier: 2, bucket: operator, saturation: wide_open, weight: 1.0, backing_blogs: [Playbook]}
+
+  # --- Devtools / infra ---
+  - {name: ExperiencedDevs, tier: 2, bucket: builder, saturation: medium, weight: 1.1, backing_blogs: [Playbook]}
+  - {name: sysadmin, tier: 2, bucket: builder, saturation: high, weight: 0.9, backing_blogs: [Playbook, BillCom]}
+  - {name: devops, tier: 2, bucket: builder, saturation: high, weight: 1.0, backing_blogs: [Playbook]}
+  - {name: Automate, tier: 2, bucket: builder, saturation: high, weight: 0.9, backing_blogs: [Playbook]}
+
+  # --- Builder / indie ---
+  - {name: selfhosted, tier: 2, bucket: builder, saturation: high, weight: 1.0, backing_blogs: [Playbook, BillCom]}

@@ -1,0 +1,67 @@
+# Scoring weights + gating thresholds. Tunable without code changes.
+
+# === Hard gates applied to ALL posts (Tier 1 + Tier 2) ===
+hard_gates:
+  removed_or_locked: drop          # always drop
+  age_max_hours: 24                # eligibility window; > 24h = drop
+  dollar_regex_or_role: false      # set true to require $X in body (stress-test dropped role-signal, kept this as opt-in)
+
+# === Tier 1 gates (per-sub overrides in subreddits.yml win over these defaults) ===
+tier1_gates:
+  op_karma_floor: 0                # DROPPED per stress-test #9
+  account_age_days: 0              # DROPPED per stress-test #9
+  post_age_hours: 6
+  comment_ceiling: 30
+  velocity_floor: 3                # upvotes per hour
+  pain_keywords_min: 1
+
+# === Tier 2 gates ===
+tier2_gates:
+  op_karma_floor: 0                # DROPPED per stress-test #9
+  account_age_days: 0              # DROPPED per stress-test #9
+  post_age_hours: 24               # eligible up to 24h; < 2h prioritized in scoring
+  comment_ceiling: 0               # DROPPED per Dan's pushback (0 = no ceiling)
+  velocity_floor: 8                # upvotes per hour
+  pain_keywords_min: 3             # relaxed to 2 if sub.saturation == 'wide_open'
+  pain_keywords_min_wide_open: 2
+  sub_size_floor: 25000            # override allowed via sub_size_override: true in subreddits.yml
+  blog_coverage_required: false    # SOFT — bonus if matched, no hard requirement per Dan's pushback
+  viral_override:                  # if both met, waive sub_size_floor + OP role signal (not the hard_gates above)
+    pain_keywords: 3
+    velocity_per_hour: 20
+
+# === Scoring formula weights ===
+scoring:
+  freshness_decay:
+    peak_hours: 0                  # peaks at 0h
+    zero_hours: 30                 # hits 0 at 30h
+    max_points: 30
+  upvote_velocity:
+    multiplier: 4
+    max_points: 20
+  comment_velocity:
+    multiplier: 6
+    max_points: 15
+  pain_keyword_match:
+    points_per_keyword: 6
+    max_points: 30
+  blog_coverage_bonus:
+    points_per_match: 25
+    max_points: 50                 # cap = 2 blog matches stacked
+  tier_weight:
+    tier_1: 1.0
+    tier_2: 1.25                   # Tier 2 survivors passed stricter gates; small boost
+
+# === Daily surfacing rules ===
+daily_output:
+  hard_ceiling: 15                 # max surfaces per day
+  no_minimum: true                 # empty days OK
+  tier1_per_sub_cap: 2             # max 2 Tier 1 surfaces per sub per day
+  tier2_per_sub_cap: 1             # max 1 Tier 2 surface per sub per day
+  tier1_first: true                # fill Tier 1 first, Tier 2 fills remainder
+
+# === Saturation modifier (Tier 2, high-saturation subs) ===
+# Per stress-test: comment fetch enabled, cost accepted
+saturation_high:
+  fetch_comments: true
+  skip_if_existing_technical_reply_upvotes: 3

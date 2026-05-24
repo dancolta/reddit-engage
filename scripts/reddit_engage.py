@@ -1,0 +1,340 @@
+"""reddit-engage CLI. Python-side does fetch + gate + score + SQLite.
+
+Claude (the chat session) is the outer orchestrator per stress-test outcome #1:
+- Claude calls Playwright MCP for blog refresh; passes new blog data via `blog ingest`.
+- Claude invokes `fetch-score` here; receives JSON of surfaces.
+- Claude calls Notion MCP to sync the daily board.
+
+This script does NOT call any MCP tools. Stdlib + pyyaml only.
+
+Subcommands:
+  setup            Bootstrap SQLite schema, write subs from subreddits.yml
+  fetch-score      Fetch deltas, gate, score, mark surfaced, print JSON to stdout
+  status           Print last-run summary as JSON
+  history [date]   Print past surfaces as JSON
+  blog ingest      Read blog post JSON from stdin, upsert into blog_posts
+  blog index-hash  Get/set the cached /blog/ index hash (for change detection)
+  prune            Prune posts older than 90 days (keeps surfaced rows)
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .lib import reddit_public, score, store
+
+
+CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+
+
+def _load_yaml(name: str) -> dict[str, Any]:
+    with open(CONFIG_DIR / name) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _resolve_blog_alias(alias: str, aliases: dict[str, str]) -> str:
+    return aliases.get(alias, alias)
+
+
+def _load_configs() -> dict[str, Any]:
+    subs_cfg = _load_yaml("subreddits.yml")
+    keywords = _load_yaml("keywords.yml")
+    weights = _load_yaml("weights.yml")
+    aliases = subs_cfg.get("blog_aliases", {})
+    subs = subs_cfg.get("subreddits", [])
+    for s in subs:
+        s["backing_blogs"] = [_resolve_blog_alias(a, aliases) for a in s.get("backing_blogs", [])]
+    return {"subs": subs, "keywords": keywords, "weights": weights}
+
+
+def _bucket_keywords(bucket: str, kw: dict[str, Any]) -> list[str]:
+    return list(set(kw.get("shared", []) + kw.get(bucket, [])))
+
+
+def cmd_setup() -> None:
+    store.bootstrap()
+    cfg = _load_configs()
+    with store.connect() as conn:
+        for s in cfg["subs"]:
+            store.upsert_subreddit(conn, s)
+        # Seed blog_posts from blog-map.yml so first run has knowledge map.
+        blog_map = _load_yaml("blog-map.yml")
+        for blog in blog_map.get("blog_posts", []):
+            store.upsert_blog_post(conn, {
+                "url": blog["url"],
+                "title": blog["title"],
+                "pain": blog["pain"],
+                "saas_replaced": blog["saas_replaced"],
+                "persona": blog["persona"],
+                "stack": blog["stack"],
+                "keywords": blog.get("keywords", []),
+            })
+    print(json.dumps({"status": "ok", "subs": len(cfg["subs"])}))
+
+
+def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
+    cfg = _load_configs()
+    weights = cfg["weights"]
+
+    with store.connect() as conn:
+        run_id = store.start_run(conn)
+        blog_posts = store.fetch_blog_posts(conn)
+
+        all_candidates: list[dict[str, Any]] = []
+        fetch_errors: list[str] = []
+        total_fetched = 0
+        dropped_counts: dict[str, int] = {}
+
+        for s in cfg["subs"]:
+            db_sub = store.get_sub(conn, s["name"])
+            if not db_sub:
+                store.upsert_subreddit(conn, s)
+                db_sub = store.get_sub(conn, s["name"])
+            assert db_sub is not None
+
+            last_cursor = db_sub.get("last_cursor")
+            try:
+                posts = reddit_public.fetch_delta(s["name"], last_cursor, max_limit=limit_per_sub)
+            except Exception as e:
+                fetch_errors.append(f"r/{s['name']}: {e}")
+                continue
+
+            total_fetched += len(posts)
+            if posts:
+                store.update_cursor(conn, s["name"], posts[0]["id"])
+
+            bucket_kw = _bucket_keywords(s["bucket"], cfg["keywords"])
+
+            for post in posts:
+                if store.already_surfaced(conn, post["id"]):
+                    continue
+
+                blog_matches = score.find_blog_matches(post, blog_posts)
+
+                # High-saturation Tier 2 needs comment fetch for the modifier.
+                top_comments = None
+                if (s["tier"] == 2 and s.get("saturation") == "high"
+                        and weights.get("saturation_high", {}).get("fetch_comments")):
+                    try:
+                        top_comments = reddit_public.fetch_top_comments(
+                            post["canonical_url"], limit=5
+                        )
+                    except Exception:
+                        top_comments = []
+
+                passes, reason = score.evaluate_gate(
+                    post, dict(s, **db_sub), blog_matches, weights, bucket_kw, top_comments
+                )
+                if not passes:
+                    dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
+                    continue
+
+                post["score_internal"] = score.compute_score(
+                    post, dict(s, **db_sub), blog_matches, weights, bucket_kw
+                )
+                all_candidates.append({
+                    "post": post,
+                    "sub": dict(s, **db_sub),
+                    "blog_matches": blog_matches,
+                })
+
+        # Daily mixing rule per plan 2f
+        selected = _select_daily(all_candidates, weights, daily_cap)
+
+        # Persist. Each surface is isolated so one bad row does not kill the run.
+        persist_errors: list[str] = []
+        kept_for_output: list[dict[str, Any]] = []
+        for s in selected:
+            post = s["post"]
+            sub_row = s["sub"]
+            try:
+                store.insert_post(conn, post)
+                store.update_score(conn, post["id"], post["score_internal"])
+                for m in s["blog_matches"]:
+                    store.record_blog_ref(
+                        conn, post["id"], m["url"], m["match_score"], m["matched_keywords"]
+                    )
+                store.mark_surfaced(conn, post["id"], run_id, sub_row["tier"])
+            except Exception as e:
+                persist_errors.append(f"{post.get('id', '?')}: {e}")
+                continue
+            s["pain_summary"] = _pain_summary(post, s["blog_matches"])
+            s["fit_summary"] = _fit_summary(sub_row, s["blog_matches"])
+            s["score_internal"] = post["score_internal"]
+            kept_for_output.append(s)
+        selected = kept_for_output
+
+        all_notes = fetch_errors + [f"persist:{e}" for e in persist_errors]
+        notes = "; ".join(all_notes) if all_notes else ""
+        store.finish_run(conn, run_id, total_fetched, len(selected), notes)
+
+    from .lib import output as out_mod  # local import to avoid hard dep at setup time
+    payload = {
+        "run_id": run_id,
+        "fetched": total_fetched,
+        "surfaced": len(selected),
+        "dropped_counts": dropped_counts,
+        "notes": notes,
+        "surfaces": out_mod.render_json_payload(selected),
+        "inline_markdown": out_mod.render(selected, notes, dropped_counts),
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _select_daily(candidates: list[dict[str, Any]], weights: dict[str, Any],
+                  daily_cap: int) -> list[dict[str, Any]]:
+    out_cfg = weights.get("daily_output", {})
+    cap = int(out_cfg.get("hard_ceiling", daily_cap))
+    t1_per_sub = int(out_cfg.get("tier1_per_sub_cap", 2))
+    t2_per_sub = int(out_cfg.get("tier2_per_sub_cap", 1))
+
+    t1_pool = [c for c in candidates if c["sub"]["tier"] == 1]
+    t2_pool = [c for c in candidates if c["sub"]["tier"] == 2]
+    t1_pool.sort(key=lambda c: c["post"]["score_internal"], reverse=True)
+    t2_pool.sort(key=lambda c: c["post"]["score_internal"], reverse=True)
+
+    chosen: list[dict[str, Any]] = []
+    sub_counts: dict[str, int] = {}
+    for c in t1_pool:
+        if len(chosen) >= cap:
+            break
+        name = c["sub"]["name"]
+        if sub_counts.get(name, 0) >= t1_per_sub:
+            continue
+        chosen.append(c)
+        sub_counts[name] = sub_counts.get(name, 0) + 1
+
+    for c in t2_pool:
+        if len(chosen) >= cap:
+            break
+        name = c["sub"]["name"]
+        if sub_counts.get(name, 0) >= t2_per_sub:
+            continue
+        chosen.append(c)
+        sub_counts[name] = sub_counts.get(name, 0) + 1
+
+    return chosen
+
+
+def _pain_summary(post: dict[str, Any], blog_matches: list[dict[str, Any]]) -> str:
+    if blog_matches:
+        kws = blog_matches[0].get("matched_keywords", [])
+        if kws:
+            return f"Matches blog keywords: {', '.join(kws[:4])}"
+    title = post.get("title", "")
+    return title[:120]
+
+
+def _fit_summary(sub_row: dict[str, Any], blog_matches: list[dict[str, Any]]) -> str:
+    sat = sub_row.get("saturation")
+    base = f"r/{sub_row['name']}"
+    if sub_row["tier"] == 1:
+        base += " is a Tier 1 daily-scan sub"
+    elif sat == "wide_open":
+        base += " (wide-open: low competitor density)"
+    elif sat == "high":
+        base += " (high saturation: gate verified)"
+    if blog_matches:
+        return f"{base}, backed by {blog_matches[0]['title']}"
+    return f"{base}. No direct blog backing, topic-adjacent reply."
+
+
+def cmd_status() -> None:
+    with store.connect() as conn:
+        last = store.stats_last_run(conn)
+        index_hash = store.get_meta(conn, "blog_index_hash")
+    print(json.dumps({
+        "last_run": last,
+        "blog_index_hash": index_hash,
+        "config_dir": str(CONFIG_DIR),
+        "db_path": str(store.db_path()),
+    }, default=str, indent=2))
+
+
+def cmd_history(date: str | None) -> None:
+    today = date or time.strftime("%Y-%m-%d", time.gmtime())
+    with store.connect() as conn:
+        rows = conn.execute(
+            """SELECT s.*, p.title, p.url, p.subreddit, p.score, p.num_comments
+               FROM surfaced s JOIN posts p ON p.id = s.post_id
+               WHERE s.surfaced_on = ?
+               ORDER BY p.score_internal DESC""",
+            (today,),
+        ).fetchall()
+    print(json.dumps([dict(r) for r in rows], default=str, indent=2))
+
+
+def cmd_blog_ingest() -> None:
+    """Read blog post JSON from stdin (orchestrator-provided), upsert into blog_posts."""
+    payload = json.load(sys.stdin)
+    posts = payload if isinstance(payload, list) else [payload]
+    with store.connect() as conn:
+        for blog in posts:
+            store.upsert_blog_post(conn, blog)
+    print(json.dumps({"status": "ok", "ingested": len(posts)}))
+
+
+def cmd_blog_index_hash(set_value: str | None) -> None:
+    """Get or set the cached /blog/ index hash. Orchestrator uses this for change detection."""
+    with store.connect() as conn:
+        if set_value is None:
+            current = store.get_meta(conn, "blog_index_hash")
+            print(json.dumps({"blog_index_hash": current}))
+        else:
+            store.set_meta(conn, "blog_index_hash", set_value)
+            print(json.dumps({"status": "ok", "blog_index_hash": set_value}))
+
+
+def cmd_prune(days: int) -> None:
+    with store.connect() as conn:
+        n = store.prune_old_posts(conn, days)
+    print(json.dumps({"pruned": n}))
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="reddit-engage")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("setup", help="Bootstrap DB + load configs")
+    fs = sub.add_parser("fetch-score", help="Fetch deltas, gate, score, surface")
+    fs.add_argument("--limit-per-sub", type=int, default=25)
+    fs.add_argument("--daily-cap", type=int, default=15)
+    sub.add_parser("status", help="Print last-run status as JSON")
+    hist = sub.add_parser("history", help="Print past surfaces")
+    hist.add_argument("date", nargs="?", default=None, help="YYYY-MM-DD, default=today")
+
+    blog = sub.add_parser("blog", help="Blog map operations").add_subparsers(dest="blogcmd", required=True)
+    blog.add_parser("ingest", help="Upsert blog post(s) from stdin JSON")
+    ih = blog.add_parser("index-hash", help="Get or set the cached /blog/ index hash")
+    ih.add_argument("--set", dest="set_value", default=None)
+
+    prune = sub.add_parser("prune", help="Prune posts older than N days")
+    prune.add_argument("--days", type=int, default=90)
+
+    args = parser.parse_args(argv)
+
+    if args.cmd == "setup":
+        cmd_setup()
+    elif args.cmd == "fetch-score":
+        cmd_fetch_score(args.limit_per_sub, args.daily_cap)
+    elif args.cmd == "status":
+        cmd_status()
+    elif args.cmd == "history":
+        cmd_history(args.date)
+    elif args.cmd == "blog":
+        if args.blogcmd == "ingest":
+            cmd_blog_ingest()
+        elif args.blogcmd == "index-hash":
+            cmd_blog_index_hash(args.set_value)
+    elif args.cmd == "prune":
+        cmd_prune(args.days)
+
+
+if __name__ == "__main__":
+    main()

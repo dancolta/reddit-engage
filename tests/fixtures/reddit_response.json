@@ -1,0 +1,62 @@
+{
+  "kind": "Listing",
+  "data": {
+    "after": "t3_test02",
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "id": "test01",
+          "name": "t3_test01",
+          "subreddit": "smallbusiness",
+          "title": "HubSpot raised our seats from $90 to $290/mo, anyone moved off to a cheaper alternative?",
+          "permalink": "/r/smallbusiness/comments/test01/hubspot_raised_seats/",
+          "author": "smb_founder_42",
+          "created_utc": 1748000000,
+          "score": 28,
+          "num_comments": 6,
+          "selftext": "We are a 12-person team and HubSpot just hit us with a renewal at $290/mo. I am the founder and looking for a self-hosted alternative or cheaper open-source CRM. Stack costs are killing us.",
+          "upvote_ratio": 0.95,
+          "removed_by_category": null,
+          "locked": false
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "test02",
+          "name": "t3_test02",
+          "subreddit": "smallbusiness",
+          "title": "What CRM does everyone use",
+          "permalink": "/r/smallbusiness/comments/test02/what_crm_does_everyone_use/",
+          "author": "newbie_user",
+          "created_utc": 1747999500,
+          "score": 4,
+          "num_comments": 2,
+          "selftext": "Just starting out, want to know.",
+          "upvote_ratio": 0.6,
+          "removed_by_category": null,
+          "locked": false
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "test03",
+          "name": "t3_test03",
+          "subreddit": "smallbusiness",
+          "title": "[deleted post by spam filter]",
+          "permalink": "/r/smallbusiness/comments/test03/deleted_post/",
+          "author": "[deleted]",
+          "created_utc": 1747999000,
+          "score": 0,
+          "num_comments": 0,
+          "selftext": "[removed]",
+          "upvote_ratio": 0.5,
+          "removed_by_category": "moderator",
+          "locked": false
+        }
+      }
+    ]
+  }
+}

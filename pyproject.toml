@@ -1,0 +1,20 @@
+[project]
+name = "reddit-engage"
+version = "0.1.0"
+description = "Daily Reddit pain-post surfacing tool for NodeSparks authority building"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "certifi>=2024.7.4",
+]
+
+[project.scripts]
+reddit-engage = "scripts.reddit_engage:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scripts*"]

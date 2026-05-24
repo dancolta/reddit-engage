@@ -1,0 +1,50 @@
+# Cached human-readable mirror of blog_posts SQLite table.
+# Auto-refreshed on every run via Playwright MCP (Claude-side, see SKILL.md).
+# Re-scrape only triggers when /blog/ index hash changes.
+# Hand-edit OK; orchestrator merges manual edits with auto-extracted keywords.
+
+last_refreshed_at: null            # ISO 8601 timestamp, populated by orchestrator
+last_index_hash: null              # SHA256 of /blog/ index HTML
+
+blog_posts:
+  - url: https://www.nodesparks.com/blog/saas-replacement-playbook
+    title: "The 2026 SaaS Replacement Playbook"
+    pain: "80+ SaaS apps, 30%+ paid for twice via feature overlap, build-vs-buy decision"
+    saas_replaced: "HubSpot, Calendly, Apollo, Lemlist, Hootsuite, Phantombuster, Apify, Pipedrive, Mixpanel, Chili Piper"
+    persona: "SME founder, post-PMF, ops lead"
+    stack: "Python, TS, Render, Railway, Hetzner, Neon, Supabase, OpenAI, Anthropic"
+    keywords:
+      - "stack costs"
+      - "feature overlap"
+      - "break-even"
+      - "vendor moat"
+      - "SaaS sprawl"
+      - "build it yourself"
+      - "replace your SaaS"
+
+  - url: https://www.nodesparks.com/blog/apollo-alternative-custom-outreach-agent
+    title: "Apollo.io Alternative: Custom Outreach Agent Cost Math 2026"
+    pain: "Apollo Pro $316/mo at 4 seats, 2000 credit cap, reply rates dropped 8.5% to 3.43%"
+    saas_replaced: "Apollo, Lemlist, Instantly"
+    persona: "SME founder, sales ops, outbound lead"
+    stack: "Postmark, Hunter, Anymail Finder, Proxycurl, GPT-4o-mini, Hetzner, Postgres"
+    keywords:
+      - "Apollo alternative"
+      - "deliverability"
+      - "SPF DKIM DMARC"
+      - "cold email reply rate"
+      - "outreach stack"
+
+  - url: https://www.nodesparks.com/blog/replace-bill-com-slack-invoice-agent
+    title: "Replace Bill.com With a Slack-Native Invoice Agent (2026)"
+    pain: "BILL Essentials $49/seat, 10 seats $5880/yr, fifth-tab problem"
+    saas_replaced: "Bill.com Essentials, Dext, Hubdoc"
+    persona: "SME finance team 5-20 ppl, CFO, accounting ops"
+    stack: "Slack Bolt SDK, Claude Sonnet vision, Vercel Functions, Postgres on Neon, Xero, QuickBooks Online"
+    keywords:
+      - "Slack-native"
+      - "AP automation"
+      - "invoice approval"
+      - "seat math"
+      - "fifth-tab problem"
+      - "finance in Slack"
