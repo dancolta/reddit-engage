@@ -132,9 +132,16 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
                     all_candidates.append(candidate)
                 else:
                     dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
-                    # Stash near-miss posts so the minimum-floor backfill can use them.
-                    # Excluded: posts removed/locked or older than Tier 2 age window.
-                    if reason not in ("removed_or_locked", "tier1_post_age", "tier2_post_age"):
+                    # Backfill pool: only posts that named a specific SaaS
+                    # brand AND failed a softer signal (keyword density,
+                    # intent). Vendor / negative / no-brand posts are NEVER
+                    # backfill-eligible.
+                    backfill_disallowed = (
+                        score.ABSOLUTE_REJECT_REASONS
+                        | {"tier1_post_age", "tier2_post_age",
+                           "tier1_no_saas_brand", "tier2_no_saas_brand"}
+                    )
+                    if reason not in backfill_disallowed:
                         near_miss_pool.append(candidate)
 
         # Daily mixing rule per plan 2f, with minimum-floor backfill
@@ -195,6 +202,17 @@ def _select_daily(candidates: list[dict[str, Any]], near_miss_pool: list[dict[st
     minimum = int(out_cfg.get("minimum", 0))
     t1_per_sub = int(out_cfg.get("tier1_per_sub_cap", 2))
     t2_per_sub = int(out_cfg.get("tier2_per_sub_cap", 1))
+
+    # Deduplicate by (subreddit, title) before selection. Two posts in
+    # /new with identical titles from the same sub almost always means
+    # a cross-post or duplicate by the same OP. Keep the higher-scoring one.
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for c in candidates:
+        key = (c["sub"]["name"].lower(), c["post"]["title"].strip().lower())
+        prev = by_key.get(key)
+        if prev is None or c["post"]["score_internal"] > prev["post"]["score_internal"]:
+            by_key[key] = c
+    candidates = list(by_key.values())
 
     t1_pool = [c for c in candidates if c["sub"]["tier"] == 1]
     t2_pool = [c for c in candidates if c["sub"]["tier"] == 2]

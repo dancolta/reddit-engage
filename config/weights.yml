@@ -38,6 +38,12 @@ scoring:
   blog_coverage_bonus:
     points_per_match: 25
     max_points: 50                 # cap = 2 blog matches stacked
+  intent_bonus:
+    # Question-shaped posts (OP asking for help) and pain-word posts
+    # (OP venting about a tool / price / frustration) signal real ICP
+    # opportunities. Stacking is intentional: a pain-word question = +35.
+    question_bonus: 20
+    pain_bonus: 15
   tier_weight:
     tier_1: 1.0
     tier_2: 1.25                   # Tier 2 survivors passed stricter gates; small boost
