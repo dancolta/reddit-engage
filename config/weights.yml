@@ -1,25 +1,25 @@
 # Scoring weights + gating thresholds. Tunable without code changes.
+#
+# CONTRACT (locked 2026-05-24 after live calibration):
+# - Gates are the "is this even relevant" filter. Only 3 things hard-block:
+#   removed/locked, post too old, and zero keyword matches.
+# - Velocity, comments, freshness, blog-match all become SCORE signals.
+#   They rank posts but never drop them.
+# - Daily output guarantees a floor of `minimum` surfaces. If the gate pool
+#   has fewer, the selector backfills from the next-best-scoring fetches
+#   (still removed/locked + age-filtered, just below the keyword bar).
 
-# === Tier 1 gates (per-sub overrides in subreddits.yml win over these defaults) ===
-# Velocity floor lowered after first live scan revealed too many freshly-posted
-# threads at 0-1 upvotes get filtered. 1.5/hr keeps it disciplined for daily
-# engagement subs without zero-output days.
+# === Tier 1 gates ===
 tier1_gates:
-  post_age_hours: 12               # was 6; daily run cadence means wider window
-  comment_ceiling: 30
-  velocity_floor: 1.5              # upvotes per hour
-  pain_keywords_min: 1
+  post_age_hours: 48               # up to 2 days old
+  comment_ceiling: 100             # almost never fire; was 30
+  pain_keywords_min: 1             # any single keyword match qualifies
 
 # === Tier 2 gates ===
-# Velocity floor lowered from 8/hr (initial plan, designed for viral catches)
-# to 1/hr after first live scan. Niche subs like r/Bookkeeping have ~0.2 upv/hr
-# on their best posts; 8/hr produced zero surfaces. 1/hr keeps quality but
-# stops blocking the entire niche tier. Tune up later if noise becomes an issue.
 tier2_gates:
-  post_age_hours: 24               # eligible up to 24h; < 2h prioritized in scoring
-  velocity_floor: 1                # upvotes per hour
-  pain_keywords_min: 2             # relaxed default (was 3); wide_open relaxes further
-  pain_keywords_min_wide_open: 1
+  post_age_hours: 72               # up to 3 days old
+  pain_keywords_min: 1             # any single match (was 2)
+  pain_keywords_min_wide_open: 1   # same for wide_open subs
 
 # === Scoring formula weights ===
 scoring:
@@ -44,6 +44,7 @@ scoring:
 
 # === Daily surfacing rules ===
 daily_output:
-  hard_ceiling: 15                 # max surfaces per day, no minimum (empty days fine)
-  tier1_per_sub_cap: 2             # max 2 Tier 1 surfaces per sub per day
-  tier2_per_sub_cap: 1             # max 1 Tier 2 surface per sub per day
+  hard_ceiling: 15                 # max surfaces per day
+  minimum: 10                      # guarantee at least this many (backfill from near-miss pool)
+  tier1_per_sub_cap: 3             # max 3 Tier 1 surfaces per sub per day (was 2)
+  tier2_per_sub_cap: 2             # max 2 Tier 2 surfaces per sub per day (was 1)

@@ -91,17 +91,15 @@ def evaluate_gate(
 
 def _tier1_gate(post: dict[str, Any], sub: dict[str, Any], weights: dict[str, Any],
                 bucket_keywords: list[str], ah: float, now: int | None) -> tuple[bool, str]:
+    """Tier 1 hard gate: age, comment ceiling, at least one keyword."""
     g = _apply_overrides(weights.get("tier1_gates", {}), sub.get("gate_overrides"))
 
-    if ah > float(g.get("post_age_hours", 6)):
+    if ah > float(g.get("post_age_hours", 48)):
         return False, "tier1_post_age"
 
-    ceiling = int(g.get("comment_ceiling", 30))
+    ceiling = int(g.get("comment_ceiling", 100))
     if ceiling > 0 and post["num_comments"] > ceiling:
         return False, "tier1_comment_ceiling"
-
-    if velocity_per_hour(post, now) < float(g.get("velocity_floor", 3)):
-        return False, "tier1_velocity_floor"
 
     n_hits, _ = count_keyword_hits(post, bucket_keywords)
     if n_hits < int(g.get("pain_keywords_min", 1)):
@@ -112,19 +110,17 @@ def _tier1_gate(post: dict[str, Any], sub: dict[str, Any], weights: dict[str, An
 
 def _tier2_gate(post: dict[str, Any], sub: dict[str, Any], weights: dict[str, Any],
                 bucket_keywords: list[str], ah: float, now: int | None) -> tuple[bool, str]:
+    """Tier 2 hard gate: age, at least one (or two) keyword."""
     g = _apply_overrides(weights.get("tier2_gates", {}), sub.get("gate_overrides"))
 
-    if ah > float(g.get("post_age_hours", 24)):
+    if ah > float(g.get("post_age_hours", 72)):
         return False, "tier2_post_age"
-
-    if velocity_per_hour(post, now) < float(g.get("velocity_floor", 8)):
-        return False, "tier2_velocity_floor"
 
     n_hits, _ = count_keyword_hits(post, bucket_keywords)
     saturation = sub.get("saturation") or "medium"
     min_kw = int(
-        g.get("pain_keywords_min_wide_open", 2) if saturation == "wide_open"
-        else g.get("pain_keywords_min", 3)
+        g.get("pain_keywords_min_wide_open", 1) if saturation == "wide_open"
+        else g.get("pain_keywords_min", 1)
     )
     if n_hits < min_kw:
         return False, "tier2_keyword_density"

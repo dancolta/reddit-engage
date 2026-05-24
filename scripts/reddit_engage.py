@@ -85,6 +85,7 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
         blog_posts = store.fetch_blog_posts(conn)
 
         all_candidates: list[dict[str, Any]] = []
+        near_miss_pool: list[dict[str, Any]] = []
         fetch_errors: list[str] = []
         total_fetched = 0
         dropped_counts: dict[str, int] = {}
@@ -118,21 +119,26 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
                 passes, reason = score.evaluate_gate(
                     post, dict(s, **db_sub), blog_matches, weights, bucket_kw
                 )
-                if not passes:
-                    dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
-                    continue
-
                 post["score_internal"] = score.compute_score(
                     post, dict(s, **db_sub), blog_matches, weights, bucket_kw
                 )
-                all_candidates.append({
+                candidate = {
                     "post": post,
                     "sub": dict(s, **db_sub),
                     "blog_matches": blog_matches,
-                })
+                    "gate_reason": reason,
+                }
+                if passes:
+                    all_candidates.append(candidate)
+                else:
+                    dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
+                    # Stash near-miss posts so the minimum-floor backfill can use them.
+                    # Excluded: posts removed/locked or older than Tier 2 age window.
+                    if reason not in ("removed_or_locked", "tier1_post_age", "tier2_post_age"):
+                        near_miss_pool.append(candidate)
 
-        # Daily mixing rule per plan 2f
-        selected = _select_daily(all_candidates, weights, daily_cap)
+        # Daily mixing rule per plan 2f, with minimum-floor backfill
+        selected = _select_daily(all_candidates, near_miss_pool, weights, daily_cap)
 
         # Persist. Each surface is isolated so one bad row does not kill the run.
         persist_errors: list[str] = []
@@ -174,10 +180,19 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
-def _select_daily(candidates: list[dict[str, Any]], weights: dict[str, Any],
-                  daily_cap: int) -> list[dict[str, Any]]:
+def _select_daily(candidates: list[dict[str, Any]], near_miss_pool: list[dict[str, Any]],
+                  weights: dict[str, Any], daily_cap: int) -> list[dict[str, Any]]:
+    """Pick daily surfaces. Hard ceiling, per-sub caps, AND minimum-floor backfill.
+
+    Order of priority:
+      1. Gate-passing Tier 1 posts (top N by score, capped per sub)
+      2. Gate-passing Tier 2 posts (top by score, capped per sub)
+      3. If still under `minimum`, backfill from near-miss pool by score
+         (still age-gated, just below the keyword bar or other soft signal)
+    """
     out_cfg = weights.get("daily_output", {})
     cap = int(out_cfg.get("hard_ceiling", daily_cap))
+    minimum = int(out_cfg.get("minimum", 0))
     t1_per_sub = int(out_cfg.get("tier1_per_sub_cap", 2))
     t2_per_sub = int(out_cfg.get("tier2_per_sub_cap", 1))
 
@@ -205,6 +220,22 @@ def _select_daily(candidates: list[dict[str, Any]], weights: dict[str, Any],
             continue
         chosen.append(c)
         sub_counts[name] = sub_counts.get(name, 0) + 1
+
+    # Minimum-floor backfill: if still under `minimum`, pull from the near-miss pool
+    # (posts that failed a soft signal like keyword density, ranked by computed score).
+    # Per-sub caps still apply so backfill cannot concentrate in one sub.
+    if minimum > 0 and len(chosen) < minimum and near_miss_pool:
+        near_miss_pool.sort(key=lambda c: c["post"]["score_internal"], reverse=True)
+        for c in near_miss_pool:
+            if len(chosen) >= min(cap, minimum):
+                break
+            name = c["sub"]["name"]
+            sub_cap = t1_per_sub if c["sub"]["tier"] == 1 else t2_per_sub
+            if sub_counts.get(name, 0) >= sub_cap:
+                continue
+            c["backfilled"] = True
+            chosen.append(c)
+            sub_counts[name] = sub_counts.get(name, 0) + 1
 
     return chosen
 

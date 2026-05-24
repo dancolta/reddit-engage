@@ -49,12 +49,11 @@ def make_sub(**overrides):
 
 WEIGHTS = {
     "tier1_gates": {
-        "post_age_hours": 6, "comment_ceiling": 30,
-        "velocity_floor": 3, "pain_keywords_min": 1,
+        "post_age_hours": 48, "comment_ceiling": 100, "pain_keywords_min": 1,
     },
     "tier2_gates": {
-        "post_age_hours": 24, "velocity_floor": 8,
-        "pain_keywords_min": 3, "pain_keywords_min_wide_open": 2,
+        "post_age_hours": 72,
+        "pain_keywords_min": 1, "pain_keywords_min_wide_open": 1,
     },
     "scoring": {
         "freshness_decay": {"zero_hours": 30, "max_points": 30},
@@ -83,16 +82,22 @@ def test_tier1_pass():
     assert passes, f"expected pass, got {reason}"
 
 
-def test_tier1_drop_low_velocity():
-    post = make_post(score=2, created_utc=NOW - 7200)  # 1 upv/hr
+def test_low_velocity_now_passes_gate_scores_lower():
+    """Velocity moved from hard gate to score signal. Slow posts still pass,
+    they just rank lower."""
+    fast = make_post(score=20, created_utc=NOW - 3600)   # 20 upv/hr
+    slow = make_post(score=2, created_utc=NOW - 7200, id="slow01")   # 1 upv/hr
     sub = make_sub()
-    passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
-    assert not passes
-    assert "velocity" in reason
+    fast_pass, _ = score.evaluate_gate(fast, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    slow_pass, _ = score.evaluate_gate(slow, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert fast_pass and slow_pass
+    fast_score = score.compute_score(fast, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    slow_score = score.compute_score(slow, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert fast_score > slow_score
 
 
 def test_tier1_drop_too_old():
-    post = make_post(created_utc=NOW - 8 * 3600)  # 8 hours old, ceiling is 4
+    post = make_post(created_utc=NOW - 60 * 3600)  # 60h old; tier1 ceiling is 48h
     sub = make_sub()
     passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
     assert not passes
@@ -115,13 +120,10 @@ def test_tier1_drop_removed():
     assert reason == "removed_or_locked"
 
 
-def test_tier2_strict_keyword_density():
-    """Tier 2 default requires 3 keywords. 2 is rejected unless wide_open."""
-    post = make_post(
-        title="HubSpot too expensive",  # 2 keywords
-        body="just venting",
-        score=20, created_utc=NOW - 3600,  # 20/hr velocity (passes 8/hr)
-    )
+def test_tier2_keyword_min_blocks_zero_match():
+    """Tier 2 requires at least 1 keyword. Zero matches drops the post."""
+    post = make_post(title="random unrelated post", body="nothing relevant",
+                     score=20, created_utc=NOW - 3600)
     sub = make_sub(tier=2, saturation="medium")
     sub.pop("gate_overrides", None)
     passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
@@ -129,12 +131,9 @@ def test_tier2_strict_keyword_density():
     assert "keyword_density" in reason
 
 
-def test_tier2_wide_open_relaxes_to_2_keywords():
-    post = make_post(
-        title="HubSpot too expensive",  # 2 keywords
-        body="just venting",
-        score=20, created_utc=NOW - 3600,
-    )
+def test_tier2_wide_open_passes_with_single_keyword():
+    post = make_post(title="HubSpot too expensive",  # 2 keywords, well above 1
+                     body="just venting", score=20, created_utc=NOW - 3600)
     sub = make_sub(tier=2, saturation="wide_open")
     sub.pop("gate_overrides", None)
     passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
