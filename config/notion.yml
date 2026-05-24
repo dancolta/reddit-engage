@@ -1,0 +1,24 @@
+# Notion target for daily surfaces sync. Used by SKILL.md orchestrator.
+# Database created 2026-05-24 under the user's Subreddits page.
+
+notion:
+  database_id: b4d9a0e7c9304087af5ba248976edf60
+  database_url: https://www.notion.so/b4d9a0e7c9304087af5ba248976edf60
+  data_source_id: "37ac8f76-3560-413a-9c76-b924f41b40c0"
+  parent_page_id: 36a4431fd8eb80b1832ced45b73e612a
+
+# Schema is locked. Properties match what the orchestrator writes per surface.
+# To change the schema, use notion-update-data-source with the data_source_id above.
+schema:
+  - {name: Title,        type: title}
+  - {name: Tier,         type: select,        options: [T1, T2]}
+  - {name: Subreddit,    type: rich_text}
+  - {name: Score,        type: number}
+  - {name: Upvotes,      type: number}
+  - {name: Comments,     type: number}
+  - {name: Posted,       type: date}
+  - {name: Pain,         type: rich_text}
+  - {name: Fit,          type: rich_text}
+  - {name: Blog match,   type: multi_select,  options: ["SaaS Replacement Playbook", "Apollo alternative", "Bill.com Slack-native"]}
+  - {name: URL,          type: url}
+  - {name: Surfaced on,  type: date}

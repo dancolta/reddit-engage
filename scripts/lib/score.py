@@ -2,19 +2,14 @@
 
 Pipeline:
   1. evaluate_gate(post, sub, blog_matches) -> (passes: bool, reason: str)
-  2. compute_score(post, sub, blog_matches, weights) -> float
+  2. compute_score(post, sub, blog_matches) -> float
 
 Gate failures short-circuit. Survivors are ranked by score.
 """
 from __future__ import annotations
 
-import re
 import time
 from typing import Any
-
-
-# Pre-compiled patterns
-DOLLAR_PATTERN = re.compile(r"\$\s*\d{2,}", re.IGNORECASE)
 
 
 def now_utc() -> int:
@@ -40,35 +35,25 @@ def comment_velocity(post: dict[str, Any], now: int | None = None) -> float:
     return float(post["num_comments"]) / ah
 
 
-def has_dollar_figure(text: str) -> bool:
-    return bool(DOLLAR_PATTERN.search(text or ""))
-
-
 def count_keyword_hits(post: dict[str, Any], keywords: list[str]) -> tuple[int, list[str]]:
     """Case-insensitive substring count over title + first 1000 chars of body.
 
     Returns (count, matched_keywords). Multiple matches of the same keyword count once.
     """
     haystack = (post.get("title", "") + " " + (post.get("body") or "")[:1000]).lower()
-    matched: list[str] = []
-    for kw in keywords:
-        if kw.lower() in haystack:
-            matched.append(kw)
+    matched = [kw for kw in keywords if kw.lower() in haystack]
     return len(matched), matched
 
 
 def find_blog_matches(post: dict[str, Any], blog_posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return blog posts whose signature keywords overlap the Reddit post.
-
-    Each match dict: {url, title, match_score (0-1), matched_keywords}.
-    """
+    """Return blog posts whose signature keywords overlap the Reddit post."""
     matches: list[dict[str, Any]] = []
     for blog in blog_posts:
         kws_str = blog.get("keywords", "")
         kws = [k for k in kws_str.split("|") if k] if isinstance(kws_str, str) else list(kws_str or [])
         count, matched = count_keyword_hits(post, kws)
         if count >= 1:
-            score = min(1.0, count / max(1, len(kws)) * 3.0)  # 3+ matches = full score
+            score = min(1.0, count / max(1, len(kws)) * 3.0)
             matches.append({
                 "url": blog["url"],
                 "title": blog["title"],
@@ -92,32 +77,21 @@ def evaluate_gate(
     blog_matches: list[dict[str, Any]],
     weights: dict[str, Any],
     bucket_keywords: list[str],
-    top_comments: list[dict[str, Any]] | None = None,
     now: int | None = None,
 ) -> tuple[bool, str]:
     """Evaluate the gate for a single post. Returns (passes, reason)."""
-    hard = weights.get("hard_gates", {})
     if post.get("removed") or post.get("locked"):
         return False, "removed_or_locked"
 
     ah = age_hours(post, now)
-    if ah > float(hard.get("age_max_hours", 24)):
-        return False, "age_max_exceeded"
-
-    if hard.get("dollar_regex_or_role") and not has_dollar_figure(
-        post.get("title", "") + " " + (post.get("body") or "")
-    ):
-        return False, "no_dollar_figure"
-
     if sub["tier"] == 1:
         return _tier1_gate(post, sub, weights, bucket_keywords, ah, now)
-    return _tier2_gate(post, sub, blog_matches, weights, bucket_keywords, top_comments, ah, now)
+    return _tier2_gate(post, sub, weights, bucket_keywords, ah, now)
 
 
 def _tier1_gate(post: dict[str, Any], sub: dict[str, Any], weights: dict[str, Any],
                 bucket_keywords: list[str], ah: float, now: int | None) -> tuple[bool, str]:
-    base = weights.get("tier1_gates", {})
-    g = _apply_overrides(base, sub.get("gate_overrides"))
+    g = _apply_overrides(weights.get("tier1_gates", {}), sub.get("gate_overrides"))
 
     if ah > float(g.get("post_age_hours", 6)):
         return False, "tier1_post_age"
@@ -136,56 +110,24 @@ def _tier1_gate(post: dict[str, Any], sub: dict[str, Any], weights: dict[str, An
     return True, "tier1_pass"
 
 
-def _tier2_gate(post: dict[str, Any], sub: dict[str, Any], blog_matches: list[dict[str, Any]],
-                weights: dict[str, Any], bucket_keywords: list[str],
-                top_comments: list[dict[str, Any]] | None, ah: float,
-                now: int | None) -> tuple[bool, str]:
-    base = weights.get("tier2_gates", {})
-    g = _apply_overrides(base, sub.get("gate_overrides"))
+def _tier2_gate(post: dict[str, Any], sub: dict[str, Any], weights: dict[str, Any],
+                bucket_keywords: list[str], ah: float, now: int | None) -> tuple[bool, str]:
+    g = _apply_overrides(weights.get("tier2_gates", {}), sub.get("gate_overrides"))
 
     if ah > float(g.get("post_age_hours", 24)):
         return False, "tier2_post_age"
 
-    ceiling = int(g.get("comment_ceiling", 0))
-    if ceiling > 0 and post["num_comments"] > ceiling:
-        return False, "tier2_comment_ceiling"
+    if velocity_per_hour(post, now) < float(g.get("velocity_floor", 8)):
+        return False, "tier2_velocity_floor"
 
-    velocity = velocity_per_hour(post, now)
     n_hits, _ = count_keyword_hits(post, bucket_keywords)
-
     saturation = sub.get("saturation") or "medium"
     min_kw = int(
         g.get("pain_keywords_min_wide_open", 2) if saturation == "wide_open"
         else g.get("pain_keywords_min", 3)
     )
-
-    viral = weights.get("tier2_gates", {}).get("viral_override", {})
-    viral_kw_threshold = int(viral.get("pain_keywords", 3))
-    viral_velocity = float(viral.get("velocity_per_hour", 20))
-    is_viral = n_hits >= viral_kw_threshold and velocity >= viral_velocity
-
-    if velocity < float(g.get("velocity_floor", 8)):
-        return False, "tier2_velocity_floor"
-
     if n_hits < min_kw:
         return False, "tier2_keyword_density"
-
-    if g.get("blog_coverage_required", False) and not blog_matches:
-        return False, "tier2_blog_coverage_required"
-
-    # sub_size_floor intentionally not enforced in v1:
-    # the Reddit search JSON does not return subscriber_count, and the
-    # plan's sub_size_floor would require a separate /r/<sub>/about.json
-    # fetch per sub. Out of scope for v1; the per-sub config still gates
-    # which subs are scanned at all (Section 8 lock list).
-
-    # High-saturation modifier: skip if an existing technical reply already nails it.
-    if saturation == "high":
-        sat_cfg = weights.get("saturation_high", {})
-        if sat_cfg.get("fetch_comments") and top_comments:
-            threshold = int(sat_cfg.get("skip_if_existing_technical_reply_upvotes", 3))
-            if any(c["score"] >= threshold for c in top_comments):
-                return False, "tier2_existing_technical_reply"
 
     return True, "tier2_pass"
 

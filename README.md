@@ -2,7 +2,7 @@
 
 > A daily inbox of Reddit threads worth your reply. You write the reply.
 
-![reddit-engage daily digest: terminal output showing 7 Reddit threads from r/smallbusiness, r/sales, r/SaaS, and r/Bookkeeping with subreddit, age, upvotes, comments, score, post title, and the backing NodeSparks blog post. Read-only surfacing tool, not an auto-poster.](assets/hero.png)
+![reddit-engage arcade hero: 8-bit pixel-art animation of a small NodeSparks orange-and-teal sprite walking past floating subreddit name plaques (r/smallbusiness, r/SaaS, r/Entrepreneur, r/sales, r/nocode, r/Bookkeeping). HUD chips read SURF 12/15 and DEDUP ON. A scrolling ticker cycles pain-post headlines like BILL.COM $79/USER and APOLLO HURTS $316. The title bar reads REDDIT-ENGAGE, subtitle DAILY PAIN-POST RADAR. Read-only surfacing tool, not an auto-poster.](assets/hero.gif)
 
 > **What this is not.** It does not post for you. It does not comment for you. It does not farm karma, rotate accounts, or warm up personas. There is no AI ghostwriter pasting replies into r/SaaS at 3am. It surfaces threads. You read them. You decide if they deserve your voice. The automation stops where the conversation starts.
 

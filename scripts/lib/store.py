@@ -78,18 +78,10 @@ CREATE TABLE IF NOT EXISTS surfaced (
     surfaced_on       TEXT NOT NULL,
     run_id            INTEGER NOT NULL,
     tier              INTEGER NOT NULL,
-    notion_page_id    TEXT,
-    ai_citation_count INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (post_id) REFERENCES posts(id),
     FOREIGN KEY (run_id) REFERENCES runs(id)
 );
 CREATE INDEX IF NOT EXISTS idx_surfaced_date ON surfaced(surfaced_on);
-
-CREATE TABLE IF NOT EXISTS meta (
-    key               TEXT PRIMARY KEY,
-    value             TEXT NOT NULL,
-    updated_at        INTEGER NOT NULL
-);
 """
 
 
@@ -178,13 +170,12 @@ def record_blog_ref(conn: sqlite3.Connection, post_id: str, blog_url: str,
     )
 
 
-def mark_surfaced(conn: sqlite3.Connection, post_id: str, run_id: int, tier: int,
-                  notion_page_id: str | None = None) -> None:
+def mark_surfaced(conn: sqlite3.Connection, post_id: str, run_id: int, tier: int) -> None:
     today = time.strftime("%Y-%m-%d", time.gmtime())
     conn.execute(
-        """INSERT INTO surfaced(post_id, surfaced_on, run_id, tier, notion_page_id)
-           VALUES(?, ?, ?, ?, ?)""",
-        (post_id, today, run_id, tier, notion_page_id),
+        """INSERT INTO surfaced(post_id, surfaced_on, run_id, tier)
+           VALUES(?, ?, ?, ?)""",
+        (post_id, today, run_id, tier),
     )
 
 
@@ -211,19 +202,6 @@ def update_cursor(conn: sqlite3.Connection, sub_name: str, cursor: str) -> None:
     )
 
 
-def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
-    return row["value"] if row else None
-
-
-def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute(
-        """INSERT INTO meta(key, value, updated_at) VALUES(?, ?, ?)
-           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
-        (key, value, int(time.time())),
-    )
-
-
 def fetch_blog_posts(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute("SELECT * FROM blog_posts").fetchall()
     return [dict(r) for r in rows]
@@ -237,12 +215,3 @@ def get_sub(conn: sqlite3.Connection, name: str) -> dict[str, Any] | None:
 def stats_last_run(conn: sqlite3.Connection) -> dict[str, Any]:
     row = conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
     return dict(row) if row else {}
-
-
-def prune_old_posts(conn: sqlite3.Connection, days: int = 90) -> int:
-    cutoff = int(time.time()) - days * 86400
-    cur = conn.execute(
-        "DELETE FROM posts WHERE first_seen_at < ? AND id NOT IN (SELECT post_id FROM surfaced)",
-        (cutoff,),
-    )
-    return cur.rowcount

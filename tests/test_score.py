@@ -48,17 +48,13 @@ def make_sub(**overrides):
 
 
 WEIGHTS = {
-    "hard_gates": {"age_max_hours": 24, "dollar_regex_or_role": False},
     "tier1_gates": {
         "post_age_hours": 6, "comment_ceiling": 30,
         "velocity_floor": 3, "pain_keywords_min": 1,
     },
     "tier2_gates": {
-        "post_age_hours": 24, "comment_ceiling": 0,
-        "velocity_floor": 8, "pain_keywords_min": 3,
-        "pain_keywords_min_wide_open": 2, "sub_size_floor": 25000,
-        "blog_coverage_required": False,
-        "viral_override": {"pain_keywords": 3, "velocity_per_hour": 20},
+        "post_age_hours": 24, "velocity_floor": 8,
+        "pain_keywords_min": 3, "pain_keywords_min_wide_open": 2,
     },
     "scoring": {
         "freshness_decay": {"zero_hours": 30, "max_points": 30},
@@ -68,17 +64,9 @@ WEIGHTS = {
         "blog_coverage_bonus": {"points_per_match": 25, "max_points": 50},
         "tier_weight": {"tier_1": 1.0, "tier_2": 1.25},
     },
-    "saturation_high": {"fetch_comments": True, "skip_if_existing_technical_reply_upvotes": 3},
 }
 
 KEYWORDS = ["alternative to", "too expensive", "HubSpot", "stack costs"]
-
-
-def test_dollar_figure_detection():
-    assert score.has_dollar_figure("paying $290/mo")
-    assert score.has_dollar_figure("the bill hit $50")
-    assert not score.has_dollar_figure("just need help")
-    assert not score.has_dollar_figure("paying $5 total")  # only 1 digit
 
 
 def test_count_keyword_hits():
@@ -150,35 +138,6 @@ def test_tier2_wide_open_relaxes_to_2_keywords():
     sub = make_sub(tier=2, saturation="wide_open")
     sub.pop("gate_overrides", None)
     passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
-    assert passes, f"expected pass, got {reason}"
-
-
-def test_tier2_high_sat_blocked_by_existing_reply():
-    post = make_post(
-        title="alternative to HubSpot too expensive stack costs killing",  # 4 keywords
-        score=20, created_utc=NOW - 3600,
-    )
-    sub = make_sub(tier=2, saturation="high")
-    sub.pop("gate_overrides", None)
-    top_comments = [{"score": 5, "body": "just self-host", "author": "x"}]
-    passes, reason = score.evaluate_gate(
-        post, sub, [], WEIGHTS, KEYWORDS, top_comments=top_comments, now=NOW
-    )
-    assert not passes
-    assert "existing_technical_reply" in reason
-
-
-def test_tier2_high_sat_passes_with_only_weak_replies():
-    post = make_post(
-        title="alternative to HubSpot too expensive stack costs killing",
-        score=20, created_utc=NOW - 3600,
-    )
-    sub = make_sub(tier=2, saturation="high")
-    sub.pop("gate_overrides", None)
-    top_comments = [{"score": 1, "body": "weak reply", "author": "x"}]
-    passes, reason = score.evaluate_gate(
-        post, sub, [], WEIGHTS, KEYWORDS, top_comments=top_comments, now=NOW
-    )
     assert passes, f"expected pass, got {reason}"
 
 

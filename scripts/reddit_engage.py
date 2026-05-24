@@ -1,20 +1,18 @@
 """reddit-engage CLI. Python-side does fetch + gate + score + SQLite.
 
-Claude (the chat session) is the outer orchestrator per stress-test outcome #1:
-- Claude calls Playwright MCP for blog refresh; passes new blog data via `blog ingest`.
-- Claude invokes `fetch-score` here; receives JSON of surfaces.
+Claude (chat session) is the outer orchestrator per stress-test outcome #1:
+- Claude calls Playwright MCP for blog refresh (rarely; only on Dan's signal),
+  then passes any new blog post via `blog ingest`.
+- Claude invokes `fetch-score`; receives JSON of surfaces.
 - Claude calls Notion MCP to sync the daily board.
 
 This script does NOT call any MCP tools. Stdlib + pyyaml only.
 
 Subcommands:
-  setup            Bootstrap SQLite schema, write subs from subreddits.yml
-  fetch-score      Fetch deltas, gate, score, mark surfaced, print JSON to stdout
-  status           Print last-run summary as JSON
-  history [date]   Print past surfaces as JSON
-  blog ingest      Read blog post JSON from stdin, upsert into blog_posts
-  blog index-hash  Get/set the cached /blog/ index hash (for change detection)
-  prune            Prune posts older than 90 days (keeps surfaced rows)
+  setup          Bootstrap SQLite, seed configs from YAML
+  fetch-score    Fetch deltas, gate, score, mark surfaced, print JSON to stdout
+  status         Print last-run summary as JSON
+  blog ingest    Upsert blog post(s) from stdin JSON
 """
 from __future__ import annotations
 
@@ -117,19 +115,8 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
 
                 blog_matches = score.find_blog_matches(post, blog_posts)
 
-                # High-saturation Tier 2 needs comment fetch for the modifier.
-                top_comments = None
-                if (s["tier"] == 2 and s.get("saturation") == "high"
-                        and weights.get("saturation_high", {}).get("fetch_comments")):
-                    try:
-                        top_comments = reddit_public.fetch_top_comments(
-                            post["canonical_url"], limit=5
-                        )
-                    except Exception:
-                        top_comments = []
-
                 passes, reason = score.evaluate_gate(
-                    post, dict(s, **db_sub), blog_matches, weights, bucket_kw, top_comments
+                    post, dict(s, **db_sub), blog_matches, weights, bucket_kw
                 )
                 if not passes:
                     dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
@@ -248,26 +235,11 @@ def _fit_summary(sub_row: dict[str, Any], blog_matches: list[dict[str, Any]]) ->
 def cmd_status() -> None:
     with store.connect() as conn:
         last = store.stats_last_run(conn)
-        index_hash = store.get_meta(conn, "blog_index_hash")
     print(json.dumps({
         "last_run": last,
-        "blog_index_hash": index_hash,
         "config_dir": str(CONFIG_DIR),
         "db_path": str(store.db_path()),
     }, default=str, indent=2))
-
-
-def cmd_history(date: str | None) -> None:
-    today = date or time.strftime("%Y-%m-%d", time.gmtime())
-    with store.connect() as conn:
-        rows = conn.execute(
-            """SELECT s.*, p.title, p.url, p.subreddit, p.score, p.num_comments
-               FROM surfaced s JOIN posts p ON p.id = s.post_id
-               WHERE s.surfaced_on = ?
-               ORDER BY p.score_internal DESC""",
-            (today,),
-        ).fetchall()
-    print(json.dumps([dict(r) for r in rows], default=str, indent=2))
 
 
 def cmd_blog_ingest() -> None:
@@ -280,23 +252,6 @@ def cmd_blog_ingest() -> None:
     print(json.dumps({"status": "ok", "ingested": len(posts)}))
 
 
-def cmd_blog_index_hash(set_value: str | None) -> None:
-    """Get or set the cached /blog/ index hash. Orchestrator uses this for change detection."""
-    with store.connect() as conn:
-        if set_value is None:
-            current = store.get_meta(conn, "blog_index_hash")
-            print(json.dumps({"blog_index_hash": current}))
-        else:
-            store.set_meta(conn, "blog_index_hash", set_value)
-            print(json.dumps({"status": "ok", "blog_index_hash": set_value}))
-
-
-def cmd_prune(days: int) -> None:
-    with store.connect() as conn:
-        n = store.prune_old_posts(conn, days)
-    print(json.dumps({"pruned": n}))
-
-
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="reddit-engage")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -306,16 +261,9 @@ def main(argv: list[str] | None = None) -> None:
     fs.add_argument("--limit-per-sub", type=int, default=25)
     fs.add_argument("--daily-cap", type=int, default=15)
     sub.add_parser("status", help="Print last-run status as JSON")
-    hist = sub.add_parser("history", help="Print past surfaces")
-    hist.add_argument("date", nargs="?", default=None, help="YYYY-MM-DD, default=today")
 
     blog = sub.add_parser("blog", help="Blog map operations").add_subparsers(dest="blogcmd", required=True)
     blog.add_parser("ingest", help="Upsert blog post(s) from stdin JSON")
-    ih = blog.add_parser("index-hash", help="Get or set the cached /blog/ index hash")
-    ih.add_argument("--set", dest="set_value", default=None)
-
-    prune = sub.add_parser("prune", help="Prune posts older than N days")
-    prune.add_argument("--days", type=int, default=90)
 
     args = parser.parse_args(argv)
 
@@ -325,15 +273,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_fetch_score(args.limit_per_sub, args.daily_cap)
     elif args.cmd == "status":
         cmd_status()
-    elif args.cmd == "history":
-        cmd_history(args.date)
-    elif args.cmd == "blog":
-        if args.blogcmd == "ingest":
-            cmd_blog_ingest()
-        elif args.blogcmd == "index-hash":
-            cmd_blog_index_hash(args.set_value)
-    elif args.cmd == "prune":
-        cmd_prune(args.days)
+    elif args.cmd == "blog" and args.blogcmd == "ingest":
+        cmd_blog_ingest()
 
 
 if __name__ == "__main__":

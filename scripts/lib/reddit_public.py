@@ -194,32 +194,3 @@ def fetch_delta(sub: str, last_seen_id: str | None,
     return collected
 
 
-def fetch_top_comments(canonical_url_str: str, limit: int = 10,
-                       timeout: int = 10) -> list[dict[str, Any]]:
-    """Fetch top comments for saturation modifier (high-saturation Tier 2 subs).
-
-    Returns up to `limit` top-level comments sorted by score.
-    Used by score.py to check "is there an existing technical reply > 3 upvotes?".
-    """
-    m = re.search(r"/comments/([a-z0-9]+)", canonical_url_str, re.I)
-    if not m:
-        return []
-    pid = m.group(1)
-    url = f"https://www.reddit.com/comments/{pid}.json?limit={limit}&sort=top&raw_json=1"
-    data = fetch_json(url, timeout=timeout)
-    if not data or not isinstance(data, list) or len(data) < 2:
-        return []
-
-    listing = data[1].get("data", {}).get("children", [])
-    comments: list[dict[str, Any]] = []
-    for child in listing:
-        if child.get("kind") != "t1":
-            continue
-        cd = child.get("data", {})
-        comments.append({
-            "score": int(cd.get("score") or 0),
-            "body": str(cd.get("body") or "")[:500],
-            "author": str(cd.get("author") or "[deleted]"),
-        })
-    comments.sort(key=lambda c: c["score"], reverse=True)
-    return comments[:limit]
