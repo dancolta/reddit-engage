@@ -1,5 +1,8 @@
-# Locked 2026-05-24 post stress-test.
-# 22 subs: 5 Tier 1 + 17 Tier 2.
+# Locked 2026-05-24 post-prune.
+# 13 subs: 5 Tier 1 + 8 Tier 2 (high-density only).
+# Dropped 9 low-signal subs after live scans showed they produced mostly
+# culture/career/hobbyist content: r/Accounting, r/nonprofit, r/marketing,
+# r/PPC, r/ExperiencedDevs, r/sysadmin, r/devops, r/Automate, r/selfhosted.
 
 blog_aliases:
   Playbook: https://www.nodesparks.com/blog/saas-replacement-playbook
@@ -25,31 +28,18 @@ subreddits:
 
   # === TIER 2 — opportunistic, strict gates ===
 
-  # --- Finance ops ---
+  # --- Finance ops (kept the high-density ones, dropped r/Accounting and r/nonprofit) ---
   - {name: Bookkeeping, tier: 2, bucket: operator, saturation: wide_open, weight: 1.4, backing_blogs: [BillCom]}
-  - {name: Accounting, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [BillCom, Playbook]}
   - {name: CFO, tier: 2, bucket: operator, saturation: medium, weight: 1.1, backing_blogs: [Playbook, BillCom]}
-  - {name: nonprofit, tier: 2, bucket: operator, saturation: medium, weight: 1.0, backing_blogs: [Playbook]}
 
-  # --- Sales / RevOps ---
+  # --- Sales / RevOps (all kept — best ICP density observed) ---
   - {name: SalesOperations, tier: 2, bucket: operator, saturation: wide_open, weight: 1.3, backing_blogs: [Apollo, Playbook]}
-  - {name: RevOps, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [Apollo, Playbook], sub_size_override: true}
+  - {name: RevOps, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [Apollo, Playbook]}
   - {name: coldemail, tier: 2, bucket: operator, saturation: medium, weight: 1.2, backing_blogs: [Apollo]}
 
-  # --- Marketing ops ---
-  - {name: marketing, tier: 2, bucket: operator, saturation: high, weight: 0.9, backing_blogs: [Playbook]}
+  # --- Marketing ops (kept the niche ones, dropped r/marketing and r/PPC) ---
   - {name: marketingautomation, tier: 2, bucket: operator, saturation: medium, weight: 1.1, backing_blogs: [Playbook, Apollo]}
   - {name: CustomerSuccess, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [Playbook]}
-  - {name: PPC, tier: 2, bucket: operator, saturation: medium, weight: 0.8, backing_blogs: [Playbook]}
 
-  # --- Recruiting ---
+  # --- Recruiting (kept — proven asymmetry play) ---
   - {name: recruiting, tier: 2, bucket: operator, saturation: wide_open, weight: 1.0, backing_blogs: [Playbook]}
-
-  # --- Devtools / infra ---
-  - {name: ExperiencedDevs, tier: 2, bucket: builder, saturation: medium, weight: 1.1, backing_blogs: [Playbook]}
-  - {name: sysadmin, tier: 2, bucket: builder, saturation: high, weight: 0.9, backing_blogs: [Playbook, BillCom]}
-  - {name: devops, tier: 2, bucket: builder, saturation: high, weight: 1.0, backing_blogs: [Playbook]}
-  - {name: Automate, tier: 2, bucket: builder, saturation: high, weight: 0.9, backing_blogs: [Playbook]}
-
-  # --- Builder / indie ---
-  - {name: selfhosted, tier: 2, bucket: builder, saturation: high, weight: 1.0, backing_blogs: [Playbook, BillCom]}
