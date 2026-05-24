@@ -1,18 +1,25 @@
 # Scoring weights + gating thresholds. Tunable without code changes.
 
 # === Tier 1 gates (per-sub overrides in subreddits.yml win over these defaults) ===
+# Velocity floor lowered after first live scan revealed too many freshly-posted
+# threads at 0-1 upvotes get filtered. 1.5/hr keeps it disciplined for daily
+# engagement subs without zero-output days.
 tier1_gates:
-  post_age_hours: 6
+  post_age_hours: 12               # was 6; daily run cadence means wider window
   comment_ceiling: 30
-  velocity_floor: 3                # upvotes per hour
+  velocity_floor: 1.5              # upvotes per hour
   pain_keywords_min: 1
 
 # === Tier 2 gates ===
+# Velocity floor lowered from 8/hr (initial plan, designed for viral catches)
+# to 1/hr after first live scan. Niche subs like r/Bookkeeping have ~0.2 upv/hr
+# on their best posts; 8/hr produced zero surfaces. 1/hr keeps quality but
+# stops blocking the entire niche tier. Tune up later if noise becomes an issue.
 tier2_gates:
   post_age_hours: 24               # eligible up to 24h; < 2h prioritized in scoring
-  velocity_floor: 8                # upvotes per hour
-  pain_keywords_min: 3             # relaxed to 2 if sub.saturation == 'wide_open'
-  pain_keywords_min_wide_open: 2
+  velocity_floor: 1                # upvotes per hour
+  pain_keywords_min: 2             # relaxed default (was 3); wide_open relaxes further
+  pain_keywords_min_wide_open: 1
 
 # === Scoring formula weights ===
 scoring:
