@@ -1,12 +1,23 @@
 # reddit-engage
 
-> A daily inbox of Reddit threads worth your reply. You write the reply.
+> Claude Code plugin that surfaces Reddit pain posts. You write the reply.
+
+[![Version](https://img.shields.io/github/v/tag/dancolta/reddit-engage?label=version&color=blue)](https://github.com/dancolta/reddit-engage/releases)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-orange)](https://docs.claude.com/en/docs/claude-code/plugins)
+
+> [!WARNING]
+> **Not an auto-poster.** Devi AI and ReplyGuy auto-draft your replies. `reddit-engage` refuses to. No auto-comments. No account rotation. No shadowban roulette. **The automation stops where the conversation starts.**
 
 ![reddit-engage arcade hero: 8-bit pixel-art animation of a small orange-and-teal sprite walking past floating subreddit name plaques (r/<your-niche>, r/founders, r/startups, r/SaaS, r/<your-icp>, r/sysadmin). HUD chips read SURF 12/15 and DEDUP ON. A scrolling ticker cycles generic pain-post headlines like TOOL X TOO EXPENSIVE, ALTERNATIVE TO Y?, STACK COST $$$. Title bar REDDIT-ENGAGE, subtitle DAILY PAIN-POST RADAR. Read-only surfacing tool, not an auto-poster.](assets/hero.gif)
 
-> **What this is not.** It does not post for you. It does not comment for you. It does not farm karma, rotate accounts, or warm up personas. There is no AI ghostwriter pasting replies into Reddit at 3am. It surfaces threads. You read them. You decide if they deserve your voice. The automation stops where the conversation starts.
+```bash
+# in Claude Code
+/plugin install dancolta/reddit-engage
+/reddit-engage:run
+```
 
-`reddit-engage` is a **Claude Code plugin** that scans the subreddits you care about every morning, gates posts by tier-aware thresholds, and hands you a curated list of up to 15 pain posts worth a human reply. SQLite guarantees you never see the same post twice, across all time.
+`reddit-engage` scans the subreddits you care about every morning, gates posts by tier-aware thresholds + author vetting + optional LLM classification, and hands you a curated list of up to 15 pain posts worth a human reply. SQLite enforces permanent deduplication — the same post never appears twice.
 
 ## Plug-and-play, with optional add-ons
 
@@ -179,37 +190,45 @@ When you DO want LLM judgment, pick the right tool:
 
 The bulk SDK path is opt-in for a reason: it's the only one that needs a separate API key. Most users won't need it. The `judge` skill covers 90% of cases at zero marginal cost.
 
-## Sub-skills
-
-Phase 3 of [PLAN.md](PLAN.md) adds these pattern-specific surfacers:
+<details>
+<summary><strong>11 pattern-aware sub-skills</strong> (click to expand)</summary>
 
 | Skill | What it finds |
 |---|---|
-| `/reddit-engage:run` | General pain + named SaaS (default) |
+| `/reddit-engage:run` | General pain + named SaaS (default daily scan) |
+| `/reddit-engage:judge <n>` | Interactive single-surface classifier via Claude subscription — free |
+| `/reddit-engage:setup` | Conversational onboarding wizard |
 | `/reddit-engage:stack-audit` | OPs listing 8+ tools, asking how to consolidate |
-| `/reddit-engage:churn-signals` | "Canceling X" / "switching from X" + vendor |
-| `/reddit-engage:pricing-rage` | Price-hike threads (cyclical) |
-| `/reddit-engage:build-vs-buy` | Explicit debate threads with numbers |
+| `/reddit-engage:churn` | "Canceling X" / "switching from X" + vendor name |
+| `/reddit-engage:pricing-rage` | Price-hike threads (cyclical Q1/Q3 spikes) |
+| `/reddit-engage:build-vs-buy` | Explicit debate threads with numeric arguments |
 | `/reddit-engage:rfp-bait` | "X vs Y vs Z" comparison threads |
 | `/reddit-engage:resurrect` | 6–18 month-old threads still getting Google traffic |
-| `/reddit-engage:rivals` | Configurable competitor-mention digest |
-| `/reddit-engage:op-vet` | Score an OP profile pre-reply |
-| `/reddit-engage:postmortem` | 7-day outcome on your replies (auto-detected) |
-| `/reddit-engage:pulse` | Weekly sub-heat-map → Obsidian |
+| `/reddit-engage:rivals <brand>` | Configurable competitor-mention digest |
+| `/reddit-engage:op-vet <user>` | Score an OP profile pre-reply (GO / HOLD / SKIP) |
+| `/reddit-engage:postmortem` | 7-day outcome on your replies (auto-detected via OAuth) |
+| `/reddit-engage:pulse` | Weekly sub × surface heat-map → Obsidian |
+
+</details>
 
 ## Compared
 
-Honest comparison. The skill loses on setup friction. It wins everywhere the user actually cares: curation, dedup, and not getting their account nuked.
+Named comparison vs the live category. The constraint row at the bottom is deliberate — owning it is the point.
 
-| | reddit-engage | F5Bot | Reddit auto-poster | Manual scrolling | Paid Reddit growth SaaS |
-|---|---|---|---|---|---|
-| Who writes the reply | You | You | The bot | You | The bot or a VA |
-| Mod-culture risk | None, read-only | None | High (bans, shadowbans) | None | High |
-| Never shows the same post twice | Yes, SQLite-enforced | No, re-alerts on every match | n/a | No, you re-scroll | Varies |
-| Signal quality | Pain-shaped, scored, ranked | Raw keyword hits | Raw keyword hits | Depends on you | Mixed |
-| Setup friction | Claude Code skill install + config | Email signup (easier) | Account + risk | Zero (easier) | Onboarding call |
-| Price | Free, self-hosted | Free | Paid + account risk | Free | Paid monthly |
-| Tuneable to your niche | Yes, 4 YAML files | No (keyword filters only) | No | n/a | Mostly no |
+|  | **reddit-engage** | Devi AI | ReplyGuy | F5Bot | Syften | Brand24 | Manual |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Zero cost to start | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | ✓ |
+| Works day-1, no API keys | ✓ | ✗ | ✗ | partial | ✗ | ✗ | ✓ |
+| Runs inside your IDE / terminal | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Pattern-aware curation (not keyword spam) | ✓ | partial | partial | ✗ | ✗ | partial | ✗ |
+| Never auto-comments or drafts replies | ✓ | ✗ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| No account rotation / shadowban risk | ✓ | ✗ | ✗ | ✓ | ✓ | ✓ | ✓ |
+| Optional LLM judgment, user-controlled | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Notion + Obsidian sync for builder workflow | ✓ | ✗ | ✗ | ✗ | ✗ | partial | ✗ |
+| Open source / MIT / self-hosted | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | n/a |
+| Scales past one human's attention | ✗ | ✓ | ✓ | partial | ✓ | ✓ | ✗ |
+
+That last row is a feature, not a bug. `reddit-engage` is the tool a technical founder actually opens at 8am. It's not a Reddit growth machine. If you wanted one of those, the table above tells you where to look.
 
 ## Why two tiers
 
@@ -278,26 +297,29 @@ It is a working starting point if your niche overlaps (build-vs-buy, SaaS replac
 
 ## FAQ
 
-**Is this a Reddit bot?**
-No. `reddit-engage` never posts, comments, votes, or logs into Reddit. It reads public JSON endpoints. You read the output list and write your own replies manually.
+**What is reddit-engage?**
+`reddit-engage` is an open-source Claude Code plugin (MIT, v0.1.0) that scans subreddits you configure every morning, scores posts by pain-keyword density and upvote velocity, and surfaces up to 15 high-intent threads worth a human reply. It never posts or comments on your behalf.
+
+**Does reddit-engage require a Reddit API key or any paid subscription?**
+No. The default daily run uses Reddit's public JSON endpoints with zero API keys. Optional layers — Reddit OAuth for a higher rate budget, an Anthropic API key for bulk LLM grading, Notion for a triage board, and Obsidian for a weekly digest — can be added independently without reinstalling.
+
+**How is reddit-engage different from Devi AI or ReplyGuy?**
+Devi AI and ReplyGuy auto-draft replies for you and post on your behalf, which carries real shadowban risk and dilutes your voice. `reddit-engage` is fully read-only: it surfaces threads but never generates or posts replies. SQLite-enforced permanent deduplication means the same post never appears twice. The reply is the one part that has to be you.
+
+**What sub-skills does reddit-engage include?**
+`reddit-engage` ships 11 pattern-specific sub-skills beyond the default daily run: `stack-audit` (consolidation threads), `churn` (switching/canceling + vendor), `pricing-rage` (price-hike threads), `build-vs-buy` (debates with numbers), `rfp-bait` (comparison threads), `resurrect` (old posts still getting Google traffic), `rivals` (competitor mentions), `op-vet` (OP profile scoring), `judge` (single-post LLM classification at zero marginal cost via your Claude subscription), `postmortem` (7-day reply outcome tracking), and `pulse` (weekly sub heat-map to Obsidian).
+
+**How do I install reddit-engage?**
+`reddit-engage` installs as a Claude Code plugin with a single command — `/plugin install dancolta/reddit-engage` — run from inside Claude Code. The Python engine is cloned separately from github.com/dancolta/reddit-engage and installed with pip. No onboarding call, no paid tier.
 
 **Will the same post show up multiple times?**
-Never. Every surfaced post id is stored as a primary key in a local SQLite database. Dedup is permanent, across all runs, all time.
-
-**How is this different from F5Bot or keyword alerts?**
-F5Bot sends raw keyword matches with no intent scoring. `reddit-engage` gates posts by pain-keyword density, upvote velocity, post age, and subreddit weight before anything surfaces. Most posts never make the cut.
-
-**Does it need a Reddit API key?**
-No. Uses Reddit's public JSON (no OAuth, no API key). Standard rate-limit handling and exponential backoff on 429s are built in.
+Never. Every surfaced post id is stored as a primary key in a local SQLite database under `~/.local/share/reddit-engage/`. Dedup is permanent, across all runs, all time.
 
 **Can I use this on any subreddit?**
-Yes. Add or remove subs in `config/subreddits.yml`. Assign a tier, saturation, weight, and optional backing blog references. The scoring formula adjusts automatically.
+Yes. Add or remove subs in `~/.config/reddit-engage/subreddits.yml`. Assign a tier, saturation, weight, and optional backing blog references. The scoring formula adjusts automatically. Or pick one of the 4 shipping presets (B2B SaaS founder / agency owner / indie hacker / consultant).
 
-**Do I need a blog?**
-No. The blog-coverage bonus is opt-in. If you skip `config/blog-map.yml`, the skill still surfaces posts by pure engagement and pain-keyword signal. Add blog content later for the multi-point bonus.
-
-**Why a Claude Code skill instead of a standalone CLI?**
-The optional blog refresh runs through Playwright MCP (headless browser) and the Notion board sync runs through Notion MCP. Both are scoped to the Claude session. Python handles the parts that should be a CLI (fetch, gate, score, persist); Claude handles the rails. Right tool, right job.
+**Who made reddit-engage and what is its guiding principle?**
+`reddit-engage` was built by Dan Colta ([NodeSparks](https://nodesparks.com)) and is governed by a single design constraint: **"The automation stops where the conversation starts."** The tool reads and ranks Reddit content; every reply is written by the user and posted manually, preserving authentic engagement and eliminating account-ban risk.
 
 ## Roadmap
 
@@ -306,14 +328,14 @@ Active build plan: [PLAN.md](PLAN.md). Live execution board: [Project #7](https:
 | Phase | Scope | Status |
 |---|---|---|
 | -1 | BMAD + Kanban + Stop-hook enforcement | ✅ Done |
-| 0 | Scaffold (plugin manifest, engine restructure, XDG paths) | In progress |
-| 1 | Tier A: OAuth migration, sub-list prune, author pre-gate | Backlog |
-| 2 | Tier B: Claude classifier, sqlite-vec dedup, cooling queue | Backlog |
-| 3 | Sub-skills: stack-audit, churn, pricing-rage, build-vs-buy, rfp-bait, resurrect, rivals, op-vet | Backlog |
-| 4 | Notion 4-view triage board + Obsidian weekly pulse | Backlog |
-| 5 | Postmortem: 7-day outcome auto-detection | Backlog |
-| 6 | Industry presets: B2B SaaS / agency / indie / consultant | Backlog |
-| 7 | Conversational `/reddit-engage:setup` wizard | Backlog |
+| 0 | Scaffold (plugin manifest, engine restructure, XDG paths) | ✅ Done |
+| 1 | Tier A: OAuth migration, sub-list prune, author pre-gate | ✅ Done |
+| 2 | Tier B: Claude classifier, sqlite-vec dedup, cooling queue | ✅ Done |
+| 3 | Sub-skills: stack-audit, churn, pricing-rage, build-vs-buy, rfp-bait, resurrect, rivals, op-vet | ✅ Done |
+| 4 | Notion 4-view triage board + Obsidian weekly pulse | ✅ Done |
+| 5 | Postmortem: 7-day outcome auto-detection | ✅ Done |
+| 6 | Industry presets: B2B SaaS / agency / indie / consultant | ✅ Done |
+| 7 | Conversational `/reddit-engage:setup` wizard | ✅ Done |
 | 8 | Polish + v0.1.0 tag + (optional) clawhub submit | Backlog |
 
 **Locked anti-goals** (will not ship): automated reply posting, multi-account rotation, voice-drift detector. The automation stops where the conversation starts.
