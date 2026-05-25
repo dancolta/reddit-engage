@@ -1,8 +1,14 @@
-# Locked 2026-05-24 post-prune.
-# 13 subs: 5 Tier 1 + 8 Tier 2 (high-density only).
-# Dropped 9 low-signal subs after live scans showed they produced mostly
-# culture/career/hobbyist content: r/Accounting, r/nonprofit, r/marketing,
-# r/PPC, r/ExperiencedDevs, r/sysadmin, r/devops, r/Automate, r/selfhosted.
+# Sub list. Three tiers:
+#   tier 1: daily-scan, consistent engagement, lenient gates
+#   tier 2: opportunistic, strict gates
+#   tier 3: QUARANTINED — fetched for telemetry only, never surfaced (weight: 0.0)
+#
+# Quarantine vs delete: keep a sub here at tier 3 if you've used it before and
+# want to re-enable later. Hard delete loses history (e.g. last_cursor watermark).
+#
+# May 2026: pruned 6 low-converting subs based on live A/B + community-builder
+# research. They live in tier 3 below as quarantine. Added 5 new tier-2 subs
+# where ICP density is higher per the same research.
 
 blog_aliases:
   Playbook: https://www.nodesparks.com/blog/saas-replacement-playbook
@@ -10,36 +16,66 @@ blog_aliases:
   BillCom:  https://www.nodesparks.com/blog/replace-bill-com-slack-invoice-agent
 
 subreddits:
-  # === TIER 1 — daily-scan, consistent engagement ===
-  - {name: smallbusiness, tier: 1, bucket: operator, weight: 1.2,
-     backing_blogs: [Playbook, Apollo, BillCom]}
-
-  - {name: SaaS, tier: 1, bucket: operator, weight: 1.1,
-     backing_blogs: [Playbook, Apollo, BillCom]}
-
-  - {name: Entrepreneur, tier: 1, bucket: operator, weight: 0.9,
-     backing_blogs: [Playbook, Apollo]}
-
+  # === TIER 1 — daily-scan, lenient gates ===
   - {name: sales, tier: 1, bucket: operator, weight: 1.2,
      backing_blogs: [Apollo]}
 
-  - {name: nocode, tier: 1, bucket: builder, weight: 1.3,
-     backing_blogs: [Playbook]}
-
   # === TIER 2 — opportunistic, strict gates ===
 
-  # --- Finance ops (kept the high-density ones, dropped r/Accounting and r/nonprofit) ---
-  - {name: Bookkeeping, tier: 2, bucket: operator, saturation: wide_open, weight: 1.4, backing_blogs: [BillCom]}
-  - {name: CFO, tier: 2, bucket: operator, saturation: medium, weight: 1.1, backing_blogs: [Playbook, BillCom]}
+  # --- Finance ops ---
+  - {name: Bookkeeping, tier: 2, bucket: operator, saturation: wide_open, weight: 1.4,
+     backing_blogs: [BillCom]}
+  - {name: CFO, tier: 2, bucket: operator, saturation: medium, weight: 1.1,
+     backing_blogs: [Playbook, BillCom]}
 
-  # --- Sales / RevOps (all kept — best ICP density observed) ---
-  - {name: SalesOperations, tier: 2, bucket: operator, saturation: wide_open, weight: 1.3, backing_blogs: [Apollo, Playbook]}
-  - {name: RevOps, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [Apollo, Playbook]}
-  - {name: coldemail, tier: 2, bucket: operator, saturation: medium, weight: 1.2, backing_blogs: [Apollo]}
+  # --- Sales / RevOps (highest ICP density per live A/B) ---
+  - {name: SalesOperations, tier: 2, bucket: operator, saturation: wide_open, weight: 1.3,
+     backing_blogs: [Apollo, Playbook]}
+  - {name: RevOps, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2,
+     backing_blogs: [Apollo, Playbook]}
 
-  # --- Marketing ops (kept the niche ones, dropped r/marketing and r/PPC) ---
-  - {name: marketingautomation, tier: 2, bucket: operator, saturation: medium, weight: 1.1, backing_blogs: [Playbook, Apollo]}
-  - {name: CustomerSuccess, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2, backing_blogs: [Playbook]}
+  # --- Marketing ops ---
+  - {name: marketingautomation, tier: 2, bucket: operator, saturation: medium, weight: 1.1,
+     backing_blogs: [Playbook, Apollo]}
+  - {name: CustomerSuccess, tier: 2, bucket: operator, saturation: wide_open, weight: 1.2,
+     backing_blogs: [Playbook]}
 
-  # --- Recruiting (kept — proven asymmetry play) ---
-  - {name: recruiting, tier: 2, bucket: operator, saturation: wide_open, weight: 1.0, backing_blogs: [Playbook]}
+  # --- May 2026 ADDITIONS (per reddit-community-builder research) ---
+  - {name: B2BSaaS, tier: 2, bucket: operator, saturation: medium, weight: 1.2,
+     backing_blogs: [Playbook]}
+  - {name: msp, tier: 2, bucket: operator, saturation: wide_open, weight: 1.1,
+     backing_blogs: [Playbook, BillCom]}
+  - {name: ExperiencedDevs, tier: 2, bucket: builder, saturation: medium, weight: 1.0,
+     backing_blogs: [Playbook]}
+  - {name: datascience, tier: 2, bucket: operator, saturation: medium, weight: 0.9,
+     backing_blogs: [Playbook]}
+  - {name: ProductManagement, tier: 2, bucket: operator, saturation: medium, weight: 1.0,
+     backing_blogs: [Playbook]}
+
+  # === TIER 3 — QUARANTINED (fetched for telemetry, never surfaced) ===
+  # Drop reasons captured per sub. Re-enable by promoting to tier 1 or 2 and
+  # restoring weight to a non-zero value.
+
+  - {name: smallbusiness, tier: 3, bucket: operator, weight: 0.0,
+     backing_blogs: [Playbook, Apollo, BillCom]}
+    # drop: wrong ICP, plumbers/etsy sellers dominate
+
+  - {name: SaaS, tier: 3, bucket: operator, weight: 0.0,
+     backing_blogs: [Playbook, Apollo, BillCom]}
+    # drop: vendor-on-vendor cannibalism, mods aggressive
+
+  - {name: Entrepreneur, tier: 3, bucket: operator, weight: 0.0,
+     backing_blogs: [Playbook, Apollo]}
+    # drop: hustle-bro audience, zero buyer intent
+
+  - {name: nocode, tier: 3, bucket: builder, weight: 0.0,
+     backing_blogs: [Playbook]}
+    # drop: audience won't pay for custom
+
+  - {name: coldemail, tier: 3, bucket: operator, saturation: medium, weight: 0.0,
+     backing_blogs: [Apollo]}
+    # drop: spam-tolerant, reply gets ignored
+
+  - {name: recruiting, tier: 3, bucket: operator, saturation: wide_open, weight: 0.0,
+     backing_blogs: [Playbook]}
+    # drop: irrelevant unless pivot

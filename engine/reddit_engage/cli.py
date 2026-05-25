@@ -25,7 +25,7 @@ from typing import Any
 
 import yaml
 
-from .lib import reddit_public, score, store
+from .lib import author_vet, reddit_oauth, reddit_public, score, store
 
 
 def _resolve_config_dir() -> Path:
@@ -113,7 +113,10 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
 
             last_cursor = db_sub.get("last_cursor")
             try:
-                posts = reddit_public.fetch_delta(s["name"], last_cursor, max_limit=limit_per_sub)
+                # Prefer OAuth path (10x rate headroom + identity scope); falls
+                # back to public JSON automatically when oauth.json missing or
+                # PRAW not installed. See reddit_oauth.fetch_delta() docstring.
+                posts = reddit_oauth.fetch_delta(s["name"], last_cursor, max_limit=limit_per_sub)
             except Exception as e:
                 fetch_errors.append(f"r/{s['name']}: {e}")
                 continue
@@ -126,6 +129,15 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
 
             for post in posts:
                 if store.already_surfaced(conn, post["id"]):
+                    continue
+
+                # Author pre-gate (Phase 1.5): drop low-karma / young / wrong-audience
+                # OPs before scoring. Cached 7d to avoid refetching same OP across runs.
+                # Degrades open on fetch failure (verdict='pass', reason='fetch_failed').
+                vet = author_vet.vet_author(post.get("author", ""), conn=conn)
+                if vet["verdict"] == "fail":
+                    reason = f"author_vet_{vet['reason']}"
+                    dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
                     continue
 
                 blog_matches = score.find_blog_matches(post, blog_posts)

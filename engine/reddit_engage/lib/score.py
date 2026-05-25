@@ -223,6 +223,7 @@ def _apply_overrides(defaults: dict[str, Any], overrides: dict[str, Any] | None)
 ABSOLUTE_REJECT_REASONS = {
     "removed_or_locked", "negative_topic", "vendor_content",
     "nsfw_post", "nsfw_sub", "crosspost_subreddit_mismatch",
+    "tier3_quarantined",
 }
 
 # NSFW sub blocklist. Belt-and-braces: even if Reddit forgets to flag a post
@@ -275,6 +276,11 @@ def evaluate_gate(
         return False, "negative_topic"
     if has_vendor_content_markers(title, body):
         return False, "vendor_content"
+
+    # Tier 3 quarantine: fetched for telemetry only, never surfaces.
+    # Also catches accidentally-zero weights so they never poison the surface list.
+    if int(sub.get("tier", 0)) >= 3 or float(sub.get("weight", 1.0)) == 0.0:
+        return False, "tier3_quarantined"
 
     ah = age_hours(post, now)
     if sub["tier"] == 1:
@@ -391,6 +397,12 @@ def compute_score(
         intent_score += float(intent_cfg.get("pain_bonus", 15))
 
     raw = freshness + uv_score + cv_score + kw_score + bc_score + intent_score
+
+    # Tier 3 / weight=0 short-circuit: quarantined subs never compete in scoring.
+    # The gate already filters these out; this guards against direct callers
+    # bypassing the gate and protects against future float-rounding edge cases.
+    if int(sub.get("tier", 0)) >= 3 or float(sub.get("weight", 1.0)) == 0.0:
+        return 0.0
 
     tw_cfg = scoring.get("tier_weight", {})
     tier_mul = float(tw_cfg.get(f"tier_{sub['tier']}", 1.0))

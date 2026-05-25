@@ -205,6 +205,41 @@ def test_blog_match_finder():
     assert matches[0]["url"] == "blog1"
 
 
+def test_quarantine_tier3_gate_rejects():
+    """Tier 3 sub: gate must reject with 'tier3_quarantined', regardless of post quality."""
+    post = make_post()
+    sub = make_sub(tier=3, weight=0.0)
+    sub.pop("gate_overrides", None)
+    passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert not passes
+    assert reason == "tier3_quarantined"
+    assert reason in score.ABSOLUTE_REJECT_REASONS, (
+        "tier3 reject must be ABSOLUTE so it bypasses the near-miss backfill path"
+    )
+
+
+def test_quarantine_weight_zero_rejects_even_at_tier2():
+    """weight=0 at any tier acts as a kill switch — defends against accidental zeros."""
+    post = make_post()
+    sub = make_sub(tier=2, weight=0.0, saturation="medium")
+    sub.pop("gate_overrides", None)
+    passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert not passes
+    assert reason == "tier3_quarantined"
+
+
+def test_compute_score_quarantine_short_circuits_to_zero():
+    """Score must return 0.0 for tier 3 / weight 0, never div-by-zero or NaN."""
+    post = make_post()
+    s_t3 = make_sub(tier=3, weight=0.0)
+    s_t3.pop("gate_overrides", None)
+    assert score.compute_score(post, s_t3, [], WEIGHTS, KEYWORDS, now=NOW) == 0.0
+
+    s_w0 = make_sub(tier=2, weight=0.0, saturation="medium")
+    s_w0.pop("gate_overrides", None)
+    assert score.compute_score(post, s_w0, [], WEIGHTS, KEYWORDS, now=NOW) == 0.0
+
+
 if __name__ == "__main__":
     import subprocess
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-v"]))
