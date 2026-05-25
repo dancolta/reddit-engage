@@ -1,4 +1,4 @@
-"""6 pre-baked ICP archetypes for the `/reddit-engage:profile` fallback path.
+"""6 pre-baked ICP archetypes for the `/subseek:profile` fallback path.
 
 When a user can't name the subs their audience uses (or pre-launch with no
 named competitors), the wizard falls back on matching the user's interview
@@ -155,11 +155,6 @@ UNIVERSAL_WATCH_LIST: set[str] = {
     "smallbusiness",           # pivoted to brick-and-mortar post-2024
     "digital_marketing",       # bot-heavy thread spam
 }
-
-
-def list_archetypes() -> list[dict[str, str]]:
-    """Return picker-friendly list of archetype keys + labels."""
-    return [{"key": k, "label": v["label"]} for k, v in ARCHETYPES.items()]
 
 
 def get(archetype_key: str) -> dict[str, Any] | None:

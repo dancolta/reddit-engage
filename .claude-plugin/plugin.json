@@ -1,25 +1,28 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
-  "name": "reddit-engage",
-  "displayName": "Reddit Engage",
+  "name": "subseek",
+  "displayName": "subseek",
   "version": "0.1.0",
-  "description": "Daily Reddit pain-post surfacer with pattern-aware sub-skills, Claude-powered intent classification, optional Notion triage board, and weekly Obsidian pulse digest. For builders who want inbound, not aggressive lead-gen.",
+  "description": "Daily subreddit scanner that surfaces pain-pattern posts (pricing rage, churn, build-vs-buy, alternative-seeking) inside your Claude Code session. Pattern-aware, not keyword-spam. Human-in-the-loop, closed-loop learner from your own sent replies. Free, local, BYO-LLM. The automation stops where the conversation starts.",
   "author": {
     "name": "Dan Colta",
     "url": "https://github.com/dancolta"
   },
-  "homepage": "https://github.com/dancolta/reddit-engage",
-  "repository": "https://github.com/dancolta/reddit-engage",
+  "homepage": "https://github.com/dancolta/subseek",
+  "repository": "https://github.com/dancolta/subseek",
   "license": "MIT",
   "keywords": [
     "reddit",
-    "lead-generation",
-    "pain-points",
+    "subreddit-scanner",
+    "pain-patterns",
     "social-listening",
     "inbound",
+    "human-in-the-loop",
     "notion",
     "obsidian",
-    "claude-code"
+    "slack",
+    "claude-code",
+    "claude-code-plugin"
   ],
   "userConfig": {
     "reddit_client_id": {
@@ -61,19 +64,25 @@
     "obsidian_pulse_folder": {
       "type": "string",
       "title": "Obsidian pulse folder (optional)",
-      "description": "Sub-folder within the vault for weekly pulse notes. Defaults to 'reddit-engage'.",
-      "default": "reddit-engage"
+      "description": "Sub-folder within the vault for weekly pulse notes. Defaults to 'subseek'.",
+      "default": "subseek"
+    },
+    "slack_webhook_url": {
+      "type": "string",
+      "title": "Slack webhook URL (optional)",
+      "description": "Daily surface list gets pushed to this Slack channel. Get one from https://api.slack.com/messaging/webhooks. Must be https://hooks.slack.com/... — anything else is rejected. Leave blank to skip.",
+      "sensitive": true
     },
     "llm_api_key": {
       "type": "string",
       "title": "LLM API key (optional)",
-      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip — /reddit-engage:judge still works free via your Claude Code subscription.",
+      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip — /subseek:judge still works free via your Claude Code subscription.",
       "sensitive": true
     },
     "llm_base_url": {
       "type": "string",
       "title": "LLM base URL (optional)",
-      "description": "Override the OpenAI-compatible endpoint base URL. Auto-detected from key prefix when blank. Examples: https://api.anthropic.com/v1/ (Anthropic), https://api.groq.com/openai/v1 (Groq), http://localhost:11434/v1 (Ollama)."
+      "description": "Override the OpenAI-compatible endpoint base URL. Auto-detected from key prefix when blank. SSRF guard rejects private IPs and non-Slack hosts. Examples: https://api.anthropic.com/v1/ (Anthropic), https://api.groq.com/openai/v1 (Groq), http://localhost:11434/v1 (Ollama)."
     },
     "llm_model": {
       "type": "string",

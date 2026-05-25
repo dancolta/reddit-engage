@@ -1,43 +1,48 @@
 ---
 name: run
-description: Run the daily Reddit pain-post surface. Fetch new posts from configured subs, score by intent/keyword/freshness, optionally classify via Claude Haiku, dedup against history, hold in cooling queue, and emit inline markdown (plus optional Notion sync). Triggers on "run reddit-engage", "/reddit-engage run", "daily reddit", "scan reddit", "show today's reddit posts", or the default `/reddit-engage:run` invocation.
+description: Run the daily Reddit pain-post surface. Fetch new posts from configured subs, score by intent/keyword/freshness, optionally classify via Claude Haiku, dedup against history, hold in cooling queue, and emit inline markdown (plus optional Notion sync). Triggers on "run subseek", "/subseek run", "daily reddit", "scan reddit", "show today's reddit posts", or the default `/subseek:run` invocation.
 allowed-tools: Bash, Read, Write
 ---
 
-# /reddit-engage:run
+# /subseek:run
 
 Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate + score + SQLite + JSON output. This skill is the Claude-side wrapper: it invokes the engine, optionally syncs to Notion (if configured), and prints the inline list to chat.
 
 ## Preflight
 
 1. Verify the plugin is set up:
-   - `~/.config/reddit-engage/oauth.json` exists OR the user has run `/reddit-engage:setup`
-   - At least one preset is active in `~/.config/reddit-engage/subreddits.yml`
-2. If preflight fails, redirect the user to `/reddit-engage:setup`.
+   - `~/.config/subseek/oauth.json` exists OR the user has run `/subseek:setup`
+   - At least one preset is active in `~/.config/subseek/subreddits.yml`
+2. If preflight fails, redirect the user to `/subseek:setup`.
 
 ## Daily run procedure
 
 ### Step 1 — Fetch + gate + score (Python engine)
 
 ```bash
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m reddit_engage.cli fetch-score
+cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subseek.cli fetch-score
 ```
 
 Engine output: a single JSON document on stdout with `run_id`, `fetched`, `surfaced`, `dropped_counts`, `surfaces[]`, and `inline_markdown`.
 
 ### Step 2 — Optional Notion sync
 
-If `~/.config/reddit-engage/notion.yml` exists AND `${user_config.notion_api_key}` is set:
+If `~/.config/subseek/notion.yml` exists AND `${user_config.notion_api_key}` is set:
 
 1. For each surface in the engine output, create a row in the configured Notion database with these fields:
    - `Title`, `Tier`, `Subreddit`, `Score`, `Upvotes`, `Comments`, `Posted` (ISO date), `Pain`, `Fit`, `URL` (verbatim from engine output — **never hand-compose Reddit URLs**), `Surfaced on` (today, ISO)
    - `Pattern` = the mode that produced the surface (default: `run`)
    - `State` = `Drafting` if cooling queue active, else `Hot`
+   - `OP score` ← read from `surface.op_score` (string like `"2y old · 4.2k karma · 12% wrong-audience"`). Saves opening the OP's profile to evaluate quality.
 2. Notion sync failure is **non-fatal**. Capture the reason and proceed.
 
 If Notion is not configured, skip silently.
 
-### Step 3 — Output
+### Step 3 — Optional Slack push (handled by Python automatically)
+
+If `~/.config/subseek/slack.json` exists OR `SLACK_WEBHOOK_URL` env is set, the engine pushes a formatted message to that webhook at the end of `fetch-score`. This skill does NOT need to do anything — the integration is in `engine/subseek/lib/slack.py` and silently no-ops if no webhook is configured. To suppress for one run, pass `--no-slack` to `fetch-score`.
+
+### Step 4 — Output
 
 Print the `inline_markdown` field from the engine JSON **verbatim**. That's the user-facing list. If Notion sync failed, append exactly one line: `(Notion sync failed: <reason>)`.
 
@@ -50,7 +55,7 @@ Print the `inline_markdown` field from the engine JSON **verbatim**. That's the 
 
 ## Configuration
 
-All configs live under `${REDDIT_ENGAGE_CONFIG:-~/.config/reddit-engage/}`:
+All configs live under `${SUBSEEK_CONFIG:-~/.config/subseek/}`:
 
 | File | Purpose |
 |---|---|
@@ -62,7 +67,7 @@ All configs live under `${REDDIT_ENGAGE_CONFIG:-~/.config/reddit-engage/}`:
 | `notion.yml` (optional) | Notion DB ID + integration |
 | `obsidian.yml` (optional) | Vault path for pulse digests |
 
-State (SQLite, logs) lives under `${REDDIT_ENGAGE_DATA:-~/.local/share/reddit-engage/}`.
+State (SQLite, logs) lives under `${SUBSEEK_DATA:-~/.local/share/subseek/}`.
 
 ## After completion
 

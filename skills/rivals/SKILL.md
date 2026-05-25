@@ -1,25 +1,25 @@
 ---
 name: rivals
-description: Track today's Reddit mentions of a specific competitor brand. Pure competitive intel — surfaces every substantive mention of a named vendor in the last 24h across configured subs. Triggers on "rivals scan", "/reddit-engage:rivals <brand>", "track competitor mentions", "who's talking about <brand>", "competitor radar".
+description: Track today's Reddit mentions of competitors from your brand_anchor config. Pure competitive intel — surfaces every substantive mention of a named vendor in the last 24h across configured subs. Triggers on "rivals scan", "/subseek:rivals", "track competitor mentions", "competitor radar".
 allowed-tools: Bash, Read, Write
 ---
 
-# /reddit-engage:rivals (🥷)
+# /subseek:rivals (🥷)
 
-Takes a brand name as argument. Surfaces every Reddit post in the last 24h that names the brand in a substantive way (review, switching, pricing, alternative, etc.).
+Scans today's Reddit mentions of any competitor in your `brand_anchor` config (set during /subseek:onboard or /subseek:profile). Surfaces substantive mentions in the last 24h — reviews, switching threads, pricing complaints, alternative-seeking posts.
 
 ```bash
-# user invocation example
-/reddit-engage:rivals Apollo
+# user invocation
+/subseek:rivals
 ```
 
 Engine call:
 
 ```bash
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m reddit_engage.cli fetch-score --mode rivals --rivals-brand "$BRAND"
+cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subseek.cli fetch-score --mode rivals
 ```
 
-If the user didn't pass a brand, ask them which competitor they want to track and re-run. Don't guess.
+The rivals mode loads `config/keywords-rivals.yml` (alternative-seeking, switching, churn keywords) and matches against your brand_anchor list. If you want a one-off scan of a brand NOT in your config, add it to brand_anchor temporarily in `~/.config/subseek/profile.yml`.
 
 Cooling queue applies (24h window already keeps it fresh).
 

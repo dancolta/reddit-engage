@@ -91,20 +91,20 @@ CREATE INDEX IF NOT EXISTS idx_surfaced_state ON surfaced(state, surfaced_at);
 
 
 def _xdg_data_dir() -> Path:
-    """Resolve the user-data directory, honoring REDDIT_ENGAGE_DATA, then XDG_DATA_HOME,
-    then defaulting to ~/.local/share/reddit-engage/. Created with 0o700 perms if missing.
+    """Resolve the user-data directory, honoring SUBSEEK_DATA, then XDG_DATA_HOME,
+    then defaulting to ~/.local/share/subseek/. Created with 0o700 perms if missing.
 
     Env precedence (highest first):
-      1. REDDIT_ENGAGE_DATA      — project override (set by tests / CI)
+      1. SUBSEEK_DATA      — project override (set by tests / CI)
       2. XDG_DATA_HOME           — XDG Base Directory spec
       3. ~/.local/share          — XDG default
     """
-    if override := os.environ.get("REDDIT_ENGAGE_DATA"):
+    if override := os.environ.get("SUBSEEK_DATA"):
         d = Path(override).expanduser()
     elif xdg := os.environ.get("XDG_DATA_HOME"):
-        d = Path(xdg).expanduser() / "reddit-engage"
+        d = Path(xdg).expanduser() / "subseek"
     else:
-        d = Path.home() / ".local" / "share" / "reddit-engage"
+        d = Path.home() / ".local" / "share" / "subseek"
     d.mkdir(parents=True, exist_ok=True)
     # 0o700: owner-only. Defends OAuth + Reddit credentials cached in companion files.
     try:
@@ -118,12 +118,12 @@ def _xdg_data_dir() -> Path:
 def xdg_config_dir() -> Path:
     """Resolve the user-config directory. Same precedence as _xdg_data_dir() but
     rooted at XDG_CONFIG_HOME / ~/.config."""
-    if override := os.environ.get("REDDIT_ENGAGE_CONFIG"):
+    if override := os.environ.get("SUBSEEK_CONFIG"):
         d = Path(override).expanduser()
     elif xdg := os.environ.get("XDG_CONFIG_HOME"):
-        d = Path(xdg).expanduser() / "reddit-engage"
+        d = Path(xdg).expanduser() / "subseek"
     else:
-        d = Path.home() / ".config" / "reddit-engage"
+        d = Path.home() / ".config" / "subseek"
     d.mkdir(parents=True, exist_ok=True)
     try:
         d.chmod(stat.S_IRWXU)
@@ -135,12 +135,12 @@ def xdg_config_dir() -> Path:
 def db_path(project_root: Path | str | None = None) -> Path:
     """Resolve SQLite DB path.
 
-    Default (production): `<xdg_data>/reddit-engage.sqlite` (see `_xdg_data_dir`).
-    Override (legacy / tests): pass `project_root` explicitly → `<project_root>/db/reddit-engage.sqlite`.
+    Default (production): `<xdg_data>/subseek.sqlite` (see `_xdg_data_dir`).
+    Override (legacy / tests): pass `project_root` explicitly → `<project_root>/db/subseek.sqlite`.
     """
     if project_root is not None:
-        return Path(project_root) / "db" / "reddit-engage.sqlite"
-    return _xdg_data_dir() / "reddit-engage.sqlite"
+        return Path(project_root) / "db" / "subseek.sqlite"
+    return _xdg_data_dir() / "subseek.sqlite"
 
 
 @contextmanager
@@ -156,6 +156,13 @@ def connect(path: Path | str | None = None) -> Iterator[sqlite3.Connection]:
         # SCHEMA uses CREATE TABLE IF NOT EXISTS everywhere.
         conn.executescript(SCHEMA)
         conn.commit()
+        # Owner-only perms on the DB itself. The XDG dir is 0o700 already,
+        # but defense-in-depth on shared boxes (or if user moved DB under
+        # SUBSEEK_DATA to a more permissive location).
+        try:
+            os.chmod(str(p), 0o600)
+        except OSError:
+            pass
     try:
         yield conn
         conn.commit()

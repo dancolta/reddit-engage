@@ -1,6 +1,6 @@
 """Back-propagate Good/Bad/Meh feedback into weights + sub configs.
 
-Used by `/reddit-engage:tune`. The user marks 10 surfaces from a recent run
+Used by `/subseek:tune`. The user marks 10 surfaces from a recent run
 with `g` / `b` / `m` (good / bad / meh). This module ingests those marks
 and updates:
 

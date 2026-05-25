@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from reddit_engage.lib import store  # noqa: E402
+from subseek.lib import store  # noqa: E402
 
 
 def fresh_db():

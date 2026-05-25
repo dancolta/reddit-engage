@@ -1,4 +1,4 @@
-"""reddit-engage CLI. Python-side does fetch + gate + score + SQLite.
+"""subseek CLI. Python-side does fetch + gate + score + SQLite.
 
 Claude (chat session) is the outer orchestrator per stress-test outcome #1:
 - Claude calls Playwright MCP for blog refresh (rarely; only on Dan's signal),
@@ -25,14 +25,14 @@ from typing import Any
 
 import yaml
 
-from .lib import author_vet, classify, reddit_oauth, reddit_public, score, store
+from .lib import author_vet, classify, reddit_oauth, reddit_public, score, slack, store
 
 
 def _resolve_config_dir() -> Path:
     """Resolve user-config directory with dev fallback to repo-local config/.
 
     Precedence:
-      1. XDG/REDDIT_ENGAGE_CONFIG (see store.xdg_config_dir) IF it contains subreddits.yml
+      1. XDG/SUBSEEK_CONFIG (see store.xdg_config_dir) IF it contains subreddits.yml
       2. Repo-local config/ next to engine/ (dev / fresh-clone workflow)
     """
     xdg = store.xdg_config_dir()
@@ -146,16 +146,16 @@ def cmd_orient() -> None:
     gen tooling.
     """
     welcome = (
-        "reddit-engage installed. This runs locally in your Claude session and "
+        "subseek installed. This runs locally in your Claude session and "
         "posts nothing without you.\n"
     )
     fork = (
-        "\nThree quick questions so /reddit-engage:run targets the right "
+        "\nThree quick questions so /subseek:run targets the right "
         "subreddits — about 60 seconds.\n\n"
-        "  Start with: /reddit-engage:onboard\n\n"
+        "  Start with: /subseek:onboard\n\n"
         "Other paths:\n"
-        "  /reddit-engage:onboard preset  — skip questions, pick a generic lane (~30s)\n"
-        "  /reddit-engage:profile         — 8-question deep interview (~12min, "
+        "  /subseek:onboard preset  — skip questions, pick a generic lane (~30s)\n"
+        "  /subseek:profile         — 8-question deep interview (~12min, "
         "sharper targeting)\n"
     )
     print(welcome + fork)
@@ -167,7 +167,7 @@ def cmd_fetch_score(
     no_cool: bool = False,
     cool_minutes: int | None = None,        # None = read from weights.yml
     mode: str = "default",
-    rivals_brand: str | None = None,
+    no_slack: bool = False,
 ) -> None:
     """Run the surface pipeline for a specific pattern mode.
 
@@ -179,7 +179,7 @@ def cmd_fetch_score(
       build-vs-buy   — debates with numbers
       rfp-bait       — "A vs B vs C" comparison threads
       resurrect      — 6-18mo old high-quality threads
-      rivals         — competitor mention digest (requires rivals_brand)
+      rivals         — competitor mention digest (uses brand_anchor from config)
 
     Each mode optionally loads `config/keywords-<mode>.yml` and
     `config/weights-<mode>.yml`. Missing mode-config falls back to default.
@@ -202,9 +202,6 @@ def cmd_fetch_score(
     # pricing-rage = time-sensitive: zero cooling
     if mode == "pricing-rage" and not no_cool and cool_minutes == 0:
         no_cool = True
-    # rivals requires brand argument
-    if mode == "rivals" and not rivals_brand:
-        raise ValueError("--rivals-brand is required when --mode=rivals")
 
     with store.connect() as conn:
         run_id = store.start_run(conn)
@@ -269,6 +266,7 @@ def cmd_fetch_score(
                     "sub": dict(s, **db_sub),
                     "blog_matches": blog_matches,
                     "gate_reason": reason,
+                    "vet": vet,
                 }
                 if passes:
                     # Optional Phase 2 LLM classifier: only fires on regex-gate
@@ -348,6 +346,11 @@ def cmd_fetch_score(
         "inline_markdown": out_mod.render(selected, notes, dropped_counts),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+    # Optional Slack push: silent no-op when no webhook configured. Never
+    # blocks the run; failure is logged to stderr only.
+    if not no_slack:
+        slack.notify_if_configured(payload)
 
 
 def _select_daily(candidates: list[dict[str, Any]], near_miss_pool: list[dict[str, Any]],
@@ -451,6 +454,8 @@ def cmd_status() -> None:
         "last_run": last,
         "config_dir": str(CONFIG_DIR),
         "db_path": str(store.db_path()),
+        "llm": classify.status(),
+        "slack": slack.status(),
     }, default=str, indent=2))
 
 
@@ -465,7 +470,7 @@ def cmd_blog_ingest() -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="reddit-engage")
+    parser = argparse.ArgumentParser(prog="subseek")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("setup", help="Bootstrap DB + load configs")
@@ -481,8 +486,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="Cooling queue hold duration (default: read from weights.yml cooling)")
     fs.add_argument("--mode", choices=sorted(VALID_MODES), default="default",
                     help="Pattern mode — gate and keywords change per pattern")
-    fs.add_argument("--rivals-brand", type=str, default=None,
-                    help="Brand name to track (required if --mode=rivals)")
+    fs.add_argument("--no-slack", action="store_true",
+                    help="Skip Slack notification even if webhook is configured")
 
     ov = sub.add_parser("op-vet", help="Score a Reddit OP profile (utility, one-shot)")
     ov.add_argument("username", type=str)
@@ -502,7 +507,7 @@ def main(argv: list[str] | None = None) -> None:
         cmd_fetch_score(
             args.limit_per_sub, args.daily_cap,
             no_cool=args.no_cool, cool_minutes=args.cool_minutes,
-            mode=args.mode, rivals_brand=args.rivals_brand,
+            mode=args.mode, no_slack=args.no_slack,
         )
     elif args.cmd == "op-vet":
         cmd_op_vet(args.username)
@@ -514,7 +519,7 @@ def main(argv: list[str] | None = None) -> None:
 
 def cmd_op_vet(username: str) -> None:
     """Standalone OP profile scorer. Outputs JSON: {karma, age_days,
-    sub_breakdown_top, verdict, reason}. Used by `/reddit-engage:op-vet`."""
+    sub_breakdown_top, verdict, reason}. Used by `/subseek:op-vet`."""
     with store.connect() as conn:
         result = author_vet.vet_author(username, conn=conn)
     print(json.dumps(result, ensure_ascii=False, indent=2))

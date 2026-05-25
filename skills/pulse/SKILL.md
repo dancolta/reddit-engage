@@ -1,10 +1,10 @@
 ---
 name: pulse
-description: Weekly Obsidian digest of reddit-engage activity. Builds a sub × surface heat map plus tier counts for the trailing 7 days, writes it as a dated markdown note to the user's Obsidian vault. Optional — skipped if Obsidian vault not configured. Triggers on "weekly pulse", "/reddit-engage:pulse", "obsidian pulse digest", "reddit engage weekly recap", "what did reddit-engage surface this week".
+description: Weekly Obsidian digest of subseek activity. Builds a sub × surface heat map plus tier counts for the trailing 7 days, writes it as a dated markdown note to the user's Obsidian vault. Optional — skipped if Obsidian vault not configured. Triggers on "weekly pulse", "/subseek:pulse", "obsidian pulse digest", "reddit engage weekly recap", "what did subseek surface this week".
 allowed-tools: Bash, Read, Write
 ---
 
-# /reddit-engage:pulse
+# /subseek:pulse
 
 Weekly reflection layer. Notion is the daily-triage surface; Obsidian is the weekly-review surface where you spot patterns over time.
 
@@ -13,22 +13,22 @@ Weekly reflection layer. Notion is the daily-triage surface; Obsidian is the wee
 Check for Obsidian vault config:
 
 ```bash
-cat ~/.config/reddit-engage/obsidian.yml 2>/dev/null
+cat ~/.config/subseek/obsidian.yml 2>/dev/null
 ```
 
 Expected shape:
 ```yaml
 vault_path: /Users/dan/Documents/MyVault
-pulse_folder: reddit-engage  # optional, defaults to 'reddit-engage'
+pulse_folder: subseek  # optional, defaults to 'subseek'
 ```
 
-If `obsidian.yml` missing: print "Obsidian vault not configured. Skip `/reddit-engage:setup` or drop `~/.config/reddit-engage/obsidian.yml` with a `vault_path:` line, then re-run."
+If `obsidian.yml` missing: print "Obsidian vault not configured. Skip `/subseek:setup` or drop `~/.config/subseek/obsidian.yml` with a `vault_path:` line, then re-run."
 
 ## Generate digest
 
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
-from reddit_engage.lib import store, obsidian_sync
+from subseek.lib import store, obsidian_sync
 with store.connect() as conn:
     print(obsidian_sync.build_weekly_digest(conn))
 "

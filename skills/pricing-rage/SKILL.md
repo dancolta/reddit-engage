@@ -1,13 +1,13 @@
 ---
 name: pricing-rage
-description: Surface Reddit price-hike rage threads (Salesforce/HubSpot/Gong cyclical Q1/Q3 spikes). Time-sensitive — cooling queue auto-disabled. Triggers on "pricing rage", "/reddit-engage:pricing-rage", "find price hike threads", "renewal complaints", "predatory pricing posts", "tier change rants".
+description: Surface Reddit price-hike rage threads (Salesforce/HubSpot/Gong cyclical Q1/Q3 spikes). Time-sensitive — cooling queue auto-disabled. Triggers on "pricing rage", "/subseek:pricing-rage", "find price hike threads", "renewal complaints", "predatory pricing posts", "tier change rants".
 allowed-tools: Bash, Read, Write
 ---
 
-# /reddit-engage:pricing-rage (🔥)
+# /subseek:pricing-rage (🔥)
 
 ```bash
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m reddit_engage.cli fetch-score --mode pricing-rage
+cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subseek.cli fetch-score --mode pricing-rage
 ```
 
 **Cooling queue auto-disabled for this mode** — price-hike threads spike fast and decay fast. Surfaces land state=hot immediately.

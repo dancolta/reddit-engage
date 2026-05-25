@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from reddit_engage.lib import obsidian_sync, store  # noqa: E402
+from subseek.lib import obsidian_sync, store  # noqa: E402
 
 
 def fresh_db():
@@ -47,7 +47,7 @@ def test_digest_includes_frontmatter():
     seed_surfaces(conn, n=3)
     digest = obsidian_sync.build_weekly_digest(conn)
     assert digest.startswith("---\n")
-    assert "tags: [reddit-engage, pulse, week-" in digest
+    assert "tags: [subseek, pulse, week-" in digest
     assert "total_surfaces: 3" in digest
 
 

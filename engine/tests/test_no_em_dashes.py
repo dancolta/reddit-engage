@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from reddit_engage.lib import output  # noqa: E402
+from subseek.lib import output  # noqa: E402
 
 
 EM = "—"  # —

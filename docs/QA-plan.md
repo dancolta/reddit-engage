@@ -1,4 +1,4 @@
-# QA test plan — reddit-engage live testing on Dan's setup
+# QA test plan — subseek live testing on Dan's setup
 
 **Status:** Ready to execute. Each test is a Kanban card on Project #7 in the `Backlog` lane, Phase = `QA`.
 
@@ -12,10 +12,10 @@
 
 | Step | Command | Pass condition |
 |---|---|---|
-| Engine installed | `cd ~/Work/.../reddit-engage && pip install -e '.[reddit,anthropic,notion]'` | No errors |
-| Plugin loaded | In Claude Code: `/plugin install dancolta/reddit-engage` | `/reddit-engage:run` resolves to a skill |
-| Migration run | `PYTHONPATH=engine python3 engine/scripts/migrate_to_xdg.py` | Legacy DB copied to `~/.local/share/reddit-engage/`, row counts match |
-| Local config present | `ls ~/.config/reddit-engage/` | `notion.yml` exists with your DB ID |
+| Engine installed | `cd ~/Work/.../subseek && pip install -e '.[reddit,anthropic,notion]'` | No errors |
+| Plugin loaded | In Claude Code: `/plugin install dancolta/subseek` | `/subseek:run` resolves to a skill |
+| Migration run | `PYTHONPATH=engine python3 engine/scripts/migrate_to_xdg.py` | Legacy DB copied to `~/.local/share/subseek/`, row counts match |
+| Local config present | `ls ~/.config/subseek/` | `notion.yml` exists with your DB ID |
 | Tests still green | `PYTHONPATH=engine python3 -m pytest engine/tests/ -q` | **76 passed** |
 | Plugin validates | `claude plugin validate .` | passes with 1 known warning |
 
@@ -28,11 +28,11 @@ If any pre-flight fails, fix before running QA tests below.
 ### QA-1 — Default daily run (zero-key path)
 **BMAD agent:** `bmad-qa`
 **Setup:**
-- Temporarily move `~/.config/reddit-engage/oauth.json` aside (`mv → .bak`)
+- Temporarily move `~/.config/subseek/oauth.json` aside (`mv → .bak`)
 - Unset `ANTHROPIC_API_KEY`
-- Move `~/.config/reddit-engage/notion.yml` aside
+- Move `~/.config/subseek/notion.yml` aside
 **Steps:**
-1. `/reddit-engage:run` from Claude Code
+1. `/subseek:run` from Claude Code
 **Pass criteria:**
 - Surfaces appear inline as markdown (5–15 rows)
 - No errors about missing OAuth/API key/Notion
@@ -42,9 +42,9 @@ If any pre-flight fails, fix before running QA tests below.
 
 ### QA-2 — OAuth path activates correctly
 **BMAD agent:** `bmad-qa`
-**Setup:** ensure `~/.config/reddit-engage/oauth.json` has client_id + client_secret + username (per docs/setup-oauth.md)
+**Setup:** ensure `~/.config/subseek/oauth.json` has client_id + client_secret + username (per docs/setup-oauth.md)
 **Steps:**
-1. `cd ~/Work/.../reddit-engage && PYTHONPATH=engine python3 -c "from reddit_engage.lib import reddit_oauth; print(reddit_oauth.has_oauth()); posts, _ = reddit_oauth.fetch_delta('sales', None, max_limit=5); [print(p['id'], p['title'][:60]) for p in posts]"`
+1. `cd ~/Work/.../subseek && PYTHONPATH=engine python3 -c "from subseek.lib import reddit_oauth; print(reddit_oauth.has_oauth()); posts, _ = reddit_oauth.fetch_delta('sales', None, max_limit=5); [print(p['id'], p['title'][:60]) for p in posts]"`
 **Pass criteria:**
 - `has_oauth: True`
 - 5 real posts from r/sales printed
@@ -54,9 +54,9 @@ If any pre-flight fails, fix before running QA tests below.
 ### QA-3 — Author pre-gate kills throwaways
 **BMAD agent:** `bmad-qa`
 **Steps:**
-1. `/reddit-engage:op-vet [deleted]` → must return `verdict: fail, reason: deleted_or_private`
-2. `/reddit-engage:op-vet AutoModerator` → high karma + long history, must `pass`
-3. Pick a known-young account from today's surfaces; verify the cache write in SQLite: `sqlite3 ~/.local/share/reddit-engage/reddit-engage.sqlite "SELECT username, verdict, reason FROM vetted_authors LIMIT 10"`
+1. `/subseek:op-vet [deleted]` → must return `verdict: fail, reason: deleted_or_private`
+2. `/subseek:op-vet AutoModerator` → high karma + long history, must `pass`
+3. Pick a known-young account from today's surfaces; verify the cache write in SQLite: `sqlite3 ~/.local/share/subseek/subseek.sqlite "SELECT username, verdict, reason FROM vetted_authors LIMIT 10"`
 **Pass criteria:**
 - All three behave as documented
 - 7-day cache rows present
@@ -65,8 +65,8 @@ If any pre-flight fails, fix before running QA tests below.
 **BMAD agent:** `bmad-qa`
 **Setup:** ANTHROPIC_API_KEY NOT set
 **Steps:**
-1. `/reddit-engage:run` → produces today's list inline
-2. `/reddit-engage:judge 3` (or any surface number you find interesting)
+1. `/subseek:run` → produces today's list inline
+2. `/subseek:judge 3` (or any surface number you find interesting)
 **Pass criteria:**
 - Claude reads the post, runs classify.md prompt, returns verdict in human-readable table format
 - Final verdict line: `Go.` / `Borderline — your call.` / `Skip.`
@@ -76,7 +76,7 @@ If any pre-flight fails, fix before running QA tests below.
 **BMAD agent:** `bmad-qa`
 **Setup:** Export `ANTHROPIC_API_KEY=sk-ant-...` in shell
 **Steps:**
-1. `/reddit-engage:run` again
+1. `/subseek:run` again
 **Pass criteria:**
 - Engine output JSON shows each surface has a `classifier` field with `intent`/`buyer_stage`/`fit_score`/etc
 - Stderr log shows `provider=anthropic_api`
@@ -85,10 +85,10 @@ If any pre-flight fails, fix before running QA tests below.
 ### QA-6 — Notion sync to your DB
 **BMAD agent:** `bmad-qa`
 **Setup:**
-- `~/.config/reddit-engage/notion.yml` has DB ID `b4d9a0e7c9304087af5ba248976edf60` + your `NOTION_API_KEY`
+- `~/.config/subseek/notion.yml` has DB ID `b4d9a0e7c9304087af5ba248976edf60` + your `NOTION_API_KEY`
 - DB must have Pattern + State + Fit (LLM) properties (run `engine/scripts/notion_migrate.py --database-id b4d9a0e7c9304087af5ba248976edf60` first if missing)
 **Steps:**
-1. `/reddit-engage:run`
+1. `/subseek:run`
 2. Open https://www.notion.so/b4d9a0e7c9304087af5ba248976edf60
 **Pass criteria:**
 - New rows appear with: Title / Tier / Subreddit / Score / Pain / Fit / URL / Surfaced on / Pattern / State='Drafting'
@@ -98,12 +98,12 @@ If any pre-flight fails, fix before running QA tests below.
 ### QA-7 — Sub-skill regression sweep
 **BMAD agent:** `bmad-qa`
 **Steps (run each, verify each produces a usable list):**
-1. `/reddit-engage:stack-audit`
-2. `/reddit-engage:churn`
-3. `/reddit-engage:pricing-rage` — should bypass cooling queue (state='hot' immediately)
-4. `/reddit-engage:build-vs-buy`
-5. `/reddit-engage:rfp-bait`
-6. `/reddit-engage:rivals HubSpot`
+1. `/subseek:stack-audit`
+2. `/subseek:churn`
+3. `/subseek:pricing-rage` — should bypass cooling queue (state='hot' immediately)
+4. `/subseek:build-vs-buy`
+5. `/subseek:rfp-bait`
+6. `/subseek:rivals HubSpot`
 **Pass criteria:**
 - Each emits at least 1 surface OR a coherent "no matches today" empty-state
 - Each output JSON has correct `mode` field
@@ -113,7 +113,7 @@ If any pre-flight fails, fix before running QA tests below.
 **BMAD agent:** `bmad-qa` (requires you to actually reply to a Reddit thread first)
 **Setup:** Have at least 1 reply to a surfaced post in your Reddit history (any one).
 **Steps:**
-1. `/reddit-engage:postmortem`
+1. `/subseek:postmortem`
 **Pass criteria:**
 - `detect` block: `new_matches >= 1` (the reply you made)
 - Row in `reply_log` SQLite table with correct `comment_id`, `comment_url`, `replied_at`
@@ -121,29 +121,29 @@ If any pre-flight fails, fix before running QA tests below.
 
 ### QA-9 — Obsidian pulse digest
 **BMAD agent:** `bmad-qa`
-**Setup:** `~/.config/reddit-engage/obsidian.yml` with your vault path
+**Setup:** `~/.config/subseek/obsidian.yml` with your vault path
 **Steps:**
-1. `/reddit-engage:pulse`
+1. `/subseek:pulse`
 **Pass criteria:**
-- New file at `<vault>/reddit-engage/YYYY-WNN-pulse.md`
-- Frontmatter: tags include `reddit-engage, pulse, week-NN`
+- New file at `<vault>/subseek/YYYY-WNN-pulse.md`
+- Frontmatter: tags include `subseek, pulse, week-NN`
 - Body has "Sub × surface count" table populated from last 7 days
 - If reply_log has data: "Postmortem" section present with averages
 
 ### QA-10 — End-to-end first-time-user simulation
 **BMAD agent:** `bmad-qa` (manual, paranoia mode)
-**Setup:** Spin up a fresh Linux VM OR temporarily rename `~/.config/reddit-engage/` to `~/.config/reddit-engage.bak/` and `~/.local/share/reddit-engage/` to `~/.local/share/reddit-engage.bak/`
+**Setup:** Spin up a fresh Linux VM OR temporarily rename `~/.config/subseek/` to `~/.config/subseek.bak/` and `~/.local/share/subseek/` to `~/.local/share/subseek.bak/`
 **Steps:**
-1. `/plugin install dancolta/reddit-engage` (or symlink from local repo)
-2. `/reddit-engage:setup` — walk through the conversational wizard
+1. `/plugin install dancolta/subseek` (or symlink from local repo)
+2. `/subseek:setup` — walk through the conversational wizard
 3. Pick `b2b-saas-founder` preset
 4. Skip Notion + Obsidian for this test (test default-only path)
-5. `/reddit-engage:run`
+5. `/subseek:run`
 **Pass criteria:**
 - Wizard completes without errors
 - Skip paths work cleanly (don't ask for OAuth/LLM/Notion if user says skip)
-- Final `/reddit-engage:run` produces surfaces using b2b-saas-founder preset's sub list
-- All files written to XDG paths (verify: `ls ~/.config/reddit-engage/` after setup)
+- Final `/subseek:run` produces surfaces using b2b-saas-founder preset's sub list
+- All files written to XDG paths (verify: `ls ~/.config/subseek/` after setup)
 - **RESTORE:** move the `.bak` directories back when done
 
 ---
@@ -167,7 +167,7 @@ The Stop-hook still enforces — if you edit any code during a QA pass, you must
 ## Bulk-file all 10 QA cards (one command)
 
 ```bash
-cd ~/Work/NodeSparks/Projects/reddit-engage
+cd ~/Work/NodeSparks/Projects/subseek
 PYTHONPATH=engine python3 scripts/qa_to_board.py  # will be created on first run
 ```
 

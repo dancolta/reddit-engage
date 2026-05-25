@@ -7,7 +7,7 @@ markdown digest content from SQLite state.
 
 Output shape:
     ---
-    tags: [reddit-engage, pulse, week-NN]
+    tags: [subseek, pulse, week-NN]
     date: YYYY-MM-DD
     total_surfaces: N
     ---
@@ -26,7 +26,7 @@ Output shape:
 
     ## Notes
 
-    Generated from reddit-engage DB on YYYY-MM-DD HH:MM UTC.
+    Generated from subseek DB on YYYY-MM-DD HH:MM UTC.
 """
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ def build_weekly_digest(conn: sqlite3.Connection, now: dt.datetime | None = None
 
     lines: list[str] = []
     lines.append("---")
-    lines.append(f"tags: [reddit-engage, pulse, week-{week:02d}]")
+    lines.append(f"tags: [subseek, pulse, week-{week:02d}]")
     lines.append(f"date: {today_str}")
     lines.append(f"total_surfaces: {total}")
     lines.append("---")
@@ -127,7 +127,7 @@ def build_weekly_digest(conn: sqlite3.Connection, now: dt.datetime | None = None
 
     lines.append("## Notes")
     lines.append("")
-    lines.append(f"Generated from reddit-engage DB at {dt.datetime.now(dt.timezone.utc).isoformat()}.")
+    lines.append(f"Generated from subseek DB at {dt.datetime.now(dt.timezone.utc).isoformat()}.")
     return "\n".join(lines) + "\n"
 
 

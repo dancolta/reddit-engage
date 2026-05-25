@@ -110,9 +110,38 @@ def render_json_payload(surfaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "created_utc": post["created_utc"],
             "pain_summary": s.get("pain_summary", ""),
             "fit_summary": s.get("fit_summary", ""),
+            "op_score": _op_score_string(s.get("vet") or {}),
             "blog_matches": [
                 {"title": m["title"], "url": m["url"]}
                 for m in s.get("blog_matches", [])
             ],
         })
     return out
+
+
+def _op_score_string(vet: dict[str, Any]) -> str:
+    """One-line operator score for Notion 'OP score' column.
+
+    Example: '2y old · 4.2k karma · 12% wrong-audience'.
+
+    Empty string when vet data missing (e.g. cache miss + fetch failure).
+    Saves the user a profile-open click before deciding to reply.
+    """
+    if not vet:
+        return ""
+    age_days = vet.get("account_age_days") or 0
+    if age_days >= 365:
+        age = f"{age_days // 365}y"
+    elif age_days >= 30:
+        age = f"{age_days // 30}mo"
+    else:
+        age = f"{age_days}d"
+    karma = vet.get("comment_karma") or 0
+    if karma >= 1000:
+        k = f"{karma / 1000:.1f}k"
+    else:
+        k = str(karma)
+    frac = vet.get("wrong_audience_fraction")
+    if frac is None:
+        return f"{age} old · {k} karma"
+    return f"{age} old · {k} karma · {int(frac * 100)}% wrong-audience"

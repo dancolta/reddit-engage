@@ -1,7 +1,7 @@
 """Raw Reddit public JSON fetcher. No auth required.
 
 Adapted from ~/.claude/skills/last30days/scripts/lib/reddit_public.py.
-Changes for reddit-engage:
+Changes for subseek:
 - Daily-delta cursor strategy (sort=new + last-seen post ID watermark)
 - URL canonicalization to https://reddit.com/comments/<t3_id>/
 - Removed enrichment / time-window logic
@@ -26,7 +26,7 @@ except ImportError:
     _SSL_CONTEXT = ssl.create_default_context()
 
 
-USER_AGENT = "reddit-engage/0.1 (research tool, github.com/dancolta)"
+USER_AGENT = "subseek/0.1 (research tool, github.com/dancolta)"
 MAX_RETRIES = 3
 BASE_BACKOFF = 2.0
 

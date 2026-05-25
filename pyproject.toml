@@ -1,12 +1,12 @@
 [project]
-name = "reddit-engage"
+name = "subseek"
 version = "0.1.0"
-description = "Daily Reddit pain-post surfacer with pattern-aware sub-skills, Claude-powered intent classification, optional Notion triage board, and weekly Obsidian pulse digest."
+description = "Daily subreddit scanner: surfaces pain-pattern posts (pricing rage, churn, build-vs-buy, alternative-seeking) inside your Claude Code session. Pattern-aware, human-in-the-loop, closed-loop learner from your own sent replies."
 authors = [{ name = "Dan Colta" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
-keywords = ["reddit", "lead-generation", "social-listening", "claude-code"]
+keywords = ["reddit", "subreddit-scanner", "pain-patterns", "social-listening", "claude-code", "claude-code-plugin", "human-in-the-loop"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
@@ -21,22 +21,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Semantic dedup (sqlite-vec + BGE-small embeddings) — opt-in install
-vec = [
-    "sqlite-vec>=0.1.0",
-    "sentence-transformers>=2.7.0",
-]
 # Provider-agnostic LLM via OpenAI-compatible client.
 # Works with: OpenAI, Anthropic (/openai/v1), Groq, OpenRouter, Together,
 # Fireworks, Anyscale, local Ollama, any OpenAI-compatible endpoint.
-llm = ["openai>=1.30.0"]
-# Native Anthropic SDK (unlocks prompt caching, otherwise functionally
-# equivalent to [llm] when pointed at Anthropic).
-anthropic = ["anthropic>=0.40.0"]
+llm = ["openai>=1.30.0,<2.0"]
 # OAuth + identity scope for Reddit
-reddit = ["praw>=7.7.0"]
+reddit = ["praw>=7.7.0,<8.0"]
 # Notion daily-triage sync
-notion = ["notion-client>=2.2.0"]
+notion = ["notion-client>=2.2.0,<3.0"]
 # Dev / test
 dev = [
     "pytest>=8.0",
@@ -45,11 +37,11 @@ dev = [
 ]
 
 [project.scripts]
-reddit-engage = "reddit_engage.cli:main"
+subseek = "subseek.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/dancolta/reddit-engage"
-Repository = "https://github.com/dancolta/reddit-engage"
+Homepage = "https://github.com/dancolta/subseek"
+Repository = "https://github.com/dancolta/subseek"
 Issues = "https://github.com/users/dancolta/projects/7"
 
 [build-system]
@@ -58,7 +50,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["engine"]
-include = ["reddit_engage*"]
+include = ["subseek*"]
 
 [tool.pytest.ini_options]
 testpaths = ["engine/tests"]

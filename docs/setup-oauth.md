@@ -1,6 +1,6 @@
 # Reddit OAuth setup
 
-`reddit-engage` works without OAuth (falls back to logged-out `/new.json`) but registering a Reddit app unlocks:
+`subseek` works without OAuth (falls back to logged-out `/new.json`) but registering a Reddit app unlocks:
 
 - **10x rate budget** — 100 QPM authenticated vs ~10 QPM rate-shaped on the public path
 - **Identity scope** — needed for Phase 5 postmortem (auto-detect your own replies)
@@ -10,13 +10,13 @@ Total time: ~5 minutes. Reddit doesn't review personal-use script apps.
 
 ## 1. Create the app
 
-Open https://www.reddit.com/prefs/apps while logged into the account `reddit-engage` will act on behalf of.
+Open https://www.reddit.com/prefs/apps while logged into the account `subseek` will act on behalf of.
 
 Click **"create another app..."** at the bottom and fill in:
 
 | Field | Value |
 |---|---|
-| **name** | `reddit-engage` (anything you want) |
+| **name** | `subseek` (anything you want) |
 | **app type** | **`script`** ← important, not "web app" or "installed" |
 | **description** | leave blank |
 | **about url** | leave blank |
@@ -29,7 +29,7 @@ Click **create app**. Reddit shows the new app card.
 The card looks like this:
 
 ```
-reddit-engage              [edit]   [delete]
+subseek              [edit]   [delete]
 personal use script
 <14-character client ID>             ← this is your client_id
 secret: <27-character string>         ← click "edit" if hidden
@@ -44,28 +44,28 @@ You need three values:
 ## 3. Drop them in oauth.json
 
 ```bash
-mkdir -p ~/.config/reddit-engage
-cat > ~/.config/reddit-engage/oauth.json <<'EOF'
+mkdir -p ~/.config/subseek
+cat > ~/.config/subseek/oauth.json <<'EOF'
 {
   "client_id":     "PUT_14_CHAR_STRING_HERE",
   "client_secret": "PUT_27_CHAR_SECRET_HERE",
   "username":      "your_reddit_username",
-  "user_agent":    "reddit-engage/0.1 by /u/your_reddit_username"
+  "user_agent":    "subseek/0.1 by /u/your_reddit_username"
 }
 EOF
-chmod 600 ~/.config/reddit-engage/oauth.json
+chmod 600 ~/.config/subseek/oauth.json
 ```
 
 The `chmod 600` step is important — the file holds secrets in plaintext.
 
-> **Alternative: plugin user config.** If you installed via `/plugin install dancolta/reddit-engage`, Claude Code already prompted you for these and stored them in your OS keychain. You only need to write `oauth.json` manually if you cloned the repo directly without going through the plugin install flow.
+> **Alternative: plugin user config.** If you installed via `/plugin install dancolta/subseek`, Claude Code already prompted you for these and stored them in your OS keychain. You only need to write `oauth.json` manually if you cloned the repo directly without going through the plugin install flow.
 
 ## 4. Verify
 
 ```bash
-cd ~/Work/reddit-engage
+cd ~/Work/subseek
 PYTHONPATH=engine python3 -c "
-from reddit_engage.lib import reddit_oauth
+from subseek.lib import reddit_oauth
 print('has_oauth:', reddit_oauth.has_oauth())
 print('first 3 posts from r/sales:')
 for p in reddit_oauth.fetch_delta('sales', None, max_limit=3):
@@ -83,7 +83,7 @@ first 3 posts from r/sales:
   ghi789 | <another>
 ```
 
-If `has_oauth: False`, the script falls back to public JSON automatically — that's by design, not a failure. Confirm `~/.config/reddit-engage/oauth.json` exists and has all three required fields.
+If `has_oauth: False`, the script falls back to public JSON automatically — that's by design, not a failure. Confirm `~/.config/subseek/oauth.json` exists and has all three required fields.
 
 ## Troubleshooting
 
@@ -96,15 +96,15 @@ If `has_oauth: False`, the script falls back to public JSON automatically — th
 
 ## Optional: refresh tokens
 
-For long-running daemons or installed-app flow, swap `password`/script grant for a refresh token. See the `password` and `refresh_token` fields in [`reddit_oauth.py`](../engine/reddit_engage/lib/reddit_oauth.py). Script apps don't need this — they auth via username + client credentials directly.
+For long-running daemons or installed-app flow, swap `password`/script grant for a refresh token. See the `password` and `refresh_token` fields in [`reddit_oauth.py`](../engine/subseek/lib/reddit_oauth.py). Script apps don't need this — they auth via username + client credentials directly.
 
 ## Privacy
 
-`reddit-engage` never sends your credentials anywhere except Reddit's OAuth endpoint. The full request flow:
+`subseek` never sends your credentials anywhere except Reddit's OAuth endpoint. The full request flow:
 
 1. PRAW posts your credentials to `https://www.reddit.com/api/v1/access_token` (HTTPS)
 2. Reddit returns a short-lived bearer token
 3. Subsequent fetches use the bearer token, not the password
 4. No telemetry. No third-party calls. No analytics.
 
-The plugin source is at https://github.com/dancolta/reddit-engage — audit it.
+The plugin source is at https://github.com/dancolta/subseek — audit it.

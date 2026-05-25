@@ -14,14 +14,14 @@ Why the fallback exists:
   - CI / unit tests should not require OAuth credentials
   - Lets `setup` work without OAuth on day 1; users can upgrade later
 
-Config: ~/.config/reddit-engage/oauth.json
+Config: ~/.config/subseek/oauth.json
 {
   "client_id":     "<14-char string from reddit.com/prefs/apps>",
   "client_secret": "<secret from same app>",
   "username":      "<your reddit username>",
   "password":      null,                       // OPTIONAL, password-grant only
   "refresh_token": null,                       // OPTIONAL, refresh-grant
-  "user_agent":    "reddit-engage/0.1 by <your-username>"
+  "user_agent":    "subseek/0.1 by <your-username>"
 }
 
 If `password` is set we use password grant (script app). Else we use installed-app
@@ -30,6 +30,7 @@ flow with the refresh_token. Reddit recommends script-app for personal use.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,25 @@ from . import reddit_public, store
 def _log(msg: str) -> None:
     sys.stderr.write(f"[reddit-oauth] {msg}\n")
     sys.stderr.flush()
+
+
+# Reddit usernames are A-Za-z0-9_- with a 3-20 practical range. We accept up to
+# 32 to be safe. Everything outside this pattern is rejected before URL building
+# to defuse path-segment injection on the public reddit.com JSON endpoint.
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+
+
+def _safe_username(username: str | None) -> str | None:
+    """Return a username safe for URL path interpolation, or None if invalid.
+
+    Strips a leading 'u/' or '/u/' if present. Returns None for empty input,
+    None for input that fails the username regex (rejects hostile input like
+    'x/about.json?dummy=', '../etc/passwd', etc.).
+    """
+    if not username:
+        return None
+    cleaned = username.lstrip("/").removeprefix("u/")
+    return cleaned if _USERNAME_RE.match(cleaned) else None
 
 
 def oauth_config_path() -> Path:
@@ -74,7 +94,7 @@ def _build_praw_client():
         ) from e
 
     cfg = _load_oauth_config()
-    ua = cfg.get("user_agent") or f"reddit-engage/0.1 by /u/{cfg['username']}"
+    ua = cfg.get("user_agent") or f"subseek/0.1 by /u/{cfg['username']}"
 
     kwargs: dict[str, Any] = {
         "client_id": cfg["client_id"],
@@ -182,8 +202,10 @@ def fetch_user_about(username: str) -> dict[str, Any] | None:
             _log(f"OAuth user fetch failed → falling back to public: {e}")
 
     # Public fallback. /user/<u>/about.json is unauth-readable.
-    import urllib.parse
-    url = f"https://www.reddit.com/user/{urllib.parse.quote(username.lstrip('u/'))}/about.json"
+    safe = _safe_username(username)
+    if not safe:
+        return None
+    url = f"https://www.reddit.com/user/{safe}/about.json"
     data = reddit_public.fetch_json(url)
     if not data:
         return None
@@ -206,7 +228,6 @@ def fetch_user_recent_subs(username: str, limit: int = 100) -> dict[str, int] | 
 
     Returns {subreddit_name: count} or None on failure.
     """
-    import urllib.parse
     if has_oauth():
         try:
             client = _build_praw_client()
@@ -220,7 +241,10 @@ def fetch_user_recent_subs(username: str, limit: int = 100) -> dict[str, int] | 
         except Exception as e:
             _log(f"OAuth user-comments fetch failed → falling back: {e}")
 
-    url = f"https://www.reddit.com/user/{urllib.parse.quote(username.lstrip('u/'))}/comments.json?limit={limit}"
+    safe = _safe_username(username)
+    if not safe:
+        return None
+    url = f"https://www.reddit.com/user/{safe}/comments.json?limit={limit}"
     data = reddit_public.fetch_json(url)
     if not data:
         return None

@@ -54,7 +54,7 @@ scoring:
 # Surfaces beyond 10 train skim-dismiss; 15+ trains app abandonment.
 daily_output:
   hard_ceiling: 12                 # absolute max — surface 11+ does damage
-  default_target: 10               # what /reddit-engage:run aims for on a normal day
+  default_target: 10               # what /subseek:run aims for on a normal day
   minimum: 6                       # below this product feels broken
   tier1_per_sub_cap: 2             # max 2 Tier 1 surfaces per sub per day
   tier2_per_sub_cap: 1             # max 1 Tier 2 surface per sub per day
@@ -80,6 +80,5 @@ cooling:
 config_ceilings:
   brand_anchor_max: 20             # 12 sweet spot, 8 floor, 20 ceiling
   keywords_per_bucket_max: 50      # above this regex cross-matches
-  keywords_per_bucket_sweet_spot: 35  # synthesis target
   tier1_subs_max: 5
   tier2_subs_max: 8                # was 11 active, tightened

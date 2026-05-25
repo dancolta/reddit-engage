@@ -15,10 +15,13 @@ db/*.sqlite-*
 # voice-profile is local-only until Dan signals it's ready to ship
 voice-profile.md
 
-# BMAD + board ephemerals
+# BMAD + board ephemerals (private dev workflow; not for public repo)
 .claude/session-tasks.log
 .claude/bypass.log
+_bmad/
 _bmad-output/
+.bmad-board/
+CLAUDE.md
 
 # User config — must never land in the public repo
 config/notion.yml

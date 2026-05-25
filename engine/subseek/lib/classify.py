@@ -12,43 +12,37 @@ Returns a structured verdict per post:
 
 ## Three-tier classification model
 
-`reddit-engage` does NOT bulk-classify every post by default. The default
+`subseek` does NOT bulk-classify every post by default. The default
 daily run uses regex + author-vet + tier gates only (zero LLM cost, zero
 auth requirement). LLM classification is opt-in per use case:
 
-1. **`/reddit-engage:run` (default)** — regex-only gate. No classifier call.
+1. **`/subseek:run` (default)** — regex-only gate. No classifier call.
    Day-1 install works without any keys.
 
-2. **`/reddit-engage:judge <surface-id>`** — interactive, Claude-driven via
+2. **`/subseek:judge <surface-id>`** — interactive, Claude-driven via
    your Claude Code subscription. Reads a single surface, runs the same
    classification prompt, returns verdict + reply angle. Free under
    subscription; cost lives with `claude` Code session, not this module.
 
-3. **Bulk LLM (opt-in, via `ANTHROPIC_API_KEY`)** — `classify(post)` in
-   this module calls the Anthropic SDK directly. Prompt-cached at
-   ~$0.0005/post with Haiku 4.5. Activated when `cmd_fetch_score` finds
-   `ANTHROPIC_API_KEY` in env — every regex-passing post gets graded.
-   At 5K posts/day = ~$0.50/day.
+3. **Bulk LLM (opt-in, via `LLM_API_KEY` + any OpenAI-compatible endpoint)** —
+   `classify(post)` calls the OpenAI Python SDK against whichever endpoint the
+   user configured (Anthropic via `/openai/v1`, OpenAI, Groq, OpenRouter,
+   Together, Fireworks, local Ollama). Activated when `cmd_fetch_score` finds
+   any of `LLM_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` in env —
+   every regex-passing post gets graded. Typical cost ~$0.0005/post with
+   Haiku 4.5 / GPT-4o-mini class models. At 5K posts/day = ~$0.50/day.
 
 ## Why no `claude` CLI subprocess path
 
-PLAN.md originally proposed using `claude -p` subprocess for the
-"subscription-as-default" case. Measured cost: ~$0.17/call because the
-CLI in non-bare mode loads the full Claude Code session context (~136K
-tokens of CLAUDE.md / hooks / plugin sync) for every invocation. At
-volume that's $850/day — unusable.
-
-`claude --bare -p` strips the context BUT enforces `ANTHROPIC_API_KEY`
-auth (OAuth/keychain are explicitly blocked in bare mode). So there's no
-viable subprocess path that uses subscription auth at scale.
-
-The subscription's natural use is **interactive judgment** — one call at
-a time, human-driven, in chat. That's the `/reddit-engage:judge` skill
-(skills/judge/SKILL.md). Bulk classification is what API keys are for.
+The Claude Code subscription's natural use is **interactive judgment** — one
+call at a time, human-driven, in chat. That's the `/subseek:judge` skill
+(skills/judge/SKILL.md). Bulk classification is what API keys are for —
+subprocess invocation of `claude` either loads expensive session context
+or requires an API key anyway.
 
 ## Prompt + schema
 
-System prompt + JSON schema live in `engine/reddit_engage/prompts/classify.md`.
+System prompt + JSON schema live in `engine/subseek/prompts/classify.md`.
 Same prompt powers both the bulk SDK path AND the interactive judge skill,
 so verdicts are consistent across modes. Prompt is cacheable; per-post
 tokens are ~400 input + ~80 output = ~$0.0005 with Haiku 4.5.
@@ -60,9 +54,11 @@ simple, prevent runaway by per-call enforcement.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any, Literal
 
@@ -97,7 +93,7 @@ CLASSIFY_SCHEMA = {
 }
 
 
-Provider = Literal["openai_compatible", "anthropic_native", "disabled"]
+Provider = Literal["openai_compatible", "disabled"]
 
 
 # Default base URLs per provider key shape
@@ -108,11 +104,63 @@ _DEFAULT_BASE_URLS = {
     "gsk_": "https://api.groq.com/openai/v1",            # Groq
 }
 
+# Hosts that are explicitly allowed even though they resolve to private/loopback
+# IPs (local LLM servers). Everything else hitting RFC-1918 or link-local is
+# rejected as a likely SSRF attempt against cloud metadata, internal services,
+# or LAN devices.
+_LOCAL_ALLOWLIST = {"localhost", "127.0.0.1", "::1"}
+
+
+def _validate_base_url(url: str) -> str:
+    """SSRF guard: reject base URLs that target internal/metadata services.
+
+    Allows:
+      - https://* with public hostnames
+      - http://localhost or http://127.0.0.1 (local Ollama / dev servers)
+
+    Rejects:
+      - http://* to non-localhost hosts
+      - URLs targeting RFC-1918, link-local, or AWS-metadata-style IPs
+      - Non-http(s) schemes
+    """
+    try:
+        p = urllib.parse.urlparse(url)
+    except ValueError as e:
+        raise ValueError(f"Invalid llm_base_url: {url!r} ({e})")
+    if p.scheme not in ("http", "https"):
+        raise ValueError(f"llm_base_url must be http(s), got {p.scheme!r}")
+    host = (p.hostname or "").lower()
+    if not host:
+        raise ValueError(f"llm_base_url has no host: {url!r}")
+    if p.scheme == "http" and host not in _LOCAL_ALLOWLIST:
+        raise ValueError(
+            f"llm_base_url uses http:// for non-local host {host!r}. "
+            "Use https:// for remote endpoints; http:// is only allowed for localhost."
+        )
+    # Block private + link-local IPs (AWS metadata 169.254.169.254, etc.).
+    # ipaddress.ip_address() raises ValueError on non-IP hostnames; capture
+    # that case separately so our own validation ValueError doesn't get
+    # swallowed by the same except block.
+    ip = None
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None  # hostname, not an IP literal — defer to DNS at request time
+    if ip is not None and host not in _LOCAL_ALLOWLIST and (
+        ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_multicast
+    ):
+        raise ValueError(
+            f"llm_base_url targets private/link-local IP {host!r}. "
+            "If running a local LLM, use 'localhost' instead."
+        )
+    return url
+
 
 def _resolve_llm_endpoint() -> tuple[str | None, str, str]:
     """Return (api_key, base_url, model) for the OpenAI-compatible client.
 
     Priority: explicit llm.json fields → env vars → key-prefix inference → defaults.
+    Raises ValueError if a configured base_url fails SSRF validation.
     """
     cfg = {}
     cfg_path = llm_config_path()
@@ -139,6 +187,9 @@ def _resolve_llm_endpoint() -> tuple[str | None, str, str]:
         if not base_url:
             base_url = "https://api.openai.com/v1"
 
+    if base_url:
+        base_url = _validate_base_url(base_url)
+
     model = cfg.get("model") or os.environ.get("LLM_MODEL") or DEFAULT_MODEL
     return api_key, base_url, model
 
@@ -148,64 +199,65 @@ def _log(msg: str) -> None:
     sys.stderr.flush()
 
 
+# One-time privacy banner per process: tell the user their post bodies are
+# leaving the machine the first time we call out to an LLM endpoint.
+_PRIVACY_BANNER_SHOWN = False
+
+
+def _show_privacy_banner_once(base_url: str) -> None:
+    global _PRIVACY_BANNER_SHOWN
+    if _PRIVACY_BANNER_SHOWN:
+        return
+    _PRIVACY_BANNER_SHOWN = True
+    sys.stderr.write(
+        f"[classify] LLM grading active. Reddit post bodies (capped at 800 chars) "
+        f"will be sent to {base_url} for classification. "
+        f"To disable: unset LLM_API_KEY (and OPENAI_API_KEY, ANTHROPIC_API_KEY).\n"
+    )
+    sys.stderr.flush()
+
+
 def llm_config_path() -> Path:
     return store.xdg_config_dir() / "llm.json"
 
 
 def detect_provider() -> Provider:
-    """Auto-detect best available LLM provider for bulk classification.
+    """Auto-detect available LLM provider for bulk classification.
 
     Returns `disabled` (not an exception) if no key configured. Callers MUST
     handle `disabled` gracefully — the default daily run does regex-only
     gating and never calls classify() in the first place.
 
     Provider auto-detection:
-      1. `~/.config/reddit-engage/llm.json` explicit override (highest priority)
-      2. `LLM_API_KEY` env var → use base_url + model from llm.json or defaults
-      3. `ANTHROPIC_API_KEY` env var (legacy compat) → Anthropic
+      1. `~/.config/subseek/llm.json` explicit override (highest priority)
+      2. `LLM_API_KEY` env var → OpenAI-compatible (base_url inferred from prefix)
+      3. `ANTHROPIC_API_KEY` env var → routed via Anthropic's /openai/v1 endpoint
       4. `OPENAI_API_KEY` env var → OpenAI
       5. else: disabled
 
     The plugin is provider-agnostic: works with any OpenAI-compatible
     endpoint (Anthropic via /openai/v1, OpenAI, Groq, OpenRouter, Together,
-    Fireworks, local Ollama, etc).
+    Fireworks, local Ollama, etc). Single code path — no provider-specific
+    SDK branches.
     """
     cfg_path = llm_config_path()
     if cfg_path.exists():
         try:
             cfg = json.loads(cfg_path.read_text())
             v = cfg.get("provider")
-            if v in ("openai_compatible", "anthropic_native", "disabled"):
+            if v in ("openai_compatible", "disabled"):
                 return v  # type: ignore
         except (json.JSONDecodeError, OSError):
             pass
 
-    # Generic LLM_API_KEY (user-chosen provider, OpenAI-compatible)
-    if os.environ.get("LLM_API_KEY"):
+    # Any of these env vars activates the bulk classifier
+    if os.environ.get("LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"):
         try:
             import openai  # noqa: F401
             return "openai_compatible"
         except ImportError:
-            _log("LLM_API_KEY set but `openai` package not installed. "
+            _log("API key set but `openai` package not installed. "
                  "Run: pip install -e '.[llm]'")
-            return "disabled"
-
-    # Legacy: ANTHROPIC_API_KEY → native Anthropic SDK
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            import anthropic  # noqa: F401
-            return "anthropic_native"
-        except ImportError:
-            _log("ANTHROPIC_API_KEY set but `anthropic` SDK not installed. "
-                 "Run: pip install -e '.[anthropic]' or '.[llm]' for OpenAI-compat")
-            return "disabled"
-
-    # OpenAI direct
-    if os.environ.get("OPENAI_API_KEY"):
-        try:
-            import openai  # noqa: F401
-            return "openai_compatible"
-        except ImportError:
             return "disabled"
 
     return "disabled"
@@ -214,7 +266,7 @@ def detect_provider() -> Provider:
 def load_prompt() -> str:
     """Load system prompt from prompts/classify.md.
 
-    Public so the `/reddit-engage:judge` skill can share the exact same
+    Public so the `/subseek:judge` skill can share the exact same
     prompt as the bulk path. Cached on first call.
     """
     global _CACHED_PROMPT
@@ -266,6 +318,7 @@ def _call_openai_compat(post: dict[str, Any], model: str | None = None) -> dict[
     if model:
         resolved_model = model
 
+    _show_privacy_banner_once(base_url)
     client = openai.OpenAI(api_key=api_key, base_url=base_url)
     sys_prompt = load_prompt()
     user_msg = format_user_message(post)
@@ -281,46 +334,15 @@ def _call_openai_compat(post: dict[str, Any], model: str | None = None) -> dict[
             # the validator catches malformed JSON.
         )
     except Exception as e:
-        _log(f"LLM error ({base_url}): {e}")
+        # Redact API key prefix from error string defensively, in case
+        # an older SDK leaked it in the message.
+        msg = str(e)
+        if api_key:
+            msg = msg.replace(api_key, "[REDACTED]")
+        _log(f"LLM error ({base_url}): {msg}")
         return None
     text = resp.choices[0].message.content or ""
     return _parse_json_safely(text)
-
-
-def _call_anthropic_native(post: dict[str, Any], model: str) -> dict[str, Any] | None:
-    """Native Anthropic SDK with prompt caching enabled. Used when the user
-    has ANTHROPIC_API_KEY + the `anthropic` package installed and prefers the
-    native SDK over the OpenAI-compat layer.
-
-    Why both: anthropic-native unlocks `cache_control: ephemeral` for ~90%
-    cost reduction on repeat calls within 5min. The OpenAI-compat layer
-    doesn't currently expose prompt caching.
-    """
-    try:
-        import anthropic  # type: ignore
-    except ImportError:
-        return None
-
-    client = anthropic.Anthropic()
-    sys_prompt = load_prompt()
-    user_msg = format_user_message(post)
-    try:
-        resp = client.messages.create(
-            model=model,
-            max_tokens=MAX_TOKENS_OUT,
-            system=[
-                {"type": "text", "text": sys_prompt, "cache_control": {"type": "ephemeral"}},
-            ],
-            messages=[{"role": "user", "content": user_msg}],
-        )
-    except Exception as e:
-        _log(f"SDK error: {e}")
-        return None
-
-    text_parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
-    if not text_parts:
-        return None
-    return _parse_json_safely(text_parts[0])
 
 
 def _parse_json_safely(text: str) -> dict[str, Any] | None:
@@ -370,7 +392,7 @@ def classify(
     Callers MUST treat None as "classifier unavailable" and fall through to
     regex-only gating. Never raises.
 
-    NOT called by the interactive `/reddit-engage:judge` skill — that path
+    NOT called by the interactive `/subseek:judge` skill — that path
     is Claude-driven in-chat, not subprocess.
     """
     p: Provider = provider or detect_provider()
@@ -378,30 +400,29 @@ def classify(
         return None
     m = model or DEFAULT_MODEL
 
-    if p == "openai_compatible":
-        raw = _call_openai_compat(post, m)
-    elif p == "anthropic_native":
-        raw = _call_anthropic_native(post, m)
-    else:
-        return None
-
+    raw = _call_openai_compat(post, m)
     if raw is None:
         return None
     return _validate(raw)
 
 
 def status() -> dict[str, Any]:
-    """Diagnostic: what's the active LLM provider? Used by `reddit-engage status`."""
+    """Diagnostic: what's the active LLM provider? Used by `subseek status`."""
     p = detect_provider()
-    api_key, base_url, model = _resolve_llm_endpoint()
+    try:
+        api_key, base_url, model = _resolve_llm_endpoint()
+        base_url_err = None
+    except ValueError as e:
+        api_key, base_url, model = None, None, None
+        base_url_err = str(e)
     return {
         "provider": p,
         "mode": "bulk_llm" if p != "disabled" else "regex_only",
         "has_llm_api_key": bool(api_key),
         "base_url": base_url if p != "disabled" else None,
+        "base_url_error": base_url_err,
         "model": model if p != "disabled" else None,
         "openai_sdk_installed": _has_module("openai"),
-        "anthropic_sdk_installed": _has_module("anthropic"),
         "interactive_judge_available": True,  # always — uses Claude session, not subprocess
         "config_override": llm_config_path().exists(),
     }

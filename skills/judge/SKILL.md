@@ -1,20 +1,20 @@
 ---
 name: judge
-description: Interactive classifier for a single Reddit surface. Reads one post by surface ID (or pasted URL/title/body), runs the bulk-classifier prompt against it, and returns a verdict + reply angle. Uses your Claude Code subscription, NOT a separate API key — costs nothing extra beyond what you already pay. Triggers on "judge surface 3", "classify post #N", "/reddit-engage:judge", "is post X a real lead", "should I reply to this", "judge this reddit post", or any request to evaluate a single surfaced post's quality before drafting a reply.
+description: Interactive classifier for a single Reddit surface. Reads one post by surface ID (or pasted URL/title/body), runs the bulk-classifier prompt against it, and returns a verdict + reply angle. Uses your Claude Code subscription, NOT a separate API key — costs nothing extra beyond what you already pay. Triggers on "judge surface 3", "classify post #N", "/subseek:judge", "is post X a real lead", "should I reply to this", "judge this reddit post", or any request to evaluate a single surfaced post's quality before drafting a reply.
 allowed-tools: Bash, Read
 ---
 
-# /reddit-engage:judge
+# /subseek:judge
 
-Interactive single-surface classifier. Designed for the workflow where you scan today's `/reddit-engage:run` output, hit one or two surfaces that feel borderline, and want a structured judgment before deciding whether to reply.
+Interactive single-surface classifier. Designed for the workflow where you scan today's `/subseek:run` output, hit one or two surfaces that feel borderline, and want a structured judgment before deciding whether to reply.
 
 **Why this exists separately from bulk classification:** bulk LLM classification of every regex-passing post requires an Anthropic API key (~$0.50/day at 5K posts/day, cheap but not free). The judge skill uses your Claude Code subscription directly — no API key, no subprocess, no extra cost. It's the right tool for "I want a verdict on these 2 posts" not "grade every post in today's list."
 
 ## When to invoke
 
-The user has just seen `/reddit-engage:run` output and asks something like:
+The user has just seen `/subseek:run` output and asks something like:
 
-- `/reddit-engage:judge 3` — surface number from today's list
+- `/subseek:judge 3` — surface number from today's list
 - "is surface #5 actually a real lead?"
 - "classify the HubSpot post"
 - "judge this: https://reddit.com/comments/abc123/"
@@ -25,7 +25,7 @@ The user has just seen `/reddit-engage:run` output and asks something like:
 
 Three paths the user might take:
 
-**A. Surface number from today's list.** The most recent `inline_markdown` from `/reddit-engage:run` is in your conversation context. Find the surface in the numbered list by index. Extract: post URL, title, body, subreddit.
+**A. Surface number from today's list.** The most recent `inline_markdown` from `/subseek:run` is in your conversation context. Find the surface in the numbered list by index. Extract: post URL, title, body, subreddit.
 
 **B. Reddit URL pasted.** Read the post via the engine's already-installed reddit_oauth wrapper:
 
@@ -33,7 +33,7 @@ Three paths the user might take:
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
 import sys
 from urllib.parse import urlparse
-from reddit_engage.lib import reddit_oauth, reddit_public
+from subseek.lib import reddit_oauth, reddit_public
 # Extract post ID from URL
 url = '$REDDIT_URL'
 import re
@@ -54,7 +54,7 @@ print(json.dumps({'subreddit': post.get('subreddit'), 'title': post.get('title')
 You must use the SAME prompt the bulk classifier uses, so verdicts are consistent across modes. Read it:
 
 ```bash
-cat "$CLAUDE_PLUGIN_ROOT/engine/reddit_engage/prompts/classify.md"
+cat "$CLAUDE_PLUGIN_ROOT/engine/subseek/prompts/classify.md"
 ```
 
 This is the system prompt. Treat it as your operating instructions for this turn.
@@ -104,7 +104,7 @@ If `fit_score <= 3`, end with: `Skip.`
 
 ## Anti-patterns
 
-- Don't classify multiple surfaces in one invocation. That's bulk LLM territory — tell the user to set `ANTHROPIC_API_KEY` and re-run `/reddit-engage:run` if they want every post graded.
+- Don't classify multiple surfaces in one invocation. That's bulk LLM territory — tell the user to set `ANTHROPIC_API_KEY` and re-run `/subseek:run` if they want every post graded.
 - Don't draft a reply. The reply angle is a one-line hint; the human writes the actual comment.
 - Don't promote any product (yours or anyone else's) in the angle. Anti-marketer voice is non-negotiable — read the prompt.
 - Don't skip Step 2. The prompt is the source of truth. If it's missing or unreadable, fall back to a fast structural classification but tell the user the prompt couldn't be loaded.

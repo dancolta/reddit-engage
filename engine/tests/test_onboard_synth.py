@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from reddit_engage.lib import onboard_synth  # noqa: E402
+from subseek.lib import profile_synth as onboard_synth  # noqa: E402
 
 
 VALID_3Q_ANSWERS = {
@@ -43,7 +43,7 @@ def test_archetype_seed_for_indie_picks_indie_archetype():
 
 def test_save_and_load_draft(tmp_path, monkeypatch):
     """Scratchpad round-trip works."""
-    monkeypatch.setenv("REDDIT_ENGAGE_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
     saved_path = onboard_synth.save_draft(VALID_3Q_ANSWERS)
     assert saved_path.exists()
     assert saved_path.stat().st_mode & 0o777 == 0o600
@@ -52,12 +52,12 @@ def test_save_and_load_draft(tmp_path, monkeypatch):
 
 
 def test_load_draft_returns_none_when_missing(tmp_path, monkeypatch):
-    monkeypatch.setenv("REDDIT_ENGAGE_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
     assert onboard_synth.load_draft() is None
 
 
 def test_clear_draft_removes_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("REDDIT_ENGAGE_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
     onboard_synth.save_draft(VALID_3Q_ANSWERS)
     onboard_synth.clear_draft()
     assert onboard_synth.load_draft() is None
@@ -65,7 +65,7 @@ def test_clear_draft_removes_file(tmp_path, monkeypatch):
 
 def test_load_draft_handles_malformed_json(tmp_path, monkeypatch):
     """Stale/corrupt scratchpad returns None, doesn't crash."""
-    monkeypatch.setenv("REDDIT_ENGAGE_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
     draft_path = tmp_path / ".onboard-draft.json"
     draft_path.write_text("not-json{{{")
     assert onboard_synth.load_draft() is None

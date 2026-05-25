@@ -1,15 +1,15 @@
 ---
 name: op-vet
-description: Score a Reddit user's profile before replying. Returns karma, account age, sub-activity breakdown, and a GO / HOLD / SKIP verdict. Useful when you spot a thread that looks promising but want to confirm OP is a real operator (not a throwaway, karma farmer, or hustle-bro). Triggers on "op vet", "/reddit-engage:op-vet <username>", "vet this user", "is u/<name> legit", "check OP profile", "profile vet".
+description: Score a Reddit user's profile before replying. Returns karma, account age, sub-activity breakdown, and a GO / HOLD / SKIP verdict. Useful when you spot a thread that looks promising but want to confirm OP is a real operator (not a throwaway, karma farmer, or hustle-bro). Triggers on "op vet", "/subseek:op-vet <username>", "vet this user", "is u/<name> legit", "check OP profile", "profile vet".
 allowed-tools: Bash, Read
 ---
 
-# /reddit-engage:op-vet (utility, one-shot)
+# /subseek:op-vet (utility, one-shot)
 
 Score a single Reddit user's profile. Used BEFORE drafting a reply when you want to confirm OP is a real operator.
 
 ```bash
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m reddit_engage.cli op-vet "$USERNAME"
+cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subseek.cli op-vet "$USERNAME"
 ```
 
 Engine returns JSON:

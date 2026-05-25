@@ -1,10 +1,10 @@
 ---
 name: onboard
-description: 3-question routing flow that replaces the generic preset menu. Asks who you're trying to reach, what you're offering, and your homepage URL. Claude reasons in chat (using your Claude Code subscription, free) and writes a personalized config. ~60 seconds. The default first-launch path. Triggers on "onboard", "/reddit-engage:onboard", "first time setup", "configure reddit-engage", "set up reddit-engage".
+description: 3-question routing flow that replaces the generic preset menu. Asks who you're trying to reach, what you're offering, and your homepage URL. Claude reasons in chat (using your Claude Code subscription, free) and writes a personalized config. ~60 seconds. The default first-launch path. Triggers on "onboard", "/subseek:onboard", "first time setup", "configure subseek", "set up subseek".
 allowed-tools: Bash, Read, Write, Edit, WebFetch
 ---
 
-# /reddit-engage:onboard
+# /subseek:onboard
 
 The default first-launch flow. Three questions, ~60 seconds, produces a config that's specific to YOUR work — not a generic industry preset.
 
@@ -12,7 +12,7 @@ Validated by all 4 research agents in Phase 9. Generic preset alone produces 3/1
 
 ## The framing rule
 
-This is **configuration**, not **profiling**. The questions exist so `/reddit-engage:run` targets the right subreddits. Frame it that way. Never use words like "profile", "ICP", "tell us about yourself" — those signal lead-gen tooling and the audience flinches.
+This is **configuration**, not **profiling**. The questions exist so `/subseek:run` targets the right subreddits. Frame it that way. Never use words like "profile", "ICP", "tell us about yourself" — those signal lead-gen tooling and the audience flinches.
 
 ## Procedure
 
@@ -21,7 +21,7 @@ This is **configuration**, not **profiling**. The questions exist so `/reddit-en
 Print verbatim (no exclamation marks, no concierge selling):
 
 ```
-Three quick questions so /reddit-engage:run targets the right subreddits.
+Three quick questions so /subseek:run targets the right subreddits.
 About 60 seconds.
 
 Type "preset" any time to skip these and use a generic lane instead.
@@ -81,8 +81,8 @@ Save the answers to scratchpad first:
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
 import json
-from reddit_engage.lib import onboard_synth
-onboard_synth.save_draft({
+from subseek.lib import profile_synth
+profile_synth.save_draft({
     'who_to_reach': '$Q1',
     'what_offering': '$Q2',
     'homepage_url': '$Q3' if '$Q3' != 'none' else '',
@@ -93,11 +93,11 @@ onboard_synth.save_draft({
 
 **Claude now reasons through the answers IN CHAT** (this is the key — uses subscription, free). Steps:
 
-1. Read the synthesis prompt: `cat "$CLAUDE_PLUGIN_ROOT/engine/reddit_engage/prompts/profile_synth.md"`
+1. Read the synthesis prompt: `cat "$CLAUDE_PLUGIN_ROOT/engine/subseek/prompts/profile_synth.md"`
 2. Apply the prompt's rules to the 3 answers (plus URL extracts if available)
 3. Emit a JSON payload matching the synthesis schema (3-5 tier 1 subs, 5-8 tier 2, etc.)
-4. Validate via `onboard_synth.validate(payload)` — fail loud if schema breaks
-5. If URL extracts present, merge them via `onboard_synth.merge_url_extracts(payload, url_extracts)`
+4. Validate via `profile_synth.validate(payload)` — fail loud if schema breaks
+5. If URL extracts present, merge them via `profile_synth.merge_url_extracts(payload, url_extracts)`
 
 If user has API key (`LLM_API_KEY` env), optionally offer to run the research-validator agent (Phase 9.3) to verify sub picks via live Reddit data. ~30s, ~$0.30. Default: skip — keep onboard friction at ~60s.
 
@@ -129,28 +129,28 @@ On `yes`:
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
 import json
-from reddit_engage.lib import onboard_synth
+from subseek.lib import profile_synth
 payload = $PAYLOAD_JSON
-written = onboard_synth.write_to_xdg(payload)
+written = profile_synth.write_to_xdg(payload)
 for name, path in written.items():
     print(f'  wrote: {path}')
-onboard_synth.clear_draft()
+profile_synth.clear_draft()
 "
 ```
 
-This writes 4 files to `~/.config/reddit-engage/` with chmod 600, backs up any existing.
+This writes 4 files to `~/.config/subseek/` with chmod 600, backs up any existing.
 
 ### Step 8 — The next-action prompt (locked)
 
 ```
-Config written. Run /reddit-engage:run when you want your first scan —
+Config written. Run /subseek:run when you want your first scan —
 about 10 surfaces, ranked, no posting. Takes about 90 seconds.
 
-If the daily list feels mediocre after a few runs, /reddit-engage:tune
+If the daily list feels mediocre after a few runs, /subseek:tune
 sharpens the ranker in 3 rounds of Good/Bad/Meh feedback.
 
 If you want a deeper, 8-question version of this interview later,
-/reddit-engage:profile is the upgrade path.
+/subseek:profile is the upgrade path.
 ```
 
 ## The "preset" escape hatch
@@ -158,7 +158,7 @@ If you want a deeper, 8-question version of this interview later,
 At any question, if user types `preset` (or `skip`, `1`, etc.):
 
 1. Confirm: *"Switching to preset mode. Which lane? (RevOps / DevTools / Indie SaaS / Agency / Other)"*
-2. Copy the chosen preset to `~/.config/reddit-engage/`
+2. Copy the chosen preset to `~/.config/subseek/`
 3. Skip to Step 8 next-action prompt
 
 No shame, no friction. Some users genuinely want the 30-second path.
@@ -174,6 +174,6 @@ No shame, no friction. Some users genuinely want the 30-second path.
 
 ## Resumability
 
-Check for `~/.config/reddit-engage/.onboard-draft.json` on invocation. If present AND <24 hours old: *"Found a draft from earlier — 2 of 3 questions done. Resume, or start fresh?"* If >24 hours: stale, prompt to start fresh.
+Check for `~/.config/subseek/.onboard-draft.json` on invocation. If present AND <24 hours old: *"Found a draft from earlier — 2 of 3 questions done. Resume, or start fresh?"* If >24 hours: stale, prompt to start fresh.
 
-Scratchpad cleared on successful synthesis (`onboard_synth.clear_draft()`).
+Scratchpad cleared on successful synthesis (`profile_synth.clear_draft()`).

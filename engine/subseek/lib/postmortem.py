@@ -156,9 +156,11 @@ def _fetch_own_comments(username: str, limit: int = 100) -> list[dict[str, Any]]
             _log(f"OAuth comment fetch failed → fallback: {e}")
 
     # Public fallback
-    import urllib.parse
     from . import reddit_public
-    url = f"https://www.reddit.com/user/{urllib.parse.quote(username)}/comments.json?limit={limit}"
+    safe = reddit_oauth._safe_username(username)
+    if not safe:
+        return None
+    url = f"https://www.reddit.com/user/{safe}/comments.json?limit={limit}"
     data = reddit_public.fetch_json(url)
     if not data:
         return None
@@ -229,9 +231,15 @@ def _fetch_comment_outcome(comment_id: str) -> dict[str, Any] | None:
             client = reddit_oauth._build_praw_client()
             c = client.comment(id=comment_id)
             c.refresh()
+            # PRAW lazy-loads replies. len(c.replies) is the actual direct-reply count
+            # (was incorrectly using num_reports — mod-report count — before).
+            try:
+                num_replies = len(c.replies)
+            except Exception:
+                num_replies = 0
             return {
                 "upvotes": int(c.score or 0),
-                "num_replies": int(getattr(c, "num_reports", 0) or 0),  # PRAW doesn't expose direct reply-count on a comment
+                "num_replies": num_replies,
                 "removed": bool(getattr(c, "removed", False)),
                 "locked": bool(getattr(c, "locked", False)),
             }
