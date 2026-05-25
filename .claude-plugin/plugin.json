@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "reddit-engage",
+  "displayName": "Reddit Engage",
+  "version": "0.1.0",
+  "description": "Daily Reddit pain-post surfacer with pattern-aware sub-skills, Claude-powered intent classification, optional Notion triage board, and weekly Obsidian pulse digest. For builders who want inbound, not aggressive lead-gen.",
+  "author": {
+    "name": "Dan Colta",
+    "url": "https://github.com/dancolta"
+  },
+  "homepage": "https://github.com/dancolta/reddit-engage",
+  "repository": "https://github.com/dancolta/reddit-engage",
+  "license": "MIT",
+  "keywords": [
+    "reddit",
+    "lead-generation",
+    "pain-points",
+    "social-listening",
+    "inbound",
+    "notion",
+    "obsidian",
+    "claude-code"
+  ],
+  "userConfig": {
+    "reddit_client_id": {
+      "type": "string",
+      "title": "Reddit OAuth client ID",
+      "description": "From https://www.reddit.com/prefs/apps — create a 'script' type app, redirect URI http://localhost. The 14-char string under your app name.",
+      "required": true,
+      "sensitive": true
+    },
+    "reddit_client_secret": {
+      "type": "string",
+      "title": "Reddit OAuth client secret",
+      "description": "The 'secret' field from the same Reddit app registration.",
+      "required": true,
+      "sensitive": true
+    },
+    "reddit_username": {
+      "type": "string",
+      "title": "Reddit username",
+      "description": "Your Reddit username (without u/ prefix). Used for OAuth identity scope and postmortem reply tracking.",
+      "required": true
+    },
+    "notion_api_key": {
+      "type": "string",
+      "title": "Notion API key (optional)",
+      "description": "Enables daily triage board sync. Create at https://www.notion.so/profile/integrations. Leave blank to disable Notion features.",
+      "sensitive": true
+    },
+    "notion_database_id": {
+      "type": "string",
+      "title": "Notion database ID (optional)",
+      "description": "32-character ID of the surfaces database. Required if notion_api_key is set; the setup wizard can create the DB for you."
+    },
+    "obsidian_vault_path": {
+      "type": "directory",
+      "title": "Obsidian vault path (optional)",
+      "description": "Absolute path to your Obsidian vault for the weekly pulse digest. Leave blank to disable Obsidian sync."
+    },
+    "obsidian_pulse_folder": {
+      "type": "string",
+      "title": "Obsidian pulse folder (optional)",
+      "description": "Sub-folder within the vault for weekly pulse notes. Defaults to 'reddit-engage'.",
+      "default": "reddit-engage"
+    }
+  }
+}

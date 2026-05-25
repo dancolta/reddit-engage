@@ -424,6 +424,19 @@ Pure exploration / questions / planning conversations don't require board tasks.
 - Voice profile is dropped (see PLAN.md §6); do not add voice-drift features without revisiting
 ```
 
+### 9.7.1 Known acceptable validator warnings
+
+`claude plugin validate .` (non-strict) **passes** with one expected warning:
+
+> `root: CLAUDE.md at the plugin root is not loaded as project context. To ship context with your plugin, use a skill (skills/<name>/SKILL.md) instead.`
+
+This warning is **justified and intentional**:
+- Our `CLAUDE.md` is repo-internal development guidance (BMAD flow, board enforcement, Anthropic compliance bar) used while *building* this plugin.
+- It is NOT plugin user-facing context — plugin users get content via `skills/*/SKILL.md` and `README.md`.
+- Phase 8 polish will add packaging excludes (or restructure if cleaner) so `CLAUDE.md` doesn't ship to installers.
+
+Don't use `--strict` in CI for this plugin until that packaging story lands.
+
 ### 9.8 Risk register addendum
 
 | Risk | Mitigation |

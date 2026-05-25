@@ -1,6 +1,10 @@
-# reddit-engage — Project Conventions
+# reddit-engage — Repo Development Conventions
 
-This file is loaded by every Claude Code session in this repo. Follow these conventions exactly.
+> **Scope of this file:** repo-internal dev guidance ONLY. This is what Claude reads when working *on* this codebase (Phase -1 → Phase 8 build). It is **not plugin user-facing context** and is intentionally excluded from the plugin distribution surface — `claude plugin validate` warns about this placement, which is expected (see PLAN.md §9 for justification).
+>
+> User-facing plugin context lives in [`skills/`](skills/) (auto-discovered) and [`README.md`](README.md).
+
+Follow these conventions exactly while building this plugin.
 
 ## Source of truth
 
@@ -118,6 +122,30 @@ Other BMAD skills (`bmad-prd`, `bmad-agent-architect`, etc.) are installed but *
 ## Pure-research / planning conversations
 
 If Dan asks a question, requests research, or wants planning input — **no story or card needed**. The Stop-hook only fires when Edit/Write/NotebookEdit was called. Read-only work is unrestricted.
+
+## Quality bar — Anthropic compliance (non-negotiable)
+
+This plugin ships under Dan's name. Every artifact must pass an outside-audit quality bar against Anthropic's current published guidance — **not memorized knowledge, fetched at compliance time**.
+
+**Before any QA Done flip**, the QA agent MUST:
+
+1. Identify which Anthropic-controlled surfaces the story touched:
+   - `.claude-plugin/plugin.json` → plugin manifest schema
+   - `skills/**/SKILL.md` → skill frontmatter + body conventions
+   - `.claude/hooks/*.sh` + `.claude/settings.json` → hook event contracts (exit codes, env vars)
+   - Any code that calls the Claude API or `claude` CLI → SDK patterns + prompt caching
+2. Fetch the current spec for that surface from `docs.claude.com` (don't infer from training data — schemas evolve)
+3. Diff our implementation against the spec
+4. Block Done if any deviation isn't already documented with a "why" in code comments + PLAN.md
+
+**Reference URLs (always fetch fresh):**
+- https://docs.claude.com/en/docs/agents-and-tools/agent-skills
+- https://docs.claude.com/en/docs/claude-code/plugins
+- https://docs.claude.com/en/docs/claude-code/hooks
+- https://docs.claude.com/en/api/prompt-engineering
+- https://docs.claude.com/en/docs/claude-code/sdk
+
+**Justified deviations** (e.g. our BMAD-flow Stop-hook gating) must be documented inline + cross-referenced in PLAN.md so a future reviewer doesn't think it's an oversight.
 
 ## When to escalate to Dan
 
