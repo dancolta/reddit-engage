@@ -1,6 +1,6 @@
 # subscope
 
-A Claude Code plugin that scans subreddits daily and classifies posts by pain type, not keywords. Pricing rage, churn, build-vs-buy, alternative-seeking, RFP comparisons, stack-audits, alternative-seeking, resurrect, rivals. You see 5 to 15 posts per day where someone in your exact buyer profile is hurting right now. You write the reply yourself. The plugin tracks every reply you send, scores 7-day outcomes, and adjusts next week's ranking. No SaaS. No auto-posting. Runs local in your Claude Code session.
+A Claude Code plugin that scans subreddits daily and classifies posts by intent pattern. It surfaces 5 to 15 threads per day where someone in your buyer profile is actively in pain: pricing rage, churn, build-vs-buy debates, alternative-seeking, and four more. The pattern engine distinguishes intent, not just keyword presence. Runs entirely inside your Claude Code session.
 
 ```bash
 /plugin install dancolta/subscope
@@ -8,98 +8,92 @@ A Claude Code plugin that scans subreddits daily and classifies posts by pain ty
 /subscope:run           # your first daily scan
 ```
 
-> **The automation stops where the conversation starts.** subscope never drafts your reply, never queues a comment, never touches your Reddit account. If you want a Reddit engagement machine that runs while you sleep, look at Devi AI or ReplyGuy. This is not that.
-
 ---
 
-## What it does
+## Features
 
-Three steps per session:
+### Pattern engine
 
-1. **Onboard once.** Three questions: who you are reaching, what you are selling, your homepage URL. Claude writes a config tuned to your product in chat using your existing subscription. Not a generic template.
-2. **Daily scan.** `/subscope:run` pulls your configured subs, runs posts through regex gate + optional LLM grading, and surfaces 5 to 15 threads classified by pain type. SQLite deduplication: a post that surfaced yesterday never reappears.
-3. **You reply.** The list lands in Claude Code chat (and optionally Notion, Slack, Obsidian). Open the thread, write the reply on Reddit yourself. The plugin tracks what you sent and scores it 7 days later on upvotes, follow-up replies, and lock status.
+Eight intent classes, each with distinct scoring behavior:
 
-**The 8 intent classes it classifies:**
-
-| Class | What triggers it |
+| Class | What it captures |
 |---|---|
-| pricing-rage | public upset about a renewal hike |
-| churn | "looking to ditch X for..." threads |
-| build-vs-buy | debates with actual numbers attached |
-| rfp-bait | A vs B vs C comparison threads |
-| stack-audit | "help me cut tools from my stack" |
-| alternative-seeking | explicit "alternative to X?" posts |
-| resurrect | quality threads aged 6 to 18 months |
-| rivals | any mention of a brand in your competitive set |
+| `pricing-rage` | Public upset about a renewal hike |
+| `churn` | "Looking to ditch X for..." threads |
+| `build-vs-buy` | Debates with actual numbers attached |
+| `rfp-bait` | A vs B vs C comparison threads |
+| `stack-audit` | "Help me cut tools from my stack" |
+| `alternative-seeking` | Explicit "alternative to X?" posts |
+| `resurrect` | Quality threads aged 6 to 18 months |
+| `rivals` | Any mention of a brand in your competitive set |
+
+The 8 classes are not aliases for keyword buckets. `pricing-rage` and `alternative-seeking` are different buying signals. The ranker treats them differently.
 
 ---
 
-## What it does NOT do
+### Daily workflow
 
-- Does not post, comment, or queue replies on your behalf
-- Does not learn what your competitors are doing
-- Does not replace building a real reputation in a community
-- Does not cap at 12 surfaces because it thinks "lead gen at scale" is the goal (see `--max-surfaces`)
-- Does not store any data outside your machine
+**Onboard once.** Three questions: who you are trying to reach, what you are selling, your homepage URL. Claude reasons through the answers in chat (using your existing Claude Code subscription, free) and writes a config tuned to your product. No generic template.
 
----
+Want more depth? `/subscope:profile` runs an 8-question interview (about 12 minutes) and produces sharper subreddit targeting. Four built-in presets (b2b-saas-founder, agency-owner, indie-hacker, consultant) are available as a fallback if you skip both flows.
 
-## Why over the alternatives
-
-|  | subscope | Pulse for Reddit | F5Bot | GummySearch |
-|---|---|---|---|---|
-| Price | Free, OSS | Paywalled SaaS | Free (email) | $59/mo, DEAD Nov 2025 |
-| Lives in | Your Claude Code session | Their dashboard | Your inbox | n/a |
-| Matching | 8 intent classes | Keyword + AI-drafted reply | Keyword only | Keyword + sentiment |
-| Auto-drafts replies | No, by design | Yes | No | No |
-| Learns from sent replies | Yes (postmortem) | No | No | No |
-| BYO LLM | Yes, any OpenAI-compat | No | No | No |
-| Data residency | 100% local SQLite | Their cloud | Their cloud | n/a |
-
-Every paid Reddit listening tool that survived GummySearch's shutdown does keyword matching: match a phrase, get an alert, you sift. subscope classifies by intent before anything hits your list. Pricing rage is not the same buying signal as someone asking a general category question. The tool knows the difference.
-
----
-
-## Install
-
-```bash
-/plugin install dancolta/subscope
-/subscope:setup
-```
-
-Works on day 1 with zero API keys. The setup wizard walks through optional layers and skips anything you skip. Choose where you want to see your daily surfaces:
-
-- **Inline table in Claude Code** (default, zero setup, click links from chat)
-- **Notion database** (5-min setup, persistent triage across devices)
-- **Both** (rendered in chat AND synced to Notion)
-- **Skip** (JSON only, for piping to your own tools)
-
----
-
-## Cost model
-
-| Layer | Cost | Required? |
-|---|---|---|
-| Default daily run | $0 | Yes |
-| Reddit OAuth | $0 (free Reddit app registration) | Recommended |
-| Interactive grading via Claude Code | $0 (your subscription) | Optional |
-| Bulk LLM grading | ~$0.50/day at 5K posts | Optional |
-| Notion, Slack, Obsidian outputs | $0 | Optional |
-
-Bulk LLM grading is provider-agnostic. Set any OpenAI-compatible key: Anthropic, OpenAI, Groq, OpenRouter, local Ollama.
-
----
-
-## Power-user mode (`--max-surfaces`)
-
-Default caps at 12 surfaces because attention drops 50% past position 7 and 80% past position 10 (Nielsen Norman). If you have 20 to 30 subs configured and ~30 minutes of review budget, override the cap per-run:
+**Daily scan.** `/subscope:run` fetches your configured subreddits, runs posts through the intent gate, scores survivors, and surfaces 5 to 15 threads in chat. Default cap is 12. Override with `--max-surfaces`:
 
 ```bash
 PYTHONPATH=engine python3 -m subscope.cli fetch-score --max-surfaces 25
 ```
 
-Reddit's API is fine with the volume (~30 read requests/day, well under the 100 QPM ceiling, and read-only `/new.json` polling is not the ban surface). Your review fatigue is the real risk. To raise the per-profile sub ceiling above 13 total, edit `tier1_subs_max` and `tier2_subs_max` in `~/.config/subscope/weights.yml`.
+---
+
+### Outputs
+
+| Output | Setup required |
+|---|---|
+| Inline markdown table in Claude Code chat | None (default) |
+| Notion database with 14-column triage schema | ~5 min setup |
+| Slack webhook push | Paste one URL |
+| Weekly Obsidian digest via `/subscope:pulse` | Vault path in config |
+| JSON-only via stdout | `modes: []` in `surface.yml` |
+
+---
+
+### Intelligence layer
+
+**Author vet pre-gate.** Karma, account age, and audience-fit are checked before a post enters the scoring pool. Throwaway accounts and karma-farmer OPs are filtered at this stage and never reach your list.
+
+**SQLite deduplication.** Every surfaced post is recorded permanently. A post that appeared yesterday never reappears.
+
+**Cooling queue.** New surfaces hold in a 15-minute queue before promotion. Pricing-rage posts bypass this because the pattern is time-sensitive.
+
+**Postmortem learner.** `/subscope:postmortem` auto-detects your sent replies, pulls 7-day outcomes (upvotes, follow-up replies, lock status), and feeds the results back into next week's ranker. The tool gets more accurate the longer you use it.
+
+**Tune.** `/subscope:tune` runs 3 rounds of Good/Bad/Meh marks on recent surfaces. Each round back-propagates into per-subreddit weights and keyword scores.
+
+---
+
+### Bring your own LLM
+
+Bulk LLM grading on every run is opt-in. Any OpenAI-compatible endpoint works:
+
+| Provider | Key prefix |
+|---|---|
+| Anthropic | `sk-ant-...` |
+| OpenAI | `sk-...` |
+| Groq | `gsk_...` |
+| OpenRouter | `sk-or-...` |
+| Together / Fireworks | provider key |
+| Local Ollama | `http://localhost:11434/v1` |
+
+Provider is auto-detected from the key prefix. If no LLM key is set, `/subscope:judge` still classifies individual surfaces free via your Claude Code subscription.
+
+---
+
+### Power user
+
+- `--max-surfaces N` CLI flag overrides the daily cap per run
+- Per-mode keyword files at `~/.config/subscope/keywords-<mode>.yml`
+- `weights.yml` fully editable: scoring weights, gate thresholds, per-subreddit caps
+- 6 pre-built archetypes: revops-leader, bootstrapped-saas, indie-hacker, and more
 
 ---
 
@@ -131,28 +125,57 @@ Reddit's API is fine with the volume (~30 read requests/day, well under the 100 
 
 ---
 
-## Privacy
+## Install and configure
 
-- Reddit credentials at `~/.config/subscope/oauth.json` (0o600). Written atomically, never world-readable.
-- LLM API key is opt-in. When set, post bodies (capped at 800 chars) go to your configured endpoint. One-time stderr banner the first time this fires.
-- SSRF guard on `llm_base_url`: requests to private IPs (RFC-1918, AWS metadata 169.254.169.254) and to `http://` for non-localhost hosts are refused.
-- SQLite at `~/.local/share/subscope/subscope.sqlite` (0o600). No data leaves your machine unless you opted in to LLM, Notion, or Slack.
-- No telemetry. No analytics. No pings.
+```bash
+/plugin install dancolta/subscope
+/subscope:setup
+```
+
+Works on day 1 with zero API keys. The setup wizard walks through optional layers and skips anything you skip.
+
+**Reddit OAuth** (recommended): register a free script-type app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps). Gives 10x rate budget and enables postmortem reply tracking.
+
+**LLM key** (optional): enables bulk grading on every run. Without it, the regex gate runs alone and `/subscope:judge` handles single-surface classification free via your Claude Code subscription.
+
+**Notion/Slack/Obsidian** (optional): each is a single field in the setup wizard.
+
+Config lives at `~/.config/subscope/`. All files written with `chmod 600`.
+
+---
+
+## Cost model
+
+| Layer | Cost |
+|---|---|
+| Default daily run | $0 |
+| Reddit OAuth | $0 (free app registration) |
+| Interactive grading via Claude Code | $0 (your subscription) |
+| Bulk LLM grading | ~$0.50/day at 5K posts |
+| Notion, Slack, Obsidian outputs | $0 |
+
+---
+
+## Privacy and security
+
+- All data stored in local SQLite at `~/.local/share/subscope/subscope.sqlite` (0o600)
+- Reddit OAuth credentials at `~/.config/subscope/oauth.json` (0o600), written atomically
+- SSRF guard on any user-configurable URL: private IPs (RFC-1918), AWS metadata endpoint, and non-HTTPS hosts are refused
+- When an LLM key is set, post bodies (capped at 800 chars) go to your configured endpoint. One-time stderr banner the first time this fires
+- No telemetry. No analytics. No usage pings. Ever.
 
 ---
 
 ## Roadmap
 
-- **v0.1.1**: Merged Reddit OAuth/public modules, unit tests for cli.py, expanded preset library
+- **v0.1.1**: Reddit OAuth/public module merge, unit tests for `cli.py`, expanded preset library
 - **v0.2.0**: HackerNews adapter (`/subscope:hn`), Anthropic prompt caching
 - **v0.3.0**: LinkedIn pulse adapter (public posts only)
 
 ---
 
-## License
-
-MIT.
+subscope surfaces and ranks; you decide which threads to engage with.
 
 ---
 
-*Built by [Dan Colta](https://github.com/dancolta) at [NodeSparks](https://nodesparks.com). Operator automation, not lead-gen tooling.*
+MIT. See [LICENSE](LICENSE).
