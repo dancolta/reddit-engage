@@ -25,7 +25,7 @@ from typing import Any
 
 import yaml
 
-from .lib import author_vet, reddit_oauth, reddit_public, score, store
+from .lib import author_vet, classify, reddit_oauth, reddit_public, score, store
 
 
 def _resolve_config_dir() -> Path:
@@ -90,12 +90,24 @@ def cmd_setup() -> None:
     print(json.dumps({"status": "ok", "subs": len(cfg["subs"])}))
 
 
-def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
+def cmd_fetch_score(
+    limit_per_sub: int = 25,
+    daily_cap: int = 15,
+    no_cool: bool = False,
+    cool_minutes: int = 30,
+) -> None:
+    """Run the daily surface pipeline. New surfaces land in the cooling queue
+    (state='drafting') unless `no_cool=True`; mature drafts flush to 'hot'
+    on each run; 14d-old surfaces decay to 'dead'."""
     cfg = _load_configs()
     weights = cfg["weights"]
 
     with store.connect() as conn:
         run_id = store.start_run(conn)
+        # Promote mature drafts BEFORE this run so today's surfaces compete
+        # cleanly. Decay old surfaces at the same time.
+        promoted = store.flush_cooling_queue(conn, cool_minutes=cool_minutes)
+        decayed = store.decay_old_surfaces(conn, days=14)
         blog_posts = store.fetch_blog_posts(conn)
 
         all_candidates: list[dict[str, Any]] = []
@@ -155,6 +167,20 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
                     "gate_reason": reason,
                 }
                 if passes:
+                    # Optional Phase 2 LLM classifier: only fires on regex-gate
+                    # survivors (~5% of fetched volume) so cost stays bounded.
+                    # If provider disabled / fails, classifier=None and the post
+                    # surfaces on regex strength alone (graceful degradation).
+                    verdict = classify.classify(post)
+                    if verdict is not None:
+                        post["classifier"] = verdict
+                        # Vendor content slipped through regex? Drop here.
+                        if verdict["intent"] == "vendor_content":
+                            reason = "classifier_vendor"
+                            dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
+                            continue
+                        # Boost score by LLM fit_score (0-10 → 0-30 bonus).
+                        post["score_internal"] = post["score_internal"] + (verdict["fit_score"] * 3)
                     all_candidates.append(candidate)
                 else:
                     dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
@@ -186,7 +212,11 @@ def cmd_fetch_score(limit_per_sub: int = 25, daily_cap: int = 15) -> None:
                     store.record_blog_ref(
                         conn, post["id"], m["url"], m["match_score"], m["matched_keywords"]
                     )
-                store.mark_surfaced(conn, post["id"], run_id, sub_row["tier"])
+                # Cooling queue: surfaces land 'drafting' (held cool_minutes)
+                # unless --no-cool is set. Notion sync flushes only 'hot' rows.
+                surface_state = "hot" if no_cool else "drafting"
+                store.mark_surfaced(conn, post["id"], run_id, sub_row["tier"],
+                                    state=surface_state)
             except Exception as e:
                 persist_errors.append(f"{post.get('id', '?')}: {e}")
                 continue
@@ -335,6 +365,11 @@ def main(argv: list[str] | None = None) -> None:
     fs = sub.add_parser("fetch-score", help="Fetch deltas, gate, score, surface")
     fs.add_argument("--limit-per-sub", type=int, default=25)
     fs.add_argument("--daily-cap", type=int, default=15)
+    fs.add_argument("--no-cool", action="store_true",
+                    help="Skip cooling queue — surfaces immediately visible "
+                         "(use for time-sensitive patterns like pricing-rage)")
+    fs.add_argument("--cool-minutes", type=int, default=30,
+                    help="Cooling queue hold duration (default 30)")
     sub.add_parser("status", help="Print last-run status as JSON")
 
     blog = sub.add_parser("blog", help="Blog map operations").add_subparsers(dest="blogcmd", required=True)
@@ -345,7 +380,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "setup":
         cmd_setup()
     elif args.cmd == "fetch-score":
-        cmd_fetch_score(args.limit_per_sub, args.daily_cap)
+        cmd_fetch_score(
+            args.limit_per_sub, args.daily_cap,
+            no_cool=args.no_cool, cool_minutes=args.cool_minutes,
+        )
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "blog" and args.blogcmd == "ingest":

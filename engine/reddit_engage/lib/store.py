@@ -80,10 +80,13 @@ CREATE TABLE IF NOT EXISTS surfaced (
     surfaced_on       TEXT NOT NULL,
     run_id            INTEGER NOT NULL,
     tier              INTEGER NOT NULL,
+    state             TEXT NOT NULL DEFAULT 'hot',
+    surfaced_at       INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (post_id) REFERENCES posts(id),
     FOREIGN KEY (run_id) REFERENCES runs(id)
 );
 CREATE INDEX IF NOT EXISTS idx_surfaced_date ON surfaced(surfaced_on);
+CREATE INDEX IF NOT EXISTS idx_surfaced_state ON surfaced(state, surfaced_at);
 """
 
 
@@ -228,13 +231,78 @@ def record_blog_ref(conn: sqlite3.Connection, post_id: str, blog_url: str,
     )
 
 
-def mark_surfaced(conn: sqlite3.Connection, post_id: str, run_id: int, tier: int) -> None:
+def _ensure_surfaced_state_column(conn: sqlite3.Connection) -> None:
+    """Idempotent migration: add `state` + `surfaced_at` columns to surfaced
+    if they don't exist. Cooling queue requires both.
+
+    state: 'drafting' (cooling) | 'hot' (visible) | 'dead' (decayed/archived)
+    surfaced_at: unix seconds (granular enough to compute age in minutes)
+    """
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(surfaced)").fetchall()}
+    if "state" not in cols:
+        conn.execute("ALTER TABLE surfaced ADD COLUMN state TEXT NOT NULL DEFAULT 'hot'")
+    if "surfaced_at" not in cols:
+        conn.execute("ALTER TABLE surfaced ADD COLUMN surfaced_at INTEGER NOT NULL DEFAULT 0")
+
+
+def mark_surfaced(
+    conn: sqlite3.Connection,
+    post_id: str,
+    run_id: int,
+    tier: int,
+    state: str = "drafting",
+) -> None:
+    """Insert a surfaced row. New posts default to 'drafting' (cooling queue);
+    pass state='hot' to bypass cooling for time-sensitive patterns like pricing-rage."""
+    _ensure_surfaced_state_column(conn)
     today = time.strftime("%Y-%m-%d", time.gmtime())
     conn.execute(
-        """INSERT INTO surfaced(post_id, surfaced_on, run_id, tier)
-           VALUES(?, ?, ?, ?)""",
-        (post_id, today, run_id, tier),
+        """INSERT INTO surfaced(post_id, surfaced_on, run_id, tier, state, surfaced_at)
+           VALUES(?, ?, ?, ?, ?, ?)""",
+        (post_id, today, run_id, tier, state, int(time.time())),
     )
+
+
+def flush_cooling_queue(conn: sqlite3.Connection, cool_minutes: int = 30) -> int:
+    """Promote drafting rows older than `cool_minutes` to 'hot'.
+
+    Returns count of rows promoted. Idempotent: re-running on the same DB
+    after another `cool_minutes` flushes a fresh batch.
+    """
+    _ensure_surfaced_state_column(conn)
+    threshold = int(time.time()) - (cool_minutes * 60)
+    cur = conn.execute(
+        "UPDATE surfaced SET state = 'hot' "
+        "WHERE state = 'drafting' AND surfaced_at <= ?",
+        (threshold,),
+    )
+    return cur.rowcount
+
+
+def hot_surfaces(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Fetch surfaces currently in 'hot' state (post-cooling, pre-decay).
+    Joined with posts for the most common consumer query (Notion sync)."""
+    _ensure_surfaced_state_column(conn)
+    rows = conn.execute(
+        "SELECT s.post_id, s.surfaced_on, s.tier, s.state, s.surfaced_at, "
+        "       p.title, p.url, p.canonical_url, p.subreddit, p.score, "
+        "       p.num_comments, p.body, p.score_internal "
+        "FROM surfaced s JOIN posts p ON p.id = s.post_id "
+        "WHERE s.state = 'hot' ORDER BY p.score_internal DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def decay_old_surfaces(conn: sqlite3.Connection, days: int = 14) -> int:
+    """Mark hot surfaces older than `days` as 'dead'. Returns rows decayed."""
+    _ensure_surfaced_state_column(conn)
+    threshold = int(time.time()) - (days * 86400)
+    cur = conn.execute(
+        "UPDATE surfaced SET state = 'dead' "
+        "WHERE state IN ('hot', 'drafting') AND surfaced_at <= ?",
+        (threshold,),
+    )
+    return cur.rowcount
 
 
 def start_run(conn: sqlite3.Connection) -> int:
