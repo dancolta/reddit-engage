@@ -1,0 +1,96 @@
+# Preset: Indie hacker
+#
+# Persona: solo or 2-3 person builder shipping a niche tool, often for
+# other indie hackers or small B2B. Pain around: launch distribution,
+# marketing-from-zero, hosting/infra cost, no-code limits. Subreddits
+# differ from B2B SaaS preset — indie hackers DO read r/Entrepreneur
+# and r/SideProject, but the high-fit threads are in dev-tooling subs
+# and product-feedback subs where peers actually try the work.
+
+subreddits:
+  # === Tier 1 ===
+  - {name: indiehackers, tier: 1, bucket: builder, weight: 1.2}
+  - {name: SideProject, tier: 1, bucket: builder, weight: 1.1}
+
+  # === Tier 2 ===
+  - {name: SaaS, tier: 2, bucket: builder, saturation: medium, weight: 1.0}
+  - {name: Entrepreneur, tier: 2, bucket: builder, saturation: high, weight: 0.8}
+  - {name: webdev, tier: 2, bucket: builder, saturation: medium, weight: 1.0}
+  - {name: programming, tier: 2, bucket: builder, saturation: medium, weight: 0.9}
+  - {name: rails, tier: 2, bucket: builder, saturation: medium, weight: 0.8}
+  - {name: nextjs, tier: 2, bucket: builder, saturation: medium, weight: 0.9}
+  - {name: golang, tier: 2, bucket: builder, saturation: medium, weight: 0.8}
+  - {name: aws, tier: 2, bucket: builder, saturation: medium, weight: 0.9}
+  - {name: selfhosted, tier: 2, bucket: builder, saturation: medium, weight: 0.9}
+
+  # === Tier 3 ===
+  - {name: smallbusiness, tier: 3, weight: 0.0, bucket: builder}
+  - {name: passive_income, tier: 3, weight: 0.0, bucket: builder}
+
+keywords:
+  shared:
+    - "MRR"
+    - "ARR"
+    - launching
+    - launched
+    - "show HN"
+    - traction
+    - distribution
+    - "marketing from zero"
+    - "first 100 users"
+    - "first 1000 users"
+    - bootstrapped
+    - "indie hacker"
+    - "side project"
+    - "Product Hunt"
+    - ProductHunt
+  builder:
+    - hosting
+    - "infra cost"
+    - "AWS bill"
+    - serverless
+    - vercel
+    - netlify
+    - supabase
+    - postgres
+    - "self-host"
+    - "open source"
+    - "API rate limit"
+    - "no-code limits"
+    - "outgrew zapier"
+    - "outgrew make"
+  operator:
+    - pricing
+    - "first paying customer"
+    - churn
+    - "freemium vs paid"
+
+brand_anchor:
+  - Vercel
+  - Netlify
+  - Supabase
+  - PlanetScale
+  - Railway
+  - Fly.io
+  - Render
+  - Heroku
+  - AWS
+  - DigitalOcean
+  - Hetzner
+  - Stripe
+  - Lemon Squeezy
+  - Paddle
+  - Mailgun
+  - Resend
+  - SendGrid
+  - Postmark
+  - Cloudflare
+  - PostHog
+  - Plausible
+
+example_titles:
+  - "Outgrew Vercel pricing, looking at self-hosted alternatives"
+  - "Supabase vs Firebase vs Postgres+Hasura for my indie SaaS"
+  - "Paid $400 to AWS this month for an MVP with 30 users — what am I doing wrong"
+  - "Best Stripe alternative for international solo founders?"
+  - "Plausible vs Fathom vs self-host PostHog for indie analytics"

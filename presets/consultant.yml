@@ -1,0 +1,78 @@
+# Preset: Independent consultant
+#
+# Persona: solo consultant or advisor (technical, strategic, ops, etc.).
+# Doesn't sell software — sells expertise. Surfaces threads where someone
+# describes a problem the consultant solves, especially "looking for help
+# with X" / "anyone done Y at scale" / "we need someone who has done Z".
+
+subreddits:
+  # === Tier 1 ===
+  - {name: consulting, tier: 1, bucket: operator, weight: 1.2}
+  - {name: AskMechanics, tier: 1, bucket: operator, weight: 0.0}  # placeholder pattern
+
+  # === Tier 2 — verticals (tune to your specialty) ===
+  - {name: sysadmin, tier: 2, bucket: builder, saturation: medium, weight: 1.0}
+  - {name: devops, tier: 2, bucket: builder, saturation: medium, weight: 1.0}
+  - {name: CFO, tier: 2, bucket: operator, saturation: medium, weight: 1.0}
+  - {name: ITManagers, tier: 2, bucket: operator, saturation: medium, weight: 0.9}
+  - {name: RevOps, tier: 2, bucket: operator, saturation: wide_open, weight: 1.1}
+  - {name: cscareerquestions, tier: 2, bucket: builder, saturation: medium, weight: 0.7}
+  - {name: ExperiencedDevs, tier: 2, bucket: builder, saturation: medium, weight: 1.0}
+  - {name: ProductManagement, tier: 2, bucket: operator, saturation: medium, weight: 0.9}
+
+  # === Tier 3 ===
+  - {name: Entrepreneur, tier: 3, weight: 0.0, bucket: operator}
+  - {name: jobs, tier: 3, weight: 0.0, bucket: operator}  # FT hiring noise
+
+keywords:
+  shared:
+    - "looking for help with"
+    - "anyone done"
+    - "hired a consultant"
+    - "fractional"
+    - advisor
+    - "advisory"
+    - "looking for an expert"
+    - "we need someone who"
+    - "out of my depth"
+    - "over my head"
+    - migration
+    - implementation
+    - "post-mortem"
+    - "tried to do it ourselves"
+    - "DIY went wrong"
+    - "scope of work"
+    - "engagement"
+  operator:
+    - audit
+    - "process review"
+    - "ops review"
+    - turnaround
+    - "scaling up"
+    - "scaling out"
+  builder:
+    - architecture
+    - "design review"
+    - refactor
+    - rewrite
+    - "migrated to"
+    - "moving off"
+
+# Consultants rarely have "competitor brands" — leave generic; tune per
+# vertical (e.g. McKinsey, Deloitte for management consulting; specific
+# firms for technical specialties).
+brand_anchor:
+  - McKinsey
+  - "Bain"
+  - "BCG"
+  - Deloitte
+  - Accenture
+  - "EY"
+  - PwC
+
+example_titles:
+  - "Looking for a fractional CFO for a 20-person SaaS, recommendations?"
+  - "Postgres migration from RDS to Aurora — anyone hired a consultant for this?"
+  - "We tried to do our own SOC2 implementation and it's a disaster, who do you use?"
+  - "Looking for someone who has actually scaled a B2B sales team from 2 to 20 in 18 months"
+  - "Build vs buy for revenue ops — should we hire a consultant first or just buy software?"

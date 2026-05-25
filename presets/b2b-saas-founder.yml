@@ -1,0 +1,87 @@
+# Preset: B2B SaaS founder
+#
+# Persona: bootstrapped or pre-Series-A founder selling software to other
+# businesses. Knows their ICP intimately, wants to build authority in the
+# subs where buyers complain, not where founders one-up each other.
+#
+# Strategy: avoid "founder culture" subs (Entrepreneur, SaaS, startups) —
+# vendor-on-vendor noise. Target the operator subs where actual users
+# describe pain.
+
+subreddits:
+  # === Tier 1 — daily scan ===
+  - {name: B2BSaaS, tier: 1, bucket: operator, weight: 1.2}
+  - {name: RevOps, tier: 1, bucket: operator, weight: 1.2}
+  - {name: SalesOperations, tier: 1, bucket: operator, weight: 1.1}
+
+  # === Tier 2 — opportunistic ===
+  - {name: ProductManagement, tier: 2, bucket: operator, saturation: medium, weight: 1.0}
+  - {name: msp, tier: 2, bucket: operator, saturation: wide_open, weight: 1.1}
+  - {name: CustomerSuccess, tier: 2, bucket: operator, saturation: wide_open, weight: 1.1}
+  - {name: marketingautomation, tier: 2, bucket: operator, saturation: medium, weight: 1.0}
+  - {name: ExperiencedDevs, tier: 2, bucket: builder, saturation: medium, weight: 0.9}
+  - {name: sales, tier: 2, bucket: operator, saturation: medium, weight: 1.1}
+
+  # === Tier 3 — quarantined for this ICP ===
+  - {name: Entrepreneur, tier: 3, weight: 0.0, bucket: operator}  # vendor noise
+  - {name: SaaS, tier: 3, weight: 0.0, bucket: operator}          # founder one-upping
+  - {name: startups, tier: 3, weight: 0.0, bucket: operator}      # off-ICP
+
+keywords:
+  shared:
+    - alternative
+    - replacement
+    - "looking for"
+    - "switched from"
+    - "canceling"
+    - "too expensive"
+    - "price hike"
+    - "renewal"
+    - "build vs buy"
+    - "tech stack"
+    - "stack cost"
+  operator:
+    - workflow
+    - integration
+    - automation
+    - "tool overlap"
+    - "consolidation"
+    - shelfware
+    - "free alternative"
+    - "self-host"
+  builder:
+    - "rolled our own"
+    - "internal tool"
+    - "open source"
+    - "homegrown"
+
+# Common B2B SaaS competitors. Tune to your category.
+brand_anchor:
+  - HubSpot
+  - Salesforce
+  - Marketo
+  - Pardot
+  - Mailchimp
+  - Klaviyo
+  - Apollo.io
+  - Outreach.io
+  - SalesLoft
+  - Gong
+  - Chili Piper
+  - Zoominfo
+  - Lemlist
+  - Instantly
+  - Intercom
+  - Zendesk
+  - Drift
+  - Calendly
+  - Pipedrive
+  - Close.com
+
+# Example pain-post titles for prompt few-shots (Phase 2 classifier)
+example_titles:
+  - "HubSpot raised our renewal 28%, looking for less greedy alternatives"
+  - "We have 14 sales tools, trying to cut to 6. Where do I start?"
+  - "Anyone build their own outreach instead of paying Apollo?"
+  - "Build vs buy for revenue attribution at 50 seats"
+  - "Apollo.io vs ZoomInfo vs Lusha for 10-person SDR team"

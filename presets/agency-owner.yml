@@ -1,0 +1,81 @@
+# Preset: Agency owner
+#
+# Persona: founder or owner of a service-delivery agency (marketing, dev,
+# design, consulting). Operational pain around: client churn, retainer
+# scope creep, project management tools, time tracking, deliverable
+# automation. Wants to surface threads where peers are venting about the
+# tools they use to run agency ops.
+
+subreddits:
+  # === Tier 1 ===
+  - {name: agency, tier: 1, bucket: operator, weight: 1.2}
+  - {name: AdAgency, tier: 1, bucket: operator, weight: 1.1}
+  - {name: agencylife, tier: 1, bucket: operator, weight: 1.0}
+
+  # === Tier 2 ===
+  - {name: marketingautomation, tier: 2, bucket: operator, saturation: medium, weight: 1.1}
+  - {name: digital_marketing, tier: 2, bucket: operator, saturation: medium, weight: 1.0}
+  - {name: PPC, tier: 2, bucket: operator, saturation: medium, weight: 1.0}
+  - {name: SEO, tier: 2, bucket: operator, saturation: medium, weight: 0.9}
+  - {name: webdev, tier: 2, bucket: builder, saturation: medium, weight: 0.9}
+  - {name: web_design, tier: 2, bucket: operator, saturation: medium, weight: 0.9}
+  - {name: socialmedia, tier: 2, bucket: operator, saturation: medium, weight: 0.9}
+
+  # === Tier 3 ===
+  - {name: Entrepreneur, tier: 3, weight: 0.0, bucket: operator}
+  - {name: marketing, tier: 3, weight: 0.0, bucket: operator}  # too broad, B2C noise
+
+keywords:
+  shared:
+    - retainer
+    - "scope creep"
+    - "client churn"
+    - "fired our agency"
+    - "switching agency"
+    - "agency vs in-house"
+    - "billable hours"
+    - "project management"
+    - "time tracking"
+    - deliverable
+    - "out of scope"
+  operator:
+    - SOW
+    - "statement of work"
+    - "client portal"
+    - "white label"
+    - whitelabel
+    - "agency stack"
+    - "team management"
+    - "client reporting"
+    - "automated reporting"
+  builder:
+    - "build vs buy"
+    - "internal tool"
+    - "scaling agency"
+    - automation
+
+brand_anchor:
+  - Asana
+  - Monday.com
+  - ClickUp
+  - Basecamp
+  - Trello
+  - Notion
+  - Harvest
+  - Toggl
+  - Hubstaff
+  - "Time Doctor"
+  - Bonsai
+  - HoneyBook
+  - Dubsado
+  - Slack
+  - Loom
+  - "Google Workspace"
+  - "Adobe Creative Cloud"
+
+example_titles:
+  - "Asana is killing our agency ops, looking for something less rigid"
+  - "8-person agency, currently 12 tools — what to consolidate first?"
+  - "Anyone moved off Monday.com after the price hike?"
+  - "Build vs buy for client reporting automation"
+  - "Harvest vs Toggl vs Time Doctor for a 15-person agency"
