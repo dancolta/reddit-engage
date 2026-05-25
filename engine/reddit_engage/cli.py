@@ -28,7 +28,21 @@ import yaml
 from .lib import reddit_public, score, store
 
 
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+def _resolve_config_dir() -> Path:
+    """Resolve user-config directory with dev fallback to repo-local config/.
+
+    Precedence:
+      1. XDG/REDDIT_ENGAGE_CONFIG (see store.xdg_config_dir) IF it contains subreddits.yml
+      2. Repo-local config/ next to engine/ (dev / fresh-clone workflow)
+    """
+    xdg = store.xdg_config_dir()
+    if (xdg / "subreddits.yml").exists():
+        return xdg
+    repo_local = Path(__file__).resolve().parent.parent.parent / "config"
+    return repo_local
+
+
+CONFIG_DIR = _resolve_config_dir()
 
 
 def _load_yaml(name: str) -> dict[str, Any]:

@@ -1,20 +1,64 @@
 [project]
 name = "reddit-engage"
 version = "0.1.0"
-description = "Daily Reddit pain-post surfacing tool for NodeSparks authority building"
+description = "Daily Reddit pain-post surfacer with pattern-aware sub-skills, Claude-powered intent classification, optional Notion triage board, and weekly Obsidian pulse digest."
+authors = [{ name = "Dan Colta" }]
+license = { text = "MIT" }
+readme = "README.md"
 requires-python = ">=3.10"
+keywords = ["reddit", "lead-generation", "social-listening", "claude-code"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "pyyaml>=6.0",
     "certifi>=2024.7.4",
 ]
 
+[project.optional-dependencies]
+# Semantic dedup (sqlite-vec + BGE-small embeddings) — opt-in install
+vec = [
+    "sqlite-vec>=0.1.0",
+    "sentence-transformers>=2.7.0",
+]
+# Anthropic SDK fallback when `claude` CLI not present
+anthropic = ["anthropic>=0.40.0"]
+# OAuth + identity scope for Reddit
+reddit = ["praw>=7.7.0"]
+# Notion daily-triage sync
+notion = ["notion-client>=2.2.0"]
+# Dev / test
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6.0",
+]
+
 [project.scripts]
-reddit-engage = "scripts.reddit_engage:main"
+reddit-engage = "reddit_engage.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dancolta/reddit-engage"
+Repository = "https://github.com/dancolta/reddit-engage"
+Issues = "https://github.com/users/dancolta/projects/7"
 
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["scripts*"]
+where = ["engine"]
+include = ["reddit_engage*"]
+
+[tool.pytest.ini_options]
+testpaths = ["engine/tests"]
+pythonpath = ["engine"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

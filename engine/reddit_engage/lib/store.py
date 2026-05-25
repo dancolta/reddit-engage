@@ -4,7 +4,9 @@ Single source of truth for dedup (surfaced.post_id PK = post is shown at most on
 """
 from __future__ import annotations
 
+import os
 import sqlite3
+import stat
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -85,18 +87,72 @@ CREATE INDEX IF NOT EXISTS idx_surfaced_date ON surfaced(surfaced_on);
 """
 
 
+def _xdg_data_dir() -> Path:
+    """Resolve the user-data directory, honoring REDDIT_ENGAGE_DATA, then XDG_DATA_HOME,
+    then defaulting to ~/.local/share/reddit-engage/. Created with 0o700 perms if missing.
+
+    Env precedence (highest first):
+      1. REDDIT_ENGAGE_DATA      — project override (set by tests / CI)
+      2. XDG_DATA_HOME           — XDG Base Directory spec
+      3. ~/.local/share          — XDG default
+    """
+    if override := os.environ.get("REDDIT_ENGAGE_DATA"):
+        d = Path(override).expanduser()
+    elif xdg := os.environ.get("XDG_DATA_HOME"):
+        d = Path(xdg).expanduser() / "reddit-engage"
+    else:
+        d = Path.home() / ".local" / "share" / "reddit-engage"
+    d.mkdir(parents=True, exist_ok=True)
+    # 0o700: owner-only. Defends OAuth + Reddit credentials cached in companion files.
+    try:
+        d.chmod(stat.S_IRWXU)
+    except OSError:
+        # Best-effort; on some filesystems (NFS, FAT) chmod is a noop.
+        pass
+    return d
+
+
+def xdg_config_dir() -> Path:
+    """Resolve the user-config directory. Same precedence as _xdg_data_dir() but
+    rooted at XDG_CONFIG_HOME / ~/.config."""
+    if override := os.environ.get("REDDIT_ENGAGE_CONFIG"):
+        d = Path(override).expanduser()
+    elif xdg := os.environ.get("XDG_CONFIG_HOME"):
+        d = Path(xdg).expanduser() / "reddit-engage"
+    else:
+        d = Path.home() / ".config" / "reddit-engage"
+    d.mkdir(parents=True, exist_ok=True)
+    try:
+        d.chmod(stat.S_IRWXU)
+    except OSError:
+        pass
+    return d
+
+
 def db_path(project_root: Path | str | None = None) -> Path:
-    root = Path(project_root) if project_root else Path(__file__).resolve().parents[2]
-    return root / "db" / "reddit-engage.sqlite"
+    """Resolve SQLite DB path.
+
+    Default (production): `<xdg_data>/reddit-engage.sqlite` (see `_xdg_data_dir`).
+    Override (legacy / tests): pass `project_root` explicitly → `<project_root>/db/reddit-engage.sqlite`.
+    """
+    if project_root is not None:
+        return Path(project_root) / "db" / "reddit-engage.sqlite"
+    return _xdg_data_dir() / "reddit-engage.sqlite"
 
 
 @contextmanager
 def connect(path: Path | str | None = None) -> Iterator[sqlite3.Connection]:
     p = Path(path) if path else db_path()
     p.parent.mkdir(parents=True, exist_ok=True)
+    new_db = not p.exists() or p.stat().st_size == 0
     conn = sqlite3.connect(str(p))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    if new_db:
+        # First connect to a fresh DB → install schema. Idempotent because
+        # SCHEMA uses CREATE TABLE IF NOT EXISTS everywhere.
+        conn.executescript(SCHEMA)
+        conn.commit()
     try:
         yield conn
         conn.commit()
@@ -108,6 +164,8 @@ def connect(path: Path | str | None = None) -> Iterator[sqlite3.Connection]:
 
 
 def bootstrap(path: Path | str | None = None) -> None:
+    # Kept for explicit-setup callers. `connect()` now auto-bootstraps on
+    # first contact with an empty DB, but `setup` still calls this for clarity.
     with connect(path) as conn:
         conn.executescript(SCHEMA)
 

@@ -96,34 +96,77 @@ Sensible defaults are pre-locked. Tweak only if you understand why:
 - `scoring.blog_coverage_bonus.points_per_match` (default 25). Raise if blog-backed replies convert way better than generic ones.
 - `daily_output.hard_ceiling` (default 15). Your daily inbox size.
 
-## Install (Claude Code skill)
+## Install (Claude Code plugin)
+
+`reddit-engage` ships as a Claude Code plugin — install it from the GitHub repo:
 
 ```bash
-git clone https://github.com/dancolta/reddit-engage ~/Work/<your-project-folder>
-cd ~/Work/<your-project-folder>
+# from inside Claude Code
+/plugin install dancolta/reddit-engage
+```
+
+Claude Code prompts you for the [user config](#user-config) on install. Secrets land in your OS keychain.
+
+Then install the Python engine (one-time, for the fetch + score + dedup work):
+
+```bash
+git clone https://github.com/dancolta/reddit-engage ~/Work/reddit-engage
+cd ~/Work/reddit-engage
 python3 -m pip install -e .
+# optional install groups:
+python3 -m pip install -e '.[reddit,anthropic,notion]'     # OAuth, classifier, Notion sync
+python3 -m pip install -e '.[vec]'                          # semantic dedup (Phase 2)
 ```
 
-Then symlink (or copy) the skill so Claude Code picks it up:
+### User config
 
-```bash
-mkdir -p ~/.claude/skills/reddit-engage
-cp SKILL.md ~/.claude/skills/reddit-engage/
+On install Claude Code asks for:
+
+| Key | Required? | What |
+|---|---|---|
+| `reddit_client_id` | yes | From https://reddit.com/prefs/apps (script-type app) |
+| `reddit_client_secret` | yes | Same registration |
+| `reddit_username` | yes | Your username (no `u/`) |
+| `notion_api_key` | no | Enables Notion daily-triage sync |
+| `notion_database_id` | if Notion enabled | The 32-char database ID |
+| `obsidian_vault_path` | no | Absolute path to vault for weekly pulse digest |
+
+### First-time setup
+
+```
+# from Claude Code, once:
+/reddit-engage:setup
 ```
 
-Edit `~/.claude/skills/reddit-engage/SKILL.md`: update the `Notion target` block with your own Notion database ID + data source ID (create the database via the Notion MCP or the included setup helper).
-
-Finally bootstrap:
-
-```bash
-python3 -m scripts.reddit_engage setup
-```
-
-Then from Claude Code run `/reddit-engage setup` once. That verifies Reddit connectivity and the Notion DB.
+(Setup wizard is a stub today — see [PLAN.md](PLAN.md) §4 Phase 7 for the full implementation roadmap. Until then, copy `config/*.yml` from this repo into `~/.config/reddit-engage/` to bootstrap.)
 
 ## Daily run
 
-In Claude Code, type `/reddit-engage`. Done.
+In Claude Code:
+
+```
+/reddit-engage:run
+```
+
+That's it. Print 5-15 surfaces inline; optionally synced to Notion.
+
+## Sub-skills
+
+Phase 3 of [PLAN.md](PLAN.md) adds these pattern-specific surfacers:
+
+| Skill | What it finds |
+|---|---|
+| `/reddit-engage:run` | General pain + named SaaS (default) |
+| `/reddit-engage:stack-audit` | OPs listing 8+ tools, asking how to consolidate |
+| `/reddit-engage:churn-signals` | "Canceling X" / "switching from X" + vendor |
+| `/reddit-engage:pricing-rage` | Price-hike threads (cyclical) |
+| `/reddit-engage:build-vs-buy` | Explicit debate threads with numbers |
+| `/reddit-engage:rfp-bait` | "X vs Y vs Z" comparison threads |
+| `/reddit-engage:resurrect` | 6–18 month-old threads still getting Google traffic |
+| `/reddit-engage:rivals` | Configurable competitor-mention digest |
+| `/reddit-engage:op-vet` | Score an OP profile pre-reply |
+| `/reddit-engage:postmortem` | 7-day outcome on your replies (auto-detected) |
+| `/reddit-engage:pulse` | Weekly sub-heat-map → Obsidian |
 
 ## Compared
 
@@ -155,27 +198,35 @@ The full subreddit list ships with the maintainer's NodeSparks setup (22 subs to
 ## Architecture
 
 ```
-~/.claude/skills/reddit-engage/SKILL.md     Claude orchestrator (Playwright + Notion MCP)
-                                            │
-~/Work/<your-folder>/                       Python CLI (no MCP calls)
-  scripts/reddit_engage.py                  setup, fetch-score, status, blog ingest
-  scripts/lib/
-    reddit_public.py                        Raw Reddit JSON, canonicalization, rate-limit handling
+Plugin (this repo, ships to Claude Code)
+  .claude-plugin/plugin.json                userConfig + manifest
+  skills/run/SKILL.md                       /reddit-engage:run daily orchestrator
+  skills/setup/SKILL.md                     /reddit-engage:setup wizard (Phase 7)
+  skills/<pattern>/SKILL.md                 sub-skills (Phase 3 — stack-audit, churn, …)
+
+Engine (this repo, Python package)
+  engine/reddit_engage/cli.py               setup, fetch-score, status, blog ingest
+  engine/reddit_engage/lib/
+    reddit_public.py                        Raw Reddit JSON (Phase 1 → PRAW OAuth)
     score.py                                Tier-aware gates + scoring formula
-    store.py                                SQLite wrapper, single source of truth for dedup
-    blog_extractor.py                       Rule-based keyword extractor for new blog posts
+    store.py                                SQLite + XDG path resolution
+    classify.py                             LLM intent classifier (Phase 2)
+    dedup_vec.py                            sqlite-vec semantic dedup (Phase 2 opt-in)
+    blog_extractor.py                       Rule-based keyword extractor
     output.py                               Inline markdown renderer
-  config/                                   subreddits.yml, keywords.yml, weights.yml, blog-map.yml, notion.yml
-  db/reddit-engage.sqlite                   runtime, gitignored
-  tests/                                    21 tests, all passing
+  engine/scripts/migrate_to_xdg.py          one-shot legacy DB migration
+
+Per-user state (XDG conventions)
+  ~/.config/reddit-engage/                  oauth.json, llm.json, *.yml configs
+  ~/.local/share/reddit-engage/             reddit-engage.sqlite, logs
 ```
 
-Python handles fetch + gate + score + persistence. Claude (via SKILL.md) handles Playwright (optional blog refresh) and Notion (board sync). They communicate via JSON on stdout. MCP tools are scoped to the Claude session; Python subprocess cannot reach them, so the orchestration sits in the right place.
+Python handles fetch + gate + score + persistence. Claude (via SKILL.md) handles Notion / Obsidian sync. They communicate via JSON on stdout. MCP tools are scoped to the Claude session; Python subprocess cannot reach them, so the orchestration sits in the right place.
 
 <details>
 <summary>Schema reference</summary>
 
-The SQLite schema lives in [`scripts/lib/store.py`](scripts/lib/store.py). Key invariants:
+The SQLite schema lives in [`engine/reddit_engage/lib/store.py`](engine/reddit_engage/lib/store.py). Key invariants:
 
 - `posts.canonical_url UNIQUE` and `posts.id PRIMARY KEY` for cross-host dedup. URL canonical form is `https://reddit.com/comments/<t3_id>/`.
 - `surfaced.post_id PRIMARY KEY` is the single column that guarantees a post surfaces at most once across all time. The Notion board can be cleared on every run; SQLite remembers everything.
@@ -221,10 +272,22 @@ The optional blog refresh runs through Playwright MCP (headless browser) and the
 
 ## Roadmap
 
-- v1, this release: surface-only. No drafting, no posting.
-- v2, maybe: optional reply-angle suggestions (never auto-send). Per-sub conversion attribution from profile-click data. AI Overview citation tracking instrumented via a future `surfaced.ai_citation_count` column.
+Active build plan: [PLAN.md](PLAN.md). Live execution board: [Project #7](https://github.com/users/dancolta/projects/7).
 
-The roadmap stays read-only on Reddit's side. The automation stops where the conversation starts.
+| Phase | Scope | Status |
+|---|---|---|
+| -1 | BMAD + Kanban + Stop-hook enforcement | ✅ Done |
+| 0 | Scaffold (plugin manifest, engine restructure, XDG paths) | In progress |
+| 1 | Tier A: OAuth migration, sub-list prune, author pre-gate | Backlog |
+| 2 | Tier B: Claude classifier, sqlite-vec dedup, cooling queue | Backlog |
+| 3 | Sub-skills: stack-audit, churn, pricing-rage, build-vs-buy, rfp-bait, resurrect, rivals, op-vet | Backlog |
+| 4 | Notion 4-view triage board + Obsidian weekly pulse | Backlog |
+| 5 | Postmortem: 7-day outcome auto-detection | Backlog |
+| 6 | Industry presets: B2B SaaS / agency / indie / consultant | Backlog |
+| 7 | Conversational `/reddit-engage:setup` wizard | Backlog |
+| 8 | Polish + v0.1.0 tag + (optional) clawhub submit | Backlog |
+
+**Locked anti-goals** (will not ship): automated reply posting, multi-account rotation, voice-drift detector. The automation stops where the conversation starts.
 
 ## Contributing
 
