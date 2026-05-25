@@ -10,45 +10,58 @@ Returns a structured verdict per post:
         "suggested_angle":     str   (short reply angle, <120 chars)
     }
 
-## Architecture decisions (documented for Anthropic-best-practices audit)
+## Three-tier classification model
 
-**Provider priority** (configured at runtime, auto-detected at startup):
+`reddit-engage` does NOT bulk-classify every post by default. The default
+daily run uses regex + author-vet + tier gates only (zero LLM cost, zero
+auth requirement). LLM classification is opt-in per use case:
 
-1. **`anthropic_api`** (default if `ANTHROPIC_API_KEY` env set) — uses the SDK
-   directly. Cheapest per call (~$0.0009 with Haiku 4.5). Recommended.
+1. **`/reddit-engage:run` (default)** — regex-only gate. No classifier call.
+   Day-1 install works without any keys.
 
-2. **`claude_cli_bare`** (if `claude` CLI present AND `ANTHROPIC_API_KEY` set) —
-   subprocess `claude --bare -p ...`. Functionally equivalent to SDK; useful if
-   the user doesn't have the `anthropic` Python lib installed but does have CLI.
+2. **`/reddit-engage:judge <surface-id>`** — interactive, Claude-driven via
+   your Claude Code subscription. Reads a single surface, runs the same
+   classification prompt, returns verdict + reply angle. Free under
+   subscription; cost lives with `claude` Code session, not this module.
 
-3. **`claude_cli_full`** — NOT USED. Discovered during Phase 2 dev: default
-   `claude -p` (no `--bare`) loads the entire Claude Code session context
-   (CLAUDE.md, hooks, plugin sync) which costs ~$0.17/call regardless of
-   prompt size. Not viable for 5K posts/day. Hence `--bare` is required if
-   using the CLI path.
+3. **Bulk LLM (opt-in, via `ANTHROPIC_API_KEY`)** — `classify(post)` in
+   this module calls the Anthropic SDK directly. Prompt-cached at
+   ~$0.0005/post with Haiku 4.5. Activated when `cmd_fetch_score` finds
+   `ANTHROPIC_API_KEY` in env — every regex-passing post gets graded.
+   At 5K posts/day = ~$0.50/day.
 
-4. **`disabled`** (fallback) — no provider available → skip classifier silently,
-   regex gate alone decides. Logs once per run.
+## Why no `claude` CLI subprocess path
+
+PLAN.md originally proposed using `claude -p` subprocess for the
+"subscription-as-default" case. Measured cost: ~$0.17/call because the
+CLI in non-bare mode loads the full Claude Code session context (~136K
+tokens of CLAUDE.md / hooks / plugin sync) for every invocation. At
+volume that's $850/day — unusable.
+
+`claude --bare -p` strips the context BUT enforces `ANTHROPIC_API_KEY`
+auth (OAuth/keychain are explicitly blocked in bare mode). So there's no
+viable subprocess path that uses subscription auth at scale.
+
+The subscription's natural use is **interactive judgment** — one call at
+a time, human-driven, in chat. That's the `/reddit-engage:judge` skill
+(skills/judge/SKILL.md). Bulk classification is what API keys are for.
 
 ## Prompt + schema
 
 System prompt + JSON schema live in `engine/reddit_engage/prompts/classify.md`.
-The prompt is small (cached automatically by Anthropic's 5min cache) so repeat
-calls within a daily run hit the cache. Per-post tokens: ~400 input + ~80 output
-= ~$0.0005 with Haiku 4.5.
+Same prompt powers both the bulk SDK path AND the interactive judge skill,
+so verdicts are consistent across modes. Prompt is cacheable; per-post
+tokens are ~400 input + ~80 output = ~$0.0005 with Haiku 4.5.
 
 ## Cost cap
 
-Each call enforces `max_tokens_out` AND defers retry on rate-limit per SDK
-exponential backoff. Daily budget capped via per-call ceiling, not a global
-counter (simpler, prevents accidental runaway).
+`max_tokens=200` per call (~$0.001 ceiling). No global counter — keep it
+simple, prevent runaway by per-call enforcement.
 """
 from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -84,7 +97,7 @@ CLASSIFY_SCHEMA = {
 }
 
 
-Provider = Literal["anthropic_api", "claude_cli_bare", "disabled"]
+Provider = Literal["anthropic_api", "disabled"]
 
 
 def _log(msg: str) -> None:
@@ -97,41 +110,44 @@ def llm_config_path() -> Path:
 
 
 def detect_provider() -> Provider:
-    """Auto-detect best available provider.
+    """Auto-detect best available provider for bulk classification.
 
-    Returns 'disabled' (not an exception) if no path works. Callers must
-    handle this gracefully — classification is optional, not required.
+    Returns `disabled` (not an exception) if no key. Callers MUST handle
+    `disabled` gracefully — the default daily run does regex-only gating
+    and never calls classify() in the first place.
+
+    The `/reddit-engage:judge` skill (interactive, subscription-powered)
+    does NOT call this function — it's an in-chat Claude action, not a
+    subprocess.
     """
-    # User override?
     cfg_path = llm_config_path()
     if cfg_path.exists():
         try:
             cfg = json.loads(cfg_path.read_text())
-            if cfg.get("provider") in ("anthropic_api", "claude_cli_bare", "disabled"):
-                return cfg["provider"]  # type: ignore
+            v = cfg.get("provider")
+            if v in ("anthropic_api", "disabled"):
+                return v  # type: ignore
         except (json.JSONDecodeError, OSError):
             pass
 
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if not has_key:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
         return "disabled"
 
-    # Prefer SDK if installed
     try:
         import anthropic  # noqa: F401
         return "anthropic_api"
     except ImportError:
-        pass
-
-    # CLI fallback (still needs API key for --bare mode)
-    if shutil.which("claude"):
-        return "claude_cli_bare"
-
-    return "disabled"
+        _log("ANTHROPIC_API_KEY set but `anthropic` SDK not installed. "
+             "Run: pip install -e '.[anthropic]'")
+        return "disabled"
 
 
-def _load_prompt() -> str:
-    """Load system prompt from prompts/classify.md. Cached on first call."""
+def load_prompt() -> str:
+    """Load system prompt from prompts/classify.md.
+
+    Public so the `/reddit-engage:judge` skill can share the exact same
+    prompt as the bulk path. Cached on first call.
+    """
     global _CACHED_PROMPT
     if _CACHED_PROMPT is not None:
         return _CACHED_PROMPT
@@ -139,7 +155,6 @@ def _load_prompt() -> str:
     try:
         _CACHED_PROMPT = p.read_text()
     except OSError:
-        # Fallback prompt if file missing (e.g. partial install)
         _CACHED_PROMPT = (
             "You classify Reddit posts for a B2B SaaS lead-surfacing tool. "
             "Return JSON matching the schema. Be concise and accurate."
@@ -150,9 +165,9 @@ def _load_prompt() -> str:
 _CACHED_PROMPT: str | None = None
 
 
-def _format_user_message(post: dict[str, Any]) -> str:
-    """One post → user-message text. Body capped at 800 chars to stay under
-    ~400 input tokens including prompt overhead."""
+def format_user_message(post: dict[str, Any]) -> str:
+    """One post → user-message text. Public so the judge skill can format
+    identically. Body capped at 800 chars."""
     sub = post.get("subreddit", "?")
     title = (post.get("title") or "")[:300]
     body = (post.get("body") or "")[:800]
@@ -170,16 +185,16 @@ def _call_anthropic_api(post: dict[str, Any], model: str) -> dict[str, Any] | No
     except ImportError:
         return None
 
-    client = anthropic.Anthropic()  # picks up ANTHROPIC_API_KEY
-    sys_prompt = _load_prompt()
-    user_msg = _format_user_message(post)
+    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
+    sys_prompt = load_prompt()
+    user_msg = format_user_message(post)
     try:
         resp = client.messages.create(
             model=model,
             max_tokens=MAX_TOKENS_OUT,
             system=[
-                # Anthropic prompt-cache: marking system prompt as cacheable
-                # gives us ~90% cost reduction on repeat calls within 5min TTL.
+                # cache_control: ephemeral → 5-min prompt cache.
+                # Repeat calls within the same daily run pay ~10% of first-call cost.
                 {"type": "text", "text": sys_prompt, "cache_control": {"type": "ephemeral"}},
             ],
             messages=[{"role": "user", "content": user_msg}],
@@ -188,63 +203,15 @@ def _call_anthropic_api(post: dict[str, Any], model: str) -> dict[str, Any] | No
         _log(f"SDK error: {e}")
         return None
 
-    # Extract first text block
     text_parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
     if not text_parts:
         return None
     return _parse_json_safely(text_parts[0])
 
 
-def _call_claude_cli(post: dict[str, Any], model: str) -> dict[str, Any] | None:
-    """Subprocess call to `claude --bare -p`. Uses --json-schema for
-    structured output validation server-side. Returns parsed verdict or None.
-
-    Cost note: `--bare` is REQUIRED. Default `claude -p` loads full Claude Code
-    session context (~136K tokens of CLAUDE.md / hooks / plugins) which makes
-    each call cost ~$0.17. With --bare, only the explicit system-prompt counts.
-    """
-    if not shutil.which("claude"):
-        return None
-    sys_prompt = _load_prompt()
-    user_msg = _format_user_message(post)
-    cmd = [
-        "claude", "--bare", "-p",
-        "--model", model,
-        "--output-format", "json",
-        "--system-prompt", sys_prompt,
-        "--json-schema", json.dumps(CLASSIFY_SCHEMA),
-        "--max-budget-usd", "0.05",  # per-call ceiling; classification should be <$0.001
-        "--no-session-persistence",
-    ]
-    try:
-        result = subprocess.run(
-            cmd, input=user_msg, capture_output=True, text=True, timeout=60
-        )
-    except (subprocess.TimeoutExpired, OSError) as e:
-        _log(f"CLI error: {e}")
-        return None
-
-    if result.returncode != 0:
-        _log(f"CLI exit {result.returncode}: {result.stderr[:200]}")
-        return None
-
-    # `--output-format json` wraps the model output in metadata. Parse the envelope, extract `result`.
-    try:
-        envelope = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-    if envelope.get("is_error"):
-        _log(f"CLI is_error: {envelope.get('result', '')[:200]}")
-        return None
-    inner = envelope.get("result", "")
-    return _parse_json_safely(inner)
-
-
 def _parse_json_safely(text: str) -> dict[str, Any] | None:
-    """Extract JSON from model output. Handles markdown-wrapped JSON ('''json ... ''')
-    and best-effort recovery."""
+    """Extract JSON from model output. Handles markdown-fenced JSON."""
     text = text.strip()
-    # Strip markdown code fence if present
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
         if text.endswith("```"):
@@ -279,15 +246,18 @@ def classify(
     provider: Provider | None = None,
     model: str | None = None,
 ) -> dict[str, Any] | None:
-    """Public classifier entrypoint.
+    """Bulk classifier entrypoint. Used by `cmd_fetch_score` when API key set.
 
     Returns the verdict dict on success, or None if:
-      - Provider is disabled (no API key, no SDK, no CLI)
-      - Network/SDK/CLI call failed
-      - Response was malformed and couldn't be salvaged
+      - Provider is disabled (no API key)
+      - SDK call failed
+      - Response was malformed
 
     Callers MUST treat None as "classifier unavailable" and fall through to
-    regex-only gating. Never raise.
+    regex-only gating. Never raises.
+
+    NOT called by the interactive `/reddit-engage:judge` skill — that path
+    is Claude-driven in-chat, not subprocess.
     """
     p: Provider = provider or detect_provider()
     if p == "disabled":
@@ -296,8 +266,6 @@ def classify(
 
     if p == "anthropic_api":
         raw = _call_anthropic_api(post, m)
-    elif p == "claude_cli_bare":
-        raw = _call_claude_cli(post, m)
     else:
         return None
 
@@ -311,9 +279,10 @@ def status() -> dict[str, Any]:
     p = detect_provider()
     return {
         "provider": p,
+        "mode": "bulk_sdk" if p == "anthropic_api" else "regex_only",
         "has_api_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "anthropic_sdk_installed": _has_module("anthropic"),
-        "claude_cli_in_path": bool(shutil.which("claude")),
+        "interactive_judge_available": True,  # always — uses Claude session, not subprocess
         "config_override": llm_config_path().exists(),
     }
 

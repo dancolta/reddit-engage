@@ -150,6 +150,20 @@ In Claude Code:
 
 That's it. Print 5-15 surfaces inline; optionally synced to Notion.
 
+## Classification: three-tier cost model
+
+The default `:run` uses **regex + author-vet + tier gates only** — zero LLM cost, zero API key required. Works on day-1 install. Most posts surfaced by the regex gate are already high quality; you don't need LLM grading on every single one.
+
+When you DO want LLM judgment, pick the right tool:
+
+| Use case | Tool | Cost | Auth |
+|---|---|---|---|
+| Default daily run | `/reddit-engage:run` (regex-only) | $0 | None |
+| "Should I reply to surface #3?" | `/reddit-engage:judge 3` | $0 (uses Claude subscription) | Claude Code login |
+| Every regex-passing post LLM-graded automatically | Set `ANTHROPIC_API_KEY` env, `:run` auto-engages SDK | ~$0.50/day @ 5K posts (Haiku 4.5 + prompt caching) | Anthropic API key |
+
+The bulk SDK path is opt-in for a reason: it's the only one that needs a separate API key. Most users won't need it. The `judge` skill covers 90% of cases at zero marginal cost.
+
 ## Sub-skills
 
 Phase 3 of [PLAN.md](PLAN.md) adds these pattern-specific surfacers:
