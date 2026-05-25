@@ -6,9 +6,24 @@
 
 > **What this is not.** It does not post for you. It does not comment for you. It does not farm karma, rotate accounts, or warm up personas. There is no AI ghostwriter pasting replies into Reddit at 3am. It surfaces threads. You read them. You decide if they deserve your voice. The automation stops where the conversation starts.
 
-`reddit-engage` is a Claude Code skill that scans the subreddits you care about every morning, gates posts by tier-aware thresholds, and hands you a curated list of up to 15 pain posts worth a human reply. SQLite guarantees you never see the same post twice, across all time.
+`reddit-engage` is a **Claude Code plugin** that scans the subreddits you care about every morning, gates posts by tier-aware thresholds, and hands you a curated list of up to 15 pain posts worth a human reply. SQLite guarantees you never see the same post twice, across all time.
 
-**Made for one user, designed for any.** Bring your own subs, your own pain keywords, your own backing blog. The engine is identical for an indie SaaS founder, a recruiter, an agency owner, a devtools builder, or anyone using Reddit to compound authority in a specific niche.
+## Plug-and-play, with optional add-ons
+
+The default install needs **zero API keys**. Pick a preset, run `/reddit-engage:run`, get a daily list inline in chat. That's it.
+
+| Layer | What it gives you | What it needs |
+|---|---|---|
+| **Default** | Regex-gated daily scan, inline output | Nothing — works on day 1 |
+| **Reddit OAuth** (recommended) | 10× rate budget + postmortem reply tracking | 5-min app registration ([docs](docs/setup-oauth.md)) |
+| **Interactive judgment** | `/reddit-engage:judge <n>` — single-surface classification using your Claude Code subscription | Already in Claude Code |
+| **Bulk LLM grading** | Every regex-passing post LLM-graded automatically | `ANTHROPIC_API_KEY` env (~$0.50/day) |
+| **Notion triage board** | Persistent surface board with Hot list / Drafting / Pattern pulse / Replied views | Notion API key + 3-min setup ([docs](docs/setup-notion.md)) |
+| **Obsidian pulse digest** | Weekly markdown digest in your vault | Vault path |
+
+Skip any layer, the others still work. Add layers later without re-installing.
+
+**Made for one user, designed for any.** Pick from 4 industry presets (B2B SaaS founder / agency owner / indie hacker / consultant) or bring your own subs + keywords. The engine is identical.
 
 ## How it works
 

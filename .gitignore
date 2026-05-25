@@ -19,3 +19,9 @@ voice-profile.md
 .claude/session-tasks.log
 .claude/bypass.log
 _bmad-output/
+
+# User config — must never land in the public repo
+config/notion.yml
+config/oauth.json
+config/llm.json
+config/obsidian.yml

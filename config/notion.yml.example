@@ -1,0 +1,15 @@
+# Notion DB config — TEMPLATE for the public plugin.
+#
+# Actual config lives at ~/.config/reddit-engage/notion.yml (NOT in the repo).
+# This file is the example/reference shape only.
+#
+# Setup:
+#   1. Follow docs/setup-notion.md to create your DB via notion_setup.py
+#   2. The setup script prints the exact `cat > ~/.config/reddit-engage/notion.yml` command
+#   3. Run that command; chmod 600; done.
+#
+# Notion is OPTIONAL. If this file doesn't exist at the XDG location,
+# /reddit-engage:run skips Notion sync silently and prints surfaces inline.
+
+api_key: "<your NOTION_API_KEY, starting with ntn_ or secret_>"
+database_id: "<32-char database ID from notion_setup.py output>"
