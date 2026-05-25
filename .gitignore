@@ -14,3 +14,8 @@ db/*.sqlite-*
 
 # voice-profile is local-only until Dan signals it's ready to ship
 voice-profile.md
+
+# BMAD + board ephemerals
+.claude/session-tasks.log
+.claude/bypass.log
+_bmad-output/
