@@ -49,8 +49,37 @@ scoring:
     tier_2: 1.25                   # Tier 2 survivors passed stricter gates; small boost
 
 # === Daily surfacing rules ===
+# Caps revised 2026-05-25 per market-researcher + ui-ux Phase 9 findings.
+# Attention dropoff (Nielsen Norman): 50% drop at position 7, 80% at position 10.
+# Surfaces beyond 10 train skim-dismiss; 15+ trains app abandonment.
 daily_output:
-  hard_ceiling: 15                 # max surfaces per day
-  minimum: 10                      # guarantee at least this many (backfill from near-miss pool)
-  tier1_per_sub_cap: 3             # max 3 Tier 1 surfaces per sub per day (was 2)
-  tier2_per_sub_cap: 2             # max 2 Tier 2 surfaces per sub per day (was 1)
+  hard_ceiling: 12                 # absolute max — surface 11+ does damage
+  default_target: 10               # what /reddit-engage:run aims for on a normal day
+  minimum: 6                       # below this product feels broken
+  tier1_per_sub_cap: 2             # max 2 Tier 1 surfaces per sub per day
+  tier2_per_sub_cap: 1             # max 1 Tier 2 surface per sub per day
+  # Pattern-specific overrides (engine reads these per --mode)
+  pattern_caps:
+    "default": 10
+    "pricing-rage": 5              # high-emotion + low-frequency = focus
+    "resurrect": 3                 # evergreen threads, slower compounding
+    "rivals": 5                    # per-brand cap
+    "stack-audit": 8
+    "churn": 8
+    "build-vs-buy": 6
+    "rfp-bait": 6
+
+# === Cooling queue ===
+# 15 min sweet spot: <2 min triggers bot-flag, >30 min stales past user session.
+cooling:
+  default_minutes: 15
+  pricing_rage_minutes: 0          # already auto-disabled in code; mirror here
+  resurrect_minutes: 30            # evergreen, no urgency
+
+# === Config-level ceilings (enforced by /profile synth + /tune back-prop) ===
+config_ceilings:
+  brand_anchor_max: 20             # 12 sweet spot, 8 floor, 20 ceiling
+  keywords_per_bucket_max: 50      # above this regex cross-matches
+  keywords_per_bucket_sweet_spot: 35  # synthesis target
+  tier1_subs_max: 5
+  tier2_subs_max: 8                # was 11 active, tightened

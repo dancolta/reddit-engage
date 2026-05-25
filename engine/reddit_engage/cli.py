@@ -118,7 +118,8 @@ def cmd_setup() -> None:
         for s in cfg["subs"]:
             store.upsert_subreddit(conn, s)
         # Seed blog_posts from blog-map.yml so first run has knowledge map.
-        blog_map = _load_yaml("blog-map.yml")
+        # blog-map.yml is OPTIONAL — many users won't have a blog.
+        blog_map = _load_yaml("blog-map.yml", optional=True)
         for blog in blog_map.get("blog_posts", []):
             store.upsert_blog_post(conn, {
                 "url": blog["url"],
@@ -132,11 +133,35 @@ def cmd_setup() -> None:
     print(json.dumps({"status": "ok", "subs": len(cfg["subs"])}))
 
 
+def cmd_orient() -> None:
+    """Print the locked welcome + fork message for first-launch UX.
+
+    Called by the `/reddit-engage:setup` skill after plugin install completes.
+    Voice locked per ui-ux Phase 9 design: no exclamation marks, no concierge
+    selling, peer-recommending. Three signals: scope (local), safety (no auto-
+    post), time honesty (real numbers, both options).
+    """
+    welcome = (
+        "reddit-engage installed. This runs locally in your Claude session and "
+        "posts nothing without you. Two minutes to first scan, or twelve for a "
+        "tuned profile — your call.\n"
+    )
+    fork = (
+        "\nHow do you want to start?\n\n"
+        "  [1] Preset — pick a lane (RevOps / DevTools / Indie SaaS / Agency / Other).\n"
+        "      ~60s. Decent results day one. Tune later.\n\n"
+        "  [2] /reddit-engage:profile — 8-question interview.\n"
+        "      ~12min. Sharper targeting from scan one. Skip if you'd rather see output first.\n\n"
+        "Reply 1 or 2. If unsure, do 1 — you can run profile anytime.\n"
+    )
+    print(welcome + fork)
+
+
 def cmd_fetch_score(
     limit_per_sub: int = 25,
-    daily_cap: int = 15,
+    daily_cap: int | None = None,           # None = read from weights.yml pattern_caps
     no_cool: bool = False,
-    cool_minutes: int = 30,
+    cool_minutes: int | None = None,        # None = read from weights.yml
     mode: str = "default",
     rivals_brand: str | None = None,
 ) -> None:
@@ -157,8 +182,21 @@ def cmd_fetch_score(
     """
     cfg = _load_configs(mode=mode)
     weights = cfg["weights"]
-    # pricing-rage is time-sensitive — auto-disable cooling unless overridden
-    if mode == "pricing-rage" and not no_cool:
+    # Resolve pattern-specific caps + cooling from weights.yml if not overridden
+    out_cfg = weights.get("daily_output", {})
+    if daily_cap is None:
+        pattern_caps = out_cfg.get("pattern_caps") or {}
+        daily_cap = int(pattern_caps.get(mode, out_cfg.get("default_target", 10)))
+    if cool_minutes is None:
+        cool_cfg = weights.get("cooling", {})
+        if mode == "pricing-rage":
+            cool_minutes = int(cool_cfg.get("pricing_rage_minutes", 0))
+        elif mode == "resurrect":
+            cool_minutes = int(cool_cfg.get("resurrect_minutes", 30))
+        else:
+            cool_minutes = int(cool_cfg.get("default_minutes", 15))
+    # pricing-rage = time-sensitive: zero cooling
+    if mode == "pricing-rage" and not no_cool and cool_minutes == 0:
         no_cool = True
     # rivals requires brand argument
     if mode == "rivals" and not rivals_brand:
@@ -427,14 +465,16 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("setup", help="Bootstrap DB + load configs")
+    sub.add_parser("orient", help="Print first-launch welcome + fork message")
     fs = sub.add_parser("fetch-score", help="Fetch deltas, gate, score, surface")
     fs.add_argument("--limit-per-sub", type=int, default=25)
-    fs.add_argument("--daily-cap", type=int, default=15)
+    fs.add_argument("--daily-cap", type=int, default=None,
+                    help="Override pattern-specific cap (default: read from weights.yml pattern_caps)")
     fs.add_argument("--no-cool", action="store_true",
                     help="Skip cooling queue — surfaces immediately visible "
                          "(use for time-sensitive patterns like pricing-rage)")
-    fs.add_argument("--cool-minutes", type=int, default=30,
-                    help="Cooling queue hold duration (default 30)")
+    fs.add_argument("--cool-minutes", type=int, default=None,
+                    help="Cooling queue hold duration (default: read from weights.yml cooling)")
     fs.add_argument("--mode", choices=sorted(VALID_MODES), default="default",
                     help="Pattern mode — gate and keywords change per pattern")
     fs.add_argument("--rivals-brand", type=str, default=None,
@@ -452,6 +492,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.cmd == "setup":
         cmd_setup()
+    elif args.cmd == "orient":
+        cmd_orient()
     elif args.cmd == "fetch-score":
         cmd_fetch_score(
             args.limit_per_sub, args.daily_cap,
