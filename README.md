@@ -21,20 +21,20 @@
 
 ## Plug-and-play, with optional add-ons
 
-The default install needs **zero API keys**. Pick a preset, run `/reddit-engage:run`, get a daily list inline in chat. That's it.
+The default install needs **zero API keys**. Three quick questions during onboarding (~60s) and the tool targets the subreddits where YOUR audience actually hangs out — not a generic lane.
 
 | Layer | What it gives you | What it needs |
 |---|---|---|
-| **Default** | Regex-gated daily scan, inline output | Nothing — works on day 1 |
+| **Default** | 3-question onboarding (`/reddit-engage:onboard`) + regex-gated daily scan + inline output | Nothing — works on day 1 |
 | **Reddit OAuth** (recommended) | 10× rate budget + postmortem reply tracking | 5-min app registration ([docs](docs/setup-oauth.md)) |
 | **Interactive judgment** | `/reddit-engage:judge <n>` — single-surface classification using your Claude Code subscription | Already in Claude Code |
-| **Bulk LLM grading** | Every regex-passing post LLM-graded automatically | `ANTHROPIC_API_KEY` env (~$0.50/day) |
+| **Bulk LLM grading** | Every regex-passing post LLM-graded automatically | `LLM_API_KEY` env — works with Anthropic, OpenAI, Groq, OpenRouter, local Ollama, or any OpenAI-compatible endpoint (~$0.50/day at scale) |
 | **Notion triage board** | Persistent surface board with Hot list / Drafting / Pattern pulse / Replied views | Notion API key + 3-min setup ([docs](docs/setup-notion.md)) |
 | **Obsidian pulse digest** | Weekly markdown digest in your vault | Vault path |
 
 Skip any layer, the others still work. Add layers later without re-installing.
 
-**Made for one user, designed for any.** Pick from 4 industry presets (B2B SaaS founder / agency owner / indie hacker / consultant) or bring your own subs + keywords. The engine is identical.
+**Made for one user, designed for any.** Three questions in `/reddit-engage:onboard` build a config tuned to your work. Power users can run the 8-question `/reddit-engage:profile` for a deeper configuration, or pick one of 4 generic presets (B2B SaaS founder / agency owner / indie hacker / consultant) as a 30-second escape hatch.
 
 ## How it works
 
@@ -186,9 +186,22 @@ When you DO want LLM judgment, pick the right tool:
 |---|---|---|---|
 | Default daily run | `/reddit-engage:run` (regex-only) | $0 | None |
 | "Should I reply to surface #3?" | `/reddit-engage:judge 3` | $0 (uses Claude subscription) | Claude Code login |
-| Every regex-passing post LLM-graded automatically | Set `ANTHROPIC_API_KEY` env, `:run` auto-engages SDK | ~$0.50/day @ 5K posts (Haiku 4.5 + prompt caching) | Anthropic API key |
+| Every regex-passing post LLM-graded automatically | Set `LLM_API_KEY` env, `:run` auto-engages | ~$0.50/day @ 5K posts | Any provider |
 
-The bulk SDK path is opt-in for a reason: it's the only one that needs a separate API key. Most users won't need it. The `judge` skill covers 90% of cases at zero marginal cost.
+The bulk LLM path is **provider-agnostic** — works with any OpenAI-compatible endpoint:
+
+| Provider | Key prefix | Default base URL |
+|---|---|---|
+| Anthropic | `sk-ant-...` | `https://api.anthropic.com/v1/` (OpenAI-compat layer) |
+| OpenAI | `sk-...` | `https://api.openai.com/v1` |
+| Groq | `gsk_...` | `https://api.groq.com/openai/v1` |
+| OpenRouter | `sk-or-...` | `https://openrouter.ai/api/v1` |
+| Local Ollama | any | `http://localhost:11434/v1` (override via `LLM_BASE_URL`) |
+| Anything OpenAI-compatible | any | set `LLM_BASE_URL` |
+
+Default model: `claude-haiku-4-5` (cheap, fast, high quality). Override via `LLM_MODEL` env.
+
+The bulk path is opt-in for a reason: it's the only one that needs a separate API key. Most users won't need it. The `judge` skill covers 90% of cases at zero marginal cost via your Claude Code subscription.
 
 <details>
 <summary><strong>11 pattern-aware sub-skills</strong> (click to expand)</summary>

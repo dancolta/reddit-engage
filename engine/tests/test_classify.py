@@ -5,7 +5,7 @@ removed. Interactive subscription-powered classification lives in the
 `/reddit-engage:judge` SKILL, not this module.
 
 We mock the SDK at module-import level (per test_classify imports anthropic
-lazily inside _call_anthropic_api).
+lazily inside _call_anthropic_native).
 """
 import json
 import sys
@@ -54,7 +54,7 @@ def test_anthropic_sdk_success(monkeypatch):
     mock_anthropic_module.Anthropic.return_value = mock_client
     monkeypatch.setitem(sys.modules, "anthropic", mock_anthropic_module)
 
-    with patch.object(classify, "detect_provider", return_value="anthropic_api"):
+    with patch.object(classify, "detect_provider", return_value="anthropic_native"):
         result = classify.classify(make_post())
 
     assert result is not None
@@ -75,7 +75,7 @@ def test_sdk_call_uses_prompt_cache(monkeypatch):
     mock_anthropic_module.Anthropic.return_value = mock_client
     monkeypatch.setitem(sys.modules, "anthropic", mock_anthropic_module)
 
-    with patch.object(classify, "detect_provider", return_value="anthropic_api"):
+    with patch.object(classify, "detect_provider", return_value="anthropic_native"):
         classify.classify(make_post())
 
     call_kwargs = mock_client.messages.create.call_args.kwargs
@@ -97,7 +97,7 @@ def test_max_tokens_capped(monkeypatch):
     mock_anthropic_module.Anthropic.return_value = mock_client
     monkeypatch.setitem(sys.modules, "anthropic", mock_anthropic_module)
 
-    with patch.object(classify, "detect_provider", return_value="anthropic_api"):
+    with patch.object(classify, "detect_provider", return_value="anthropic_native"):
         classify.classify(make_post())
     assert mock_client.messages.create.call_args.kwargs["max_tokens"] <= 500
 

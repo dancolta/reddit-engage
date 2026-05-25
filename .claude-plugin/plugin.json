@@ -63,6 +63,23 @@
       "title": "Obsidian pulse folder (optional)",
       "description": "Sub-folder within the vault for weekly pulse notes. Defaults to 'reddit-engage'.",
       "default": "reddit-engage"
+    },
+    "llm_api_key": {
+      "type": "string",
+      "title": "LLM API key (optional)",
+      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip — /reddit-engage:judge still works free via your Claude Code subscription.",
+      "sensitive": true
+    },
+    "llm_base_url": {
+      "type": "string",
+      "title": "LLM base URL (optional)",
+      "description": "Override the OpenAI-compatible endpoint base URL. Auto-detected from key prefix when blank. Examples: https://api.anthropic.com/v1/ (Anthropic), https://api.groq.com/openai/v1 (Groq), http://localhost:11434/v1 (Ollama)."
+    },
+    "llm_model": {
+      "type": "string",
+      "title": "LLM model (optional)",
+      "description": "Override the model name. Defaults to a small/cheap model appropriate for classification. Examples: claude-haiku-4-5 (Anthropic, default), gpt-4o-mini (OpenAI), llama-3.3-70b-versatile (Groq).",
+      "default": "claude-haiku-4-5"
     }
   }
 }

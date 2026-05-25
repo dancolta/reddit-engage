@@ -97,7 +97,50 @@ CLASSIFY_SCHEMA = {
 }
 
 
-Provider = Literal["anthropic_api", "disabled"]
+Provider = Literal["openai_compatible", "anthropic_native", "disabled"]
+
+
+# Default base URLs per provider key shape
+_DEFAULT_BASE_URLS = {
+    # When LLM_API_KEY starts with these prefixes, infer the right base URL
+    "sk-ant-": "https://api.anthropic.com/v1/",          # Anthropic OpenAI-compat
+    "sk-or-": "https://openrouter.ai/api/v1",            # OpenRouter
+    "gsk_": "https://api.groq.com/openai/v1",            # Groq
+}
+
+
+def _resolve_llm_endpoint() -> tuple[str | None, str, str]:
+    """Return (api_key, base_url, model) for the OpenAI-compatible client.
+
+    Priority: explicit llm.json fields → env vars → key-prefix inference → defaults.
+    """
+    cfg = {}
+    cfg_path = llm_config_path()
+    if cfg_path.exists():
+        try:
+            cfg = json.loads(cfg_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            cfg = {}
+
+    api_key = (
+        cfg.get("api_key")
+        or os.environ.get("LLM_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+    )
+
+    base_url = cfg.get("base_url") or os.environ.get("LLM_BASE_URL")
+    if not base_url and api_key:
+        # Infer from key prefix
+        for prefix, url in _DEFAULT_BASE_URLS.items():
+            if api_key.startswith(prefix):
+                base_url = url
+                break
+        if not base_url:
+            base_url = "https://api.openai.com/v1"
+
+    model = cfg.get("model") or os.environ.get("LLM_MODEL") or DEFAULT_MODEL
+    return api_key, base_url, model
 
 
 def _log(msg: str) -> None:
@@ -110,36 +153,62 @@ def llm_config_path() -> Path:
 
 
 def detect_provider() -> Provider:
-    """Auto-detect best available provider for bulk classification.
+    """Auto-detect best available LLM provider for bulk classification.
 
-    Returns `disabled` (not an exception) if no key. Callers MUST handle
-    `disabled` gracefully — the default daily run does regex-only gating
-    and never calls classify() in the first place.
+    Returns `disabled` (not an exception) if no key configured. Callers MUST
+    handle `disabled` gracefully — the default daily run does regex-only
+    gating and never calls classify() in the first place.
 
-    The `/reddit-engage:judge` skill (interactive, subscription-powered)
-    does NOT call this function — it's an in-chat Claude action, not a
-    subprocess.
+    Provider auto-detection:
+      1. `~/.config/reddit-engage/llm.json` explicit override (highest priority)
+      2. `LLM_API_KEY` env var → use base_url + model from llm.json or defaults
+      3. `ANTHROPIC_API_KEY` env var (legacy compat) → Anthropic
+      4. `OPENAI_API_KEY` env var → OpenAI
+      5. else: disabled
+
+    The plugin is provider-agnostic: works with any OpenAI-compatible
+    endpoint (Anthropic via /openai/v1, OpenAI, Groq, OpenRouter, Together,
+    Fireworks, local Ollama, etc).
     """
     cfg_path = llm_config_path()
     if cfg_path.exists():
         try:
             cfg = json.loads(cfg_path.read_text())
             v = cfg.get("provider")
-            if v in ("anthropic_api", "disabled"):
+            if v in ("openai_compatible", "anthropic_native", "disabled"):
                 return v  # type: ignore
         except (json.JSONDecodeError, OSError):
             pass
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return "disabled"
+    # Generic LLM_API_KEY (user-chosen provider, OpenAI-compatible)
+    if os.environ.get("LLM_API_KEY"):
+        try:
+            import openai  # noqa: F401
+            return "openai_compatible"
+        except ImportError:
+            _log("LLM_API_KEY set but `openai` package not installed. "
+                 "Run: pip install -e '.[llm]'")
+            return "disabled"
 
-    try:
-        import anthropic  # noqa: F401
-        return "anthropic_api"
-    except ImportError:
-        _log("ANTHROPIC_API_KEY set but `anthropic` SDK not installed. "
-             "Run: pip install -e '.[anthropic]'")
-        return "disabled"
+    # Legacy: ANTHROPIC_API_KEY → native Anthropic SDK
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            import anthropic  # noqa: F401
+            return "anthropic_native"
+        except ImportError:
+            _log("ANTHROPIC_API_KEY set but `anthropic` SDK not installed. "
+                 "Run: pip install -e '.[anthropic]' or '.[llm]' for OpenAI-compat")
+            return "disabled"
+
+    # OpenAI direct
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            import openai  # noqa: F401
+            return "openai_compatible"
+        except ImportError:
+            return "disabled"
+
+    return "disabled"
 
 
 def load_prompt() -> str:
@@ -178,14 +247,61 @@ def format_user_message(post: dict[str, Any]) -> str:
     )
 
 
-def _call_anthropic_api(post: dict[str, Any], model: str) -> dict[str, Any] | None:
-    """Direct SDK call. Returns parsed verdict dict or None on failure."""
+def _call_openai_compat(post: dict[str, Any], model: str | None = None) -> dict[str, Any] | None:
+    """OpenAI-compatible SDK call. Works with: OpenAI, Anthropic (via /openai/v1),
+    Groq, OpenRouter, Together, Fireworks, local Ollama — any provider that
+    exposes OpenAI's chat-completions API shape.
+
+    Returns parsed verdict dict or None on failure.
+    """
+    try:
+        import openai  # type: ignore
+    except ImportError:
+        _log("`openai` package not installed. Run: pip install -e '.[llm]'")
+        return None
+
+    api_key, base_url, resolved_model = _resolve_llm_endpoint()
+    if not api_key:
+        return None
+    if model:
+        resolved_model = model
+
+    client = openai.OpenAI(api_key=api_key, base_url=base_url)
+    sys_prompt = load_prompt()
+    user_msg = format_user_message(post)
+    try:
+        resp = client.chat.completions.create(
+            model=resolved_model,
+            max_tokens=MAX_TOKENS_OUT,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+            # response_format would be nice but isn't universally supported;
+            # the validator catches malformed JSON.
+        )
+    except Exception as e:
+        _log(f"LLM error ({base_url}): {e}")
+        return None
+    text = resp.choices[0].message.content or ""
+    return _parse_json_safely(text)
+
+
+def _call_anthropic_native(post: dict[str, Any], model: str) -> dict[str, Any] | None:
+    """Native Anthropic SDK with prompt caching enabled. Used when the user
+    has ANTHROPIC_API_KEY + the `anthropic` package installed and prefers the
+    native SDK over the OpenAI-compat layer.
+
+    Why both: anthropic-native unlocks `cache_control: ephemeral` for ~90%
+    cost reduction on repeat calls within 5min. The OpenAI-compat layer
+    doesn't currently expose prompt caching.
+    """
     try:
         import anthropic  # type: ignore
     except ImportError:
         return None
 
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
+    client = anthropic.Anthropic()
     sys_prompt = load_prompt()
     user_msg = format_user_message(post)
     try:
@@ -193,8 +309,6 @@ def _call_anthropic_api(post: dict[str, Any], model: str) -> dict[str, Any] | No
             model=model,
             max_tokens=MAX_TOKENS_OUT,
             system=[
-                # cache_control: ephemeral → 5-min prompt cache.
-                # Repeat calls within the same daily run pay ~10% of first-call cost.
                 {"type": "text", "text": sys_prompt, "cache_control": {"type": "ephemeral"}},
             ],
             messages=[{"role": "user", "content": user_msg}],
@@ -264,8 +378,10 @@ def classify(
         return None
     m = model or DEFAULT_MODEL
 
-    if p == "anthropic_api":
-        raw = _call_anthropic_api(post, m)
+    if p == "openai_compatible":
+        raw = _call_openai_compat(post, m)
+    elif p == "anthropic_native":
+        raw = _call_anthropic_native(post, m)
     else:
         return None
 
@@ -275,12 +391,16 @@ def classify(
 
 
 def status() -> dict[str, Any]:
-    """Diagnostic: what's the active provider? Used by `reddit-engage status`."""
+    """Diagnostic: what's the active LLM provider? Used by `reddit-engage status`."""
     p = detect_provider()
+    api_key, base_url, model = _resolve_llm_endpoint()
     return {
         "provider": p,
-        "mode": "bulk_sdk" if p == "anthropic_api" else "regex_only",
-        "has_api_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "mode": "bulk_llm" if p != "disabled" else "regex_only",
+        "has_llm_api_key": bool(api_key),
+        "base_url": base_url if p != "disabled" else None,
+        "model": model if p != "disabled" else None,
+        "openai_sdk_installed": _has_module("openai"),
         "anthropic_sdk_installed": _has_module("anthropic"),
         "interactive_judge_available": True,  # always — uses Claude session, not subprocess
         "config_override": llm_config_path().exists(),

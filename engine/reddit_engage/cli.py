@@ -136,23 +136,27 @@ def cmd_setup() -> None:
 def cmd_orient() -> None:
     """Print the locked welcome + fork message for first-launch UX.
 
-    Called by the `/reddit-engage:setup` skill after plugin install completes.
-    Voice locked per ui-ux Phase 9 design: no exclamation marks, no concierge
-    selling, peer-recommending. Three signals: scope (local), safety (no auto-
-    post), time honesty (real numbers, both options).
+    Voice locked per ui-ux Phase 9.5 redesign: 3-question routing REPLACES
+    the preset menu (validated by all 4 research agents — generic preset
+    alone produces 3/10 ICP-match per surface, 3-question routing reaches
+    5-7/10). Preset becomes the 'type preset to skip' escape hatch.
+
+    Operational language only ("targeting", "subreddits", "config") — no
+    profiling vocabulary ("ICP", "profile", "audience") that signals lead-
+    gen tooling.
     """
     welcome = (
         "reddit-engage installed. This runs locally in your Claude session and "
-        "posts nothing without you. Two minutes to first scan, or twelve for a "
-        "tuned profile — your call.\n"
+        "posts nothing without you.\n"
     )
     fork = (
-        "\nHow do you want to start?\n\n"
-        "  [1] Preset — pick a lane (RevOps / DevTools / Indie SaaS / Agency / Other).\n"
-        "      ~60s. Decent results day one. Tune later.\n\n"
-        "  [2] /reddit-engage:profile — 8-question interview.\n"
-        "      ~12min. Sharper targeting from scan one. Skip if you'd rather see output first.\n\n"
-        "Reply 1 or 2. If unsure, do 1 — you can run profile anytime.\n"
+        "\nThree quick questions so /reddit-engage:run targets the right "
+        "subreddits — about 60 seconds.\n\n"
+        "  Start with: /reddit-engage:onboard\n\n"
+        "Other paths:\n"
+        "  /reddit-engage:onboard preset  — skip questions, pick a generic lane (~30s)\n"
+        "  /reddit-engage:profile         — 8-question deep interview (~12min, "
+        "sharper targeting)\n"
     )
     print(welcome + fork)
 

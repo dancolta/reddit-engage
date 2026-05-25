@@ -26,7 +26,12 @@ vec = [
     "sqlite-vec>=0.1.0",
     "sentence-transformers>=2.7.0",
 ]
-# Anthropic SDK fallback when `claude` CLI not present
+# Provider-agnostic LLM via OpenAI-compatible client.
+# Works with: OpenAI, Anthropic (/openai/v1), Groq, OpenRouter, Together,
+# Fireworks, Anyscale, local Ollama, any OpenAI-compatible endpoint.
+llm = ["openai>=1.30.0"]
+# Native Anthropic SDK (unlocks prompt caching, otherwise functionally
+# equivalent to [llm] when pointed at Anthropic).
 anthropic = ["anthropic>=0.40.0"]
 # OAuth + identity scope for Reddit
 reddit = ["praw>=7.7.0"]

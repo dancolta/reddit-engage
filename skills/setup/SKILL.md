@@ -90,42 +90,19 @@ print(json.dumps(classify.status(), indent=2))
 
 If skip: write `{"provider": "disabled"}` to make the choice explicit.
 
-### Step 3 — Preset picker
+### Step 3 — Targeting (route to /onboard)
 
-```bash
-ls "$CLAUDE_PLUGIN_ROOT/presets/"
-```
+Don't pick a preset directly here. Tell the user:
 
-Show the available presets and one-line descriptions:
+> Targeting works best with 3 quick questions — /reddit-engage:onboard takes about 60 seconds and produces a config tuned to your specific work, not a generic lane. Recommended for almost everyone.
+>
+> If you really want the 30-second generic lane: type `preset` and I'll show the 4 options.
 
-- `b2b-saas-founder` — selling software to other businesses, target operator pain
-- `agency-owner` — service-delivery agency, target retainer/ops pain
-- `indie-hacker` — solo builder, target distribution/infra pain
-- `consultant` — selling expertise, target "looking for help with X" threads
+If user opts for `/reddit-engage:onboard`: invoke it. The onboard skill handles preset escape internally (`/reddit-engage:onboard preset`) for users who type `preset` mid-flow.
 
-Ask: "Which preset matches your work?"
+If user explicitly wants preset here in setup (rare), show the 4 options + copy chosen preset to `~/.config/reddit-engage/`. But default is route to onboard.
 
-Once picked, copy the preset bundle to `~/.config/reddit-engage/`:
-
-```bash
-PRESET="$ANSWER"
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 <<EOF
-import shutil, yaml
-from pathlib import Path
-from reddit_engage.lib import store
-
-src = Path("presets/$PRESET.yml")
-dst = store.xdg_config_dir()
-data = yaml.safe_load(src.read_text())
-
-# subreddits.yml + keywords.yml from the preset
-(dst / "subreddits.yml").write_text(yaml.safe_dump({"subreddits": data["subreddits"]}, sort_keys=False))
-(dst / "keywords.yml").write_text(yaml.safe_dump(data["keywords"], sort_keys=False))
-print(f"Copied {src.name} → {dst}/")
-EOF
-```
-
-Tell the user: "You can edit `~/.config/reddit-engage/subreddits.yml` and `keywords.yml` later to tune for your niche."
+Research backing (Phase 9.5 validation): generic preset alone produces 3/10 ICP-match per surface. The 3-question routing pushes it to 5-7/10. Don't deprive the user of that lift unless they explicitly opt out.
 
 ### Step 4 — Notion (optional)
 
