@@ -107,9 +107,27 @@ def build_weekly_digest(conn: sqlite3.Connection, now: dt.datetime | None = None
             lines.append(f"| {tier} | {n} |")
         lines.append("")
 
+    # Phase 5.5: postmortem summary if reply_log has data
+    try:
+        from . import postmortem
+        pm = postmortem.summary(conn)
+        if pm["total_replies"] > 0:
+            lines.append("## Postmortem")
+            lines.append("")
+            lines.append(f"- Total replies tracked: **{pm['total_replies']}**")
+            lines.append(f"- Scored (≥7d outcomes): **{pm['scored']}**")
+            if pm["scored"] > 0:
+                lines.append(f"- Avg upvotes / reply: **{pm['avg_upvotes']:.1f}**")
+                lines.append(f"- Avg replies / reply: **{pm['avg_replies']:.1f}**")
+                lines.append(f"- Removed: {pm['removed_count']}  ·  Locked: {pm['locked_count']}")
+            lines.append("")
+    except (ImportError, Exception):
+        # postmortem optional; never crash the digest because of it
+        pass
+
     lines.append("## Notes")
     lines.append("")
-    lines.append(f"Generated from reddit-engage DB at {dt.datetime.utcnow().isoformat()}Z.")
+    lines.append(f"Generated from reddit-engage DB at {dt.datetime.now(dt.timezone.utc).isoformat()}.")
     return "\n".join(lines) + "\n"
 
 
