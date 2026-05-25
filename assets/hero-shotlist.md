@@ -4,7 +4,7 @@ Replacement for `assets/hero.gif`. Old version archived at `assets/hero.v0.gif`.
 
 ## Brief
 
-Pixel-art (8-bit aesthetic, same palette as v0: orange `#FF6B35` + teal `#3AAFA9` on dark navy `#1a1a2e`). Loops once then holds on a readable end-frame. The end-frame is what most GitHub viewers see — it must function as a static screenshot of the daily digest output.
+Pixel-art (8-bit aesthetic, same palette as v0: orange `#f15b25` + teal `#46ccde` on dark navy `#2d2d2d`). Loops once then holds on a readable end-frame. The end-frame is what most GitHub viewers see — it must function as a static screenshot of the daily digest output.
 
 ## Specs
 
@@ -15,7 +15,7 @@ Pixel-art (8-bit aesthetic, same palette as v0: orange `#FF6B35` + teal `#3AAFA9
 | Duration | 4 seconds, 6 fps |
 | Loop behavior | Once, then hold on frame 24 |
 | File size | < 2 MB (GitHub inlines, no lazy-load penalty) |
-| Palette | 8-bit pixel-art: `#FF6B35` orange, `#3AAFA9` teal, `#1a1a2e` navy bg, `#f5f5f5` text |
+| Palette | 8-bit pixel-art: `#f15b25` orange, `#46ccde` teal, `#2d2d2d` navy bg, `#ebe8e7` text |
 | Output path | `assets/hero.gif` (replace) |
 
 ## Frame storyboard
