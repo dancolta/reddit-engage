@@ -13,22 +13,22 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subseek.lib import reddit_oauth  # noqa: E402
+from subscope.lib import reddit_oauth  # noqa: E402
 
 
 def test_has_oauth_false_when_missing(tmp_path, monkeypatch):
-    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     assert reddit_oauth.has_oauth() is False
 
 
 def test_has_oauth_false_when_incomplete(tmp_path, monkeypatch):
-    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     (tmp_path / "oauth.json").write_text(json.dumps({"client_id": "x"}))  # missing secret + username
     assert reddit_oauth.has_oauth() is False
 
 
 def test_has_oauth_true_when_complete(tmp_path, monkeypatch):
-    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     (tmp_path / "oauth.json").write_text(json.dumps({
         "client_id": "abc",
         "client_secret": "def",
@@ -38,14 +38,14 @@ def test_has_oauth_true_when_complete(tmp_path, monkeypatch):
 
 
 def test_has_oauth_false_on_malformed_json(tmp_path, monkeypatch):
-    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     (tmp_path / "oauth.json").write_text("not-json{{{")
     assert reddit_oauth.has_oauth() is False
 
 
 def test_fetch_delta_no_oauth_falls_back_to_public(tmp_path, monkeypatch):
     """No oauth.json → must call reddit_public.fetch_delta verbatim."""
-    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     sentinel = [{"id": "abc", "title": "fixture"}]
     with patch.object(reddit_oauth.reddit_public, "fetch_delta", return_value=sentinel) as mock_public:
         result = reddit_oauth.fetch_delta("sales", None, max_limit=10)
@@ -55,7 +55,7 @@ def test_fetch_delta_no_oauth_falls_back_to_public(tmp_path, monkeypatch):
 
 def test_fetch_delta_oauth_failure_falls_back(tmp_path, monkeypatch):
     """oauth.json present but PRAW raises → falls back to public, doesn't crash."""
-    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     (tmp_path / "oauth.json").write_text(json.dumps({
         "client_id": "x", "client_secret": "y", "username": "z",
     }))
@@ -69,14 +69,14 @@ def test_fetch_delta_oauth_failure_falls_back(tmp_path, monkeypatch):
 
 def test_fetch_user_about_returns_none_on_404(tmp_path, monkeypatch):
     """Public fallback path: 404 should return None, not crash."""
-    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     with patch.object(reddit_oauth.reddit_public, "fetch_json", return_value=None):
         assert reddit_oauth.fetch_user_about("nonexistent_user") is None
 
 
 def test_fetch_user_about_normalizes_public_response(tmp_path, monkeypatch):
     """Public response shape → our internal user shape."""
-    monkeypatch.setenv("SUBSEEK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     public_payload = {
         "data": {
             "name": "test_user",

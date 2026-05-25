@@ -16,15 +16,27 @@ db/*.sqlite-*
 voice-profile.md
 
 # BMAD + board ephemerals (private dev workflow; not for public repo)
+# CLAUDE.md is PUBLIC (contributor guidance); _bmad/ + .claude/* below is private
 .claude/session-tasks.log
 .claude/bypass.log
+.claude/settings.json
+.claude/hooks/
+.claude/skills/
 _bmad/
 _bmad-output/
 .bmad-board/
-CLAUDE.md
+.audit/
+
+# Internal planning artifacts (not for the public OSS surface)
+PLAN.md
+docs/stories/
+docs/QA-plan.md
+scripts/plan_to_stories.py
 
 # User config — must never land in the public repo
 config/notion.yml
 config/oauth.json
 config/llm.json
 config/obsidian.yml
+config/slack.json
+config/.onboard-draft.json

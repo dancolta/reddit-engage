@@ -1,5 +1,5 @@
 [project]
-name = "subseek"
+name = "subscope"
 version = "0.1.0"
 description = "Daily subreddit scanner: surfaces pain-pattern posts (pricing rage, churn, build-vs-buy, alternative-seeking) inside your Claude Code session. Pattern-aware, human-in-the-loop, closed-loop learner from your own sent replies."
 authors = [{ name = "Dan Colta" }]
@@ -37,11 +37,11 @@ dev = [
 ]
 
 [project.scripts]
-subseek = "subseek.cli:main"
+subscope = "subscope.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/dancolta/subseek"
-Repository = "https://github.com/dancolta/subseek"
+Homepage = "https://github.com/dancolta/subscope"
+Repository = "https://github.com/dancolta/subscope"
 Issues = "https://github.com/users/dancolta/projects/7"
 
 [build-system]
@@ -50,7 +50,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["engine"]
-include = ["subseek*"]
+include = ["subscope*"]
 
 [tool.pytest.ini_options]
 testpaths = ["engine/tests"]

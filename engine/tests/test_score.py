@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subseek.lib import score  # noqa: E402
+from subscope.lib import score  # noqa: E402
 
 
 NOW = 1748100000  # fixed reference for deterministic age math

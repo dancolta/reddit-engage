@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subseek.lib import reddit_public  # noqa: E402
+from subscope.lib import reddit_public  # noqa: E402
 
 
 def test_canonical_from_id():

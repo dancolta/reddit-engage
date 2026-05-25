@@ -1,10 +1,10 @@
 ---
 name: profile
-description: 8-question conversational interview that builds a personalized subseek config from your work, ICP, competitors, and content. Replaces generic preset selection — you don't have to know which subreddits matter, the wizard figures it out with you. Outputs 4 tuned YAML files. Re-runnable, additive. Triggers on "profile", "/subseek:profile", "build my profile", "personalize subseek", "tune to my ICP", "create my subseek profile".
+description: 8-question conversational interview that builds a personalized subscope config from your work, ICP, competitors, and content. Replaces generic preset selection — you don't have to know which subreddits matter, the wizard figures it out with you. Outputs 4 tuned YAML files. Re-runnable, additive. Triggers on "profile", "/subscope:profile", "build my profile", "personalize subscope", "tune to my ICP", "create my subscope profile".
 allowed-tools: Bash, Read, Write, Edit, WebFetch
 ---
 
-# /subseek:profile
+# /subscope:profile
 
 Don't know which subreddits matter? Neither did we. This is an 8-question conversation where you describe what you're building and who it's for. You come back with a config tuned to you: a starting list of subs worth reading, pain phrases in your ICP's voice, your competitor anchor, and the example titles the classifier learns from.
 
@@ -95,7 +95,7 @@ Save a scratchpad first:
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
 import json
 from pathlib import Path
-from subseek.lib import store
+from subscope.lib import store
 draft = store.xdg_config_dir() / '.profile-draft.json'
 draft.write_text(json.dumps($ANSWERS_DICT, indent=2))
 print(f'scratchpad: {draft}')
@@ -108,7 +108,7 @@ Then call the synth library:
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 << 'PY'
 import json, sys, yaml
 from pathlib import Path
-from subseek.lib import profile_synth, store
+from subscope.lib import profile_synth, store
 
 # Compose the interview summary (markdown) for the LLM prompt
 answers = json.load((store.xdg_config_dir() / '.profile-draft.json').open())
@@ -153,15 +153,15 @@ Default to `continue`. If user types `show`, dump the YAML in a fenced block AND
 
 Repeat for `keywords.yml`, `brand-anchor.yml`, `example-pains.yml`.
 
-After all 4 confirmed, batch-write to `~/.config/subseek/` via `profile_synth.write_to_xdg(payload)` — Python does the disk write with chmod 600.
+After all 4 confirmed, batch-write to `~/.config/subscope/` via `profile_synth.write_to_xdg(payload)` — Python does the disk write with chmod 600.
 
 ## After synthesis — the locked next-action prompt
 
 ```
-Config written. Run /subseek:run when you want your first scan —
+Config written. Run /subscope:run when you want your first scan —
 10 surfaces, ranked, no posting. Takes about 90 seconds.
 
-After you've seen output, /subseek:tune sharpens the ranker in 3 rounds.
+After you've seen output, /subscope:tune sharpens the ranker in 3 rounds.
 ```
 
 No "ready to go?!" energy. State the command, the output shape, the time, seed awareness of `/tune` without pushing.
@@ -178,10 +178,10 @@ No "ready to go?!" energy. State the command, the output shape, the time, seed a
 
 ## Resumability
 
-Check for `~/.config/subseek/.profile-draft.json` on invocation. If present AND <7 days old: *"Found a draft from Tuesday — 5 of 8 answers done. Resume, or start fresh?"* If >7 days: stale, prompt to start fresh.
+Check for `~/.config/subscope/.profile-draft.json` on invocation. If present AND <7 days old: *"Found a draft from Tuesday — 5 of 8 answers done. Resume, or start fresh?"* If >7 days: stale, prompt to start fresh.
 
 Scratchpad is overwritten on each turn, deleted on successful synthesis.
 
 ## Optional: research-validator
 
-If `ANTHROPIC_API_KEY` is set AND the user opts in at synthesis-reveal time, spawn the research-validator agent (see `engine/subseek/prompts/profile_research.md`). It WebFetches each candidate sub's `about.json` and spot-checks recent threads. Returns a JSON with `verified_subs[]`, `rejected_subs[]`, `suggested_additions[]`. ~30s, ~$0.30. Show the report; let the user accept/reject the recommendations before final disk write.
+If `ANTHROPIC_API_KEY` is set AND the user opts in at synthesis-reveal time, spawn the research-validator agent (see `engine/subscope/prompts/profile_research.md`). It WebFetches each candidate sub's `about.json` and spot-checks recent threads. Returns a JSON with `verified_subs[]`, `rejected_subs[]`, `suggested_additions[]`. ~30s, ~$0.30. Show the report; let the user accept/reject the recommendations before final disk write.

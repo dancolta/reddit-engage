@@ -1,33 +1,33 @@
 ---
 name: run
-description: Run the daily Reddit pain-post surface. Fetch new posts from configured subs, score by intent/keyword/freshness, optionally classify via Claude Haiku, dedup against history, hold in cooling queue, and emit inline markdown (plus optional Notion sync). Triggers on "run subseek", "/subseek run", "daily reddit", "scan reddit", "show today's reddit posts", or the default `/subseek:run` invocation.
+description: Run the daily Reddit pain-post surface. Fetch new posts from configured subs, score by intent/keyword/freshness, optionally classify via Claude Haiku, dedup against history, hold in cooling queue, and emit inline markdown (plus optional Notion sync). Triggers on "run subscope", "/subscope run", "daily reddit", "scan reddit", "show today's reddit posts", or the default `/subscope:run` invocation.
 allowed-tools: Bash, Read, Write
 ---
 
-# /subseek:run
+# /subscope:run
 
 Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate + score + SQLite + JSON output. This skill is the Claude-side wrapper: it invokes the engine, optionally syncs to Notion (if configured), and prints the inline list to chat.
 
 ## Preflight
 
 1. Verify the plugin is set up:
-   - `~/.config/subseek/oauth.json` exists OR the user has run `/subseek:setup`
-   - At least one preset is active in `~/.config/subseek/subreddits.yml`
-2. If preflight fails, redirect the user to `/subseek:setup`.
+   - `~/.config/subscope/oauth.json` exists OR the user has run `/subscope:setup`
+   - At least one preset is active in `~/.config/subscope/subreddits.yml`
+2. If preflight fails, redirect the user to `/subscope:setup`.
 
 ## Daily run procedure
 
 ### Step 1 — Fetch + gate + score (Python engine)
 
 ```bash
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subseek.cli fetch-score
+cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score
 ```
 
 Engine output: a single JSON document on stdout with `run_id`, `fetched`, `surfaced`, `dropped_counts`, `surfaces[]`, and `inline_markdown`.
 
 ### Step 2 — Optional Notion sync
 
-If `~/.config/subseek/notion.yml` exists AND `${user_config.notion_api_key}` is set:
+If `~/.config/subscope/notion.yml` exists AND `${user_config.notion_api_key}` is set:
 
 1. For each surface in the engine output, create a row in the configured Notion database with these fields:
    - `Title`, `Tier`, `Subreddit`, `Score`, `Upvotes`, `Comments`, `Posted` (ISO date), `Pain`, `Fit`, `URL` (verbatim from engine output — **never hand-compose Reddit URLs**), `Surfaced on` (today, ISO)
@@ -40,11 +40,27 @@ If Notion is not configured, skip silently.
 
 ### Step 3 — Optional Slack push (handled by Python automatically)
 
-If `~/.config/subseek/slack.json` exists OR `SLACK_WEBHOOK_URL` env is set, the engine pushes a formatted message to that webhook at the end of `fetch-score`. This skill does NOT need to do anything — the integration is in `engine/subseek/lib/slack.py` and silently no-ops if no webhook is configured. To suppress for one run, pass `--no-slack` to `fetch-score`.
+If `~/.config/subscope/slack.json` exists OR `SLACK_WEBHOOK_URL` env is set, the engine pushes a formatted message to that webhook at the end of `fetch-score`. This skill does NOT need to do anything — the integration is in `engine/subscope/lib/slack.py` and silently no-ops if no webhook is configured. To suppress for one run, pass `--no-slack` to `fetch-score`.
 
-### Step 4 — Output
+### Step 4 — Output (surface preference aware)
 
-Print the `inline_markdown` field from the engine JSON **verbatim**. That's the user-facing list. If Notion sync failed, append exactly one line: `(Notion sync failed: <reason>)`.
+Read `~/.config/subscope/surface.yml` if it exists:
+
+```yaml
+modes: [table]            # or [notion], [table, notion], []
+default_render: table     # which surface /subscope:run prints first in chat
+```
+
+Rendering rules:
+
+- If `surface.yml` is missing → default to `modes: [table]`, print `inline_table`.
+- If `modes` contains `table` → print the engine's `inline_table` field verbatim (a markdown table the user can click links from in chat).
+- If `modes` contains `notion` → do the Notion sync above. If the user picked BOTH `table` and `notion`, render the table in chat AND sync to Notion.
+- If `modes` is empty `[]` → don't print anything beyond JSON (for piping).
+
+The `inline_markdown` field stays in the JSON for backwards compatibility (the older verbose format). Prefer `inline_table` for chat unless the user explicitly asks for the long form.
+
+If Notion sync was attempted and failed, append exactly one line: `(Notion sync failed: <reason>)`.
 
 ## Critical guardrails
 
@@ -55,7 +71,7 @@ Print the `inline_markdown` field from the engine JSON **verbatim**. That's the 
 
 ## Configuration
 
-All configs live under `${SUBSEEK_CONFIG:-~/.config/subseek/}`:
+All configs live under `${SUBSCOPE_CONFIG:-~/.config/subscope/}`:
 
 | File | Purpose |
 |---|---|
@@ -67,7 +83,7 @@ All configs live under `${SUBSEEK_CONFIG:-~/.config/subseek/}`:
 | `notion.yml` (optional) | Notion DB ID + integration |
 | `obsidian.yml` (optional) | Vault path for pulse digests |
 
-State (SQLite, logs) lives under `${SUBSEEK_DATA:-~/.local/share/subseek/}`.
+State (SQLite, logs) lives under `${SUBSCOPE_DATA:-~/.local/share/subscope/}`.
 
 ## After completion
 

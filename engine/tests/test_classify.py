@@ -5,7 +5,7 @@ OpenAI, Groq, OpenRouter, Together, Fireworks, local Ollama, etc. The
 `_call_anthropic_native` path was removed in 9.6 (Anthropic's /openai/v1
 makes a separate Anthropic SDK redundant for our usage).
 
-Interactive subscription-powered classification lives in the `/subseek:judge`
+Interactive subscription-powered classification lives in the `/subscope:judge`
 SKILL, not this module.
 """
 import json
@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subseek.lib import classify  # noqa: E402
+from subscope.lib import classify  # noqa: E402
 
 
 VALID_VERDICT = {
@@ -129,12 +129,12 @@ def test_detect_provider_no_api_key_returns_disabled(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("LLM_API_KEY", raising=False)
-    monkeypatch.setenv("SUBSEEK_CONFIG", "/tmp/nonexistent-classify-test")
+    monkeypatch.setenv("SUBSCOPE_CONFIG", "/tmp/nonexistent-classify-test")
     assert classify.detect_provider() == "disabled"
 
 
 def test_status_returns_diagnostic():
-    """status() must never raise — it's used by `subseek status`."""
+    """status() must never raise — it's used by `subscope status`."""
     result = classify.status()
     assert "provider" in result
     assert "mode" in result
@@ -143,7 +143,7 @@ def test_status_returns_diagnostic():
 
 
 def test_load_prompt_is_public():
-    """Public so /subseek:judge skill can reuse the exact same prompt."""
+    """Public so /subscope:judge skill can reuse the exact same prompt."""
     prompt = classify.load_prompt()
     assert isinstance(prompt, str)
     assert len(prompt) > 100  # not the fallback stub

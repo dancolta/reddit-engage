@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subseek.lib import postmortem, store  # noqa: E402
+from subscope.lib import postmortem, store  # noqa: E402
 
 
 def fresh_db():

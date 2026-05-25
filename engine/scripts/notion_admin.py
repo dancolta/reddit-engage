@@ -1,10 +1,10 @@
-"""Notion admin operations for subseek: create or migrate a triage DB.
+"""Notion admin operations for subscope: create or migrate a triage DB.
 
 Merges two previously-separate scripts (notion_setup.py + notion_migrate.py)
 into one entry point with subcommands. Both shared the same property
 constants and Notion client setup — splitting was extra files for no reason.
 
-Reads `api_key` and `database_id` from `~/.config/subseek/notion.yml` by
+Reads `api_key` and `database_id` from `~/.config/subscope/notion.yml` by
 default (security fix F1 — never pass NOTION_API_KEY inline on the command
 line, since that leaks to ps/proc/shell-history). Falls back to env vars
 for CI / non-interactive contexts only.
@@ -33,7 +33,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from subseek.lib import store  # noqa: E402
+from subscope.lib import store  # noqa: E402
 
 
 PATTERN_OPTIONS = [
@@ -64,7 +64,7 @@ TIER_OPTIONS = [
 
 
 def _read_config() -> dict[str, str]:
-    """Read api_key + database_id from ~/.config/subseek/notion.yml.
+    """Read api_key + database_id from ~/.config/subscope/notion.yml.
 
     Returns whichever fields are present (caller handles missing keys).
     """
@@ -93,7 +93,7 @@ def _client(cli_api_key: str | None = None):
     key = cli_api_key or cfg.get("api_key") or os.environ.get("NOTION_API_KEY")
     if not key:
         print("No Notion API key found. Set one of:\n"
-              "  - ~/.config/subseek/notion.yml with 'api_key:' line\n"
+              "  - ~/.config/subscope/notion.yml with 'api_key:' line\n"
               "  - NOTION_API_KEY env var (CI/non-interactive only)",
               file=sys.stderr)
         sys.exit(2)
@@ -128,7 +128,7 @@ def create_database(parent_page_id: str) -> tuple[str, str]:
     try:
         resp = client.databases.create(
             parent={"type": "page_id", "page_id": parent_page_id},
-            title=[{"type": "text", "text": {"content": "subseek surfaces"}}],
+            title=[{"type": "text", "text": {"content": "subscope surfaces"}}],
             properties=schema,
             icon={"type": "emoji", "emoji": "🔥"},
         )
@@ -136,7 +136,7 @@ def create_database(parent_page_id: str) -> tuple[str, str]:
         print(f"Failed to create database: {e}", file=sys.stderr)
         print("\nCommon causes:", file=sys.stderr)
         print("  - Integration not connected to the parent page", file=sys.stderr)
-        print("    (Page → ... → Connections → Add subseek)", file=sys.stderr)
+        print("    (Page → ... → Connections → Add subscope)", file=sys.stderr)
         print("  - Wrong page ID (must be a 32-char page ID, no dashes)", file=sys.stderr)
         sys.exit(2)
 
@@ -236,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("migrate", help="Add missing schema props + backfill an existing DB")
     m.add_argument(
         "--database-id",
-        help="32-char DB ID, no dashes. Default: reads from ~/.config/subseek/notion.yml",
+        help="32-char DB ID, no dashes. Default: reads from ~/.config/subscope/notion.yml",
     )
     m.add_argument("--dry-run", action="store_true")
 
@@ -255,18 +255,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         db_id, db_url = create_database(parent)
         print()
-        print("✓ subseek database created")
+        print("✓ subscope database created")
         print(f"  ID:  {db_id}")
         print(f"  URL: {db_url}")
         print()
-        print("Persist this to ~/.config/subseek/notion.yml via:")
+        print("Persist this to ~/.config/subscope/notion.yml via:")
         print()
         print(f"  cat <<EOF | python3 -m scripts.write_notion_config")
         print(f"  api_key: <your_secret_xxx>")
         print(f"  database_id: {db_id}")
         print(f"  EOF")
         print()
-        print("Then /subseek:run will sync surfaces to your Notion board.")
+        print("Then /subscope:run will sync surfaces to your Notion board.")
         return 0
 
     if args.cmd == "migrate":
@@ -276,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
             db_id = cfg.get("database_id")
         if not db_id:
             print("No database_id provided and none found in "
-                  "~/.config/subseek/notion.yml", file=sys.stderr)
+                  "~/.config/subscope/notion.yml", file=sys.stderr)
             return 2
         return migrate(db_id, dry_run=args.dry_run)
 

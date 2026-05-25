@@ -1,6 +1,6 @@
 # Notion DB config — TEMPLATE for the public plugin.
 #
-# Actual config lives at ~/.config/subseek/notion.yml (NOT in the repo).
+# Actual config lives at ~/.config/subscope/notion.yml (NOT in the repo).
 # This file is the example/reference shape only.
 #
 # Setup:
@@ -9,7 +9,7 @@
 #   3. Run that command; the file lands with chmod 600 atomically; done.
 #
 # Notion is OPTIONAL. If this file doesn't exist at the XDG location,
-# /subseek:run skips Notion sync silently and prints surfaces inline.
+# /subscope:run skips Notion sync silently and prints surfaces inline.
 
 api_key: "<your NOTION_API_KEY, starting with ntn_ or secret_>"
 database_id: "<32-char database ID from notion_admin.py output>"

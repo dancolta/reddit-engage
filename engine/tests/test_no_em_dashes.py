@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subseek.lib import output  # noqa: E402
+from subscope.lib import output  # noqa: E402
 
 
 EM = "—"  # —

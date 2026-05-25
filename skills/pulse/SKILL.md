@@ -1,10 +1,10 @@
 ---
 name: pulse
-description: Weekly Obsidian digest of subseek activity. Builds a sub × surface heat map plus tier counts for the trailing 7 days, writes it as a dated markdown note to the user's Obsidian vault. Optional — skipped if Obsidian vault not configured. Triggers on "weekly pulse", "/subseek:pulse", "obsidian pulse digest", "reddit engage weekly recap", "what did subseek surface this week".
+description: Weekly Obsidian digest of subscope activity. Builds a sub × surface heat map plus tier counts for the trailing 7 days, writes it as a dated markdown note to the user's Obsidian vault. Optional — skipped if Obsidian vault not configured. Triggers on "weekly pulse", "/subscope:pulse", "obsidian pulse digest", "reddit engage weekly recap", "what did subscope surface this week".
 allowed-tools: Bash, Read, Write
 ---
 
-# /subseek:pulse
+# /subscope:pulse
 
 Weekly reflection layer. Notion is the daily-triage surface; Obsidian is the weekly-review surface where you spot patterns over time.
 
@@ -13,22 +13,22 @@ Weekly reflection layer. Notion is the daily-triage surface; Obsidian is the wee
 Check for Obsidian vault config:
 
 ```bash
-cat ~/.config/subseek/obsidian.yml 2>/dev/null
+cat ~/.config/subscope/obsidian.yml 2>/dev/null
 ```
 
 Expected shape:
 ```yaml
 vault_path: /Users/dan/Documents/MyVault
-pulse_folder: subseek  # optional, defaults to 'subseek'
+pulse_folder: subscope  # optional, defaults to 'subscope'
 ```
 
-If `obsidian.yml` missing: print "Obsidian vault not configured. Skip `/subseek:setup` or drop `~/.config/subseek/obsidian.yml` with a `vault_path:` line, then re-run."
+If `obsidian.yml` missing: print "Obsidian vault not configured. Skip `/subscope:setup` or drop `~/.config/subscope/obsidian.yml` with a `vault_path:` line, then re-run."
 
 ## Generate digest
 
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
-from subseek.lib import store, obsidian_sync
+from subscope.lib import store, obsidian_sync
 with store.connect() as conn:
     print(obsidian_sync.build_weekly_digest(conn))
 "

@@ -1,7 +1,7 @@
 """One-shot migration: copy legacy in-project SQLite DB to XDG data dir.
 
-Old path: <project-root>/db/subseek.sqlite
-New path: $SUBSEEK_DATA or $XDG_DATA_HOME/subseek or ~/.local/share/subseek/subseek.sqlite
+Old path: <project-root>/db/subscope.sqlite
+New path: $SUBSCOPE_DATA or $XDG_DATA_HOME/subscope or ~/.local/share/subscope/subscope.sqlite
 
 Behavior:
   - If XDG DB already exists → skip (no overwrite).
@@ -34,9 +34,9 @@ def count_rows(db_file: Path) -> dict[str, int]:
 
 def migrate(project_root: Path, dry_run: bool = False) -> int:
     """Returns exit code: 0 success/skip, 1 row-count mismatch, 2 other failure."""
-    from subseek.lib import store
+    from subscope.lib import store
 
-    legacy_db = project_root / "db" / "subseek.sqlite"
+    legacy_db = project_root / "db" / "subscope.sqlite"
     xdg_db = store.db_path()  # default = XDG path
 
     print(f"Legacy path : {legacy_db}")

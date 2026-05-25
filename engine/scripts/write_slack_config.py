@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Atomic 0o600 writer for slack.json (subseek's optional Slack webhook).
+"""Atomic 0o600 writer for slack.json (subscope's optional Slack webhook).
 
 Reads JSON from stdin like:
     {"webhook_url": "https://hooks.slack.com/services/T.../B.../..."}
 
-Writes to ~/.config/subseek/slack.json with owner-only perms applied
+Writes to ~/.config/subscope/slack.json with owner-only perms applied
 atomically (no umask race). Validates the URL host before writing.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from subseek.lib import store  # noqa: E402
+from subscope.lib import store  # noqa: E402
 
 
 def main() -> int:

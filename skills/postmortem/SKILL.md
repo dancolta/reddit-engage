@@ -1,10 +1,10 @@
 ---
 name: postmortem
-description: Detect your replies to surfaces and score their 7-day outcome (upvotes, replies, banned). Closes the loop on which patterns convert vs flop. Requires Reddit OAuth identity scope (set up via docs/setup-oauth.md). Triggers on "postmortem", "/subseek:postmortem", "score my replies", "did my reddit replies work", "reddit reply outcomes", "reply post-mortem".
+description: Detect your replies to surfaces and score their 7-day outcome (upvotes, replies, banned). Closes the loop on which patterns convert vs flop. Requires Reddit OAuth identity scope (set up via docs/setup-oauth.md). Triggers on "postmortem", "/subscope:postmortem", "score my replies", "did my reddit replies work", "reddit reply outcomes", "reply post-mortem".
 allowed-tools: Bash, Read
 ---
 
-# /subseek:postmortem
+# /subscope:postmortem
 
 Runs the postmortem pipeline:
 
@@ -15,7 +15,7 @@ Runs the postmortem pipeline:
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
 import json
-from subseek.lib import postmortem, store
+from subscope.lib import postmortem, store
 with store.connect() as conn:
     detect = postmortem.detect_replies(conn)
     update = postmortem.update_outcomes(conn)
@@ -46,8 +46,8 @@ If `scored > 0`, also pull the worst removed/locked replies (`SELECT post_id, ou
 
 ## Preflight
 
-If `~/.config/subseek/oauth.json` doesn't exist, the engine prints a warning but continues via the public-JSON fallback (lower fidelity). Tell the user: "Postmortem fidelity improves with OAuth — see docs/setup-oauth.md."
+If `~/.config/subscope/oauth.json` doesn't exist, the engine prints a warning but continues via the public-JSON fallback (lower fidelity). Tell the user: "Postmortem fidelity improves with OAuth — see docs/setup-oauth.md."
 
 ## When to run
 
-Manually, weekly. Auto-runs are not wired (no scheduler in the plugin). The natural moment is when running `/subseek:pulse` for the weekly review — the pulse digest reads `postmortem.summary(conn)` and includes outcomes in the markdown if any are present.
+Manually, weekly. Auto-runs are not wired (no scheduler in the plugin). The natural moment is when running `/subscope:pulse` for the weekly review — the pulse digest reads `postmortem.summary(conn)` and includes outcomes in the markdown if any are present.

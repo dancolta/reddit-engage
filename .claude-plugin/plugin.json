@@ -1,15 +1,15 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
-  "name": "subseek",
-  "displayName": "subseek",
+  "name": "subscope",
+  "displayName": "subscope",
   "version": "0.1.0",
   "description": "Daily subreddit scanner that surfaces pain-pattern posts (pricing rage, churn, build-vs-buy, alternative-seeking) inside your Claude Code session. Pattern-aware, not keyword-spam. Human-in-the-loop, closed-loop learner from your own sent replies. Free, local, BYO-LLM. The automation stops where the conversation starts.",
   "author": {
     "name": "Dan Colta",
     "url": "https://github.com/dancolta"
   },
-  "homepage": "https://github.com/dancolta/subseek",
-  "repository": "https://github.com/dancolta/subseek",
+  "homepage": "https://github.com/dancolta/subscope",
+  "repository": "https://github.com/dancolta/subscope",
   "license": "MIT",
   "keywords": [
     "reddit",
@@ -64,8 +64,8 @@
     "obsidian_pulse_folder": {
       "type": "string",
       "title": "Obsidian pulse folder (optional)",
-      "description": "Sub-folder within the vault for weekly pulse notes. Defaults to 'subseek'.",
-      "default": "subseek"
+      "description": "Sub-folder within the vault for weekly pulse notes. Defaults to 'subscope'.",
+      "default": "subscope"
     },
     "slack_webhook_url": {
       "type": "string",
@@ -76,7 +76,7 @@
     "llm_api_key": {
       "type": "string",
       "title": "LLM API key (optional)",
-      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip — /subseek:judge still works free via your Claude Code subscription.",
+      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip — /subscope:judge still works free via your Claude Code subscription.",
       "sensitive": true
     },
     "llm_base_url": {

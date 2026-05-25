@@ -10,7 +10,7 @@ Usage:
     cat oauth.json | python3 -m scripts.write_oauth
 or:
     echo '{"client_id":"...","client_secret":"...","username":"...",
-           "user_agent":"subseek/0.1 by u/<name>"}' | python3 -m scripts.write_oauth
+           "user_agent":"subscope/0.1 by u/<name>"}' | python3 -m scripts.write_oauth
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from subseek.lib import store  # noqa: E402
+from subscope.lib import store  # noqa: E402
 
 
 REQUIRED = ("client_id", "client_secret", "username", "user_agent")
