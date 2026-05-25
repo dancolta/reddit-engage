@@ -1,0 +1,46 @@
+# Pattern: stack-audit
+# OP publicly lists 8+ tools and asks "how do I consolidate". The highest-intent
+# format on Reddit — author is already in cutting mode.
+
+shared:
+  - stack
+  - tools
+  - tooling
+  - consolidate
+  - consolidation
+  - "cut down"
+  - "trim down"
+  - "rationalize"
+  - "tech stack"
+  - "saas stack"
+  - "tool sprawl"
+  - "too many tools"
+  - "13 tools"
+  - "14 tools"
+  - "12 tools"
+  - "15 tools"
+  - "20 tools"
+  - "expensive stack"
+  - "stack costs"
+  - "stack overhead"
+  - audit
+
+operator:
+  - workflow
+  - automation
+  - integrations
+  - "tool overlap"
+  - "tools we don't use"
+  - "20% of features"
+  - "barely use"
+  - shelfware
+  - "switching cost"
+  - "consolidation play"
+
+builder:
+  - "build vs buy"
+  - homegrown
+  - replace
+  - internal tool
+  - "in-house"
+  - rebuild

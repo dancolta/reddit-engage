@@ -1,0 +1,44 @@
+# Pattern: churn-signals
+# OP explicitly says they are leaving / canceling / switching from a named vendor.
+# Pure buying intent, time-sensitive.
+
+shared:
+  - cancel
+  - canceling
+  - cancelling
+  - cancelled
+  - canceled
+  - "switching from"
+  - "switched from"
+  - "moved from"
+  - "moving off"
+  - "moved off"
+  - "fed up with"
+  - "ditching"
+  - "ditched"
+  - "leaving"
+  - "left"
+  - "done with"
+  - "finished with"
+  - "had enough of"
+  - "dropping"
+  - "killing our"
+  - alternative
+  - replacement
+  - renewal
+  - "next year"
+
+operator:
+  - "looking for"
+  - "anyone use"
+  - "anyone recommend"
+  - "what do you use instead"
+  - "what's the best"
+  - "any good"
+
+builder:
+  - "what should I build"
+  - "build instead"
+  - "self-host"
+  - "open source alternative"
+  - "diy"

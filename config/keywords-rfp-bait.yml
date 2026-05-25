@@ -1,0 +1,36 @@
+# Pattern: rfp-bait
+# "X vs Y vs Z" comparison threads. ≥2 vendors named in a comparative
+# structure — perfect place to add a fourth, non-cliche option.
+
+shared:
+  - " vs "
+  - " versus "
+  - " or "
+  - "comparing"
+  - "compared"
+  - "which one"
+  - "which is better"
+  - "anyone use both"
+  - "tried both"
+  - "shortlist"
+  - "narrowed down"
+  - "between"
+  - "considering"
+  - "evaluating"
+  - "POC"
+  - "trial"
+  - "demo"
+  - "head to head"
+  - "head-to-head"
+  - "pros and cons"
+  - "pros & cons"
+  - "side by side"
+
+operator:
+  - "which would you choose"
+  - "what do you recommend"
+  - "any experience with"
+
+builder:
+  - "or just build"
+  - "or roll our own"

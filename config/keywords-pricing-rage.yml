@@ -1,0 +1,46 @@
+# Pattern: pricing-rage
+# Price hikes, surprise invoices, predatory tier changes. Cyclical — spikes
+# quarterly when Salesforce / HubSpot / Gong push tier changes.
+
+shared:
+  - "price hike"
+  - "price increase"
+  - "raised the price"
+  - "renewal"
+  - "renewal quote"
+  - "renewal price"
+  - "renewal jump"
+  - "renewal increase"
+  - "jacking up"
+  - "jacked up"
+  - "ripping us off"
+  - "ripped off"
+  - "nickel and dime"
+  - "nickel-and-dime"
+  - "predatory pricing"
+  - "tier change"
+  - "new tier"
+  - "forced upgrade"
+  - "minimum commitment"
+  - "seat increase"
+  - "per-seat"
+  - "per seat"
+  - "28% increase"
+  - "30% increase"
+  - "doubled the price"
+  - greedy
+  - "outrageous"
+  - "absurd pricing"
+  - extortion
+
+operator:
+  - "can't afford"
+  - "no longer worth"
+  - "value isn't there"
+  - "evaluating alternatives"
+  - "RFP"
+
+builder:
+  - "build for less"
+  - "cheaper to build"
+  - "open source"

@@ -1,0 +1,43 @@
+# Pattern: rivals
+# Generic mention-tracker — the actual brand to track comes from
+# --rivals-brand at the CLI. Keywords here just ensure the post is
+# substantive (not just a brand drop in passing).
+
+shared:
+  - using
+  - "switched to"
+  - "switching to"
+  - signed up
+  - subscribed
+  - cancelled
+  - canceling
+  - canceled
+  - alternative
+  - alternatives
+  - vs
+  - "compared to"
+  - review
+  - reviews
+  - "honest opinion"
+  - thoughts
+  - experience
+  - working with
+  - "trying out"
+  - pricing
+  - price
+  - cost
+  - expensive
+  - cheap
+  - worth it
+  - "not worth"
+
+operator:
+  - "we tried"
+  - "we use"
+  - "we left"
+  - workflow
+
+builder:
+  - "API"
+  - "integration"
+  - "self-host"

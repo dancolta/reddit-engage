@@ -1,0 +1,45 @@
+# Pattern: build-vs-buy
+# Explicit build-vs-buy debates with numbers. OP is rationalizing the decision
+# publicly — your worldview is the answer, not a pitch.
+
+shared:
+  - "build vs buy"
+  - "build or buy"
+  - "buy vs build"
+  - "buy or build"
+  - "build it ourselves"
+  - "build in-house"
+  - "build in house"
+  - "make vs buy"
+  - "internal tool"
+  - "homegrown"
+  - "rolled our own"
+  - "roll our own"
+  - "DIY"
+  - "off the shelf"
+  - "off-the-shelf"
+  - "from scratch"
+  - "ground up"
+  - "engineering hours"
+  - "dev time"
+  - "developer time"
+  - "monthly cost"
+  - "annual contract"
+  - "ROI"
+  - "payback period"
+  - "$/month"
+  - "$/year"
+  - "per month"
+  - "per year"
+
+operator:
+  - "cost-benefit"
+  - "total cost of ownership"
+  - "TCO"
+  - "maintenance burden"
+
+builder:
+  - "two weeks"
+  - "one weekend"
+  - "in a sprint"
+  - "engineer time"

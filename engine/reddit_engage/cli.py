@@ -45,8 +45,11 @@ def _resolve_config_dir() -> Path:
 CONFIG_DIR = _resolve_config_dir()
 
 
-def _load_yaml(name: str) -> dict[str, Any]:
-    with open(CONFIG_DIR / name) as f:
+def _load_yaml(name: str, optional: bool = False) -> dict[str, Any]:
+    path = CONFIG_DIR / name
+    if not path.exists() and optional:
+        return {}
+    with open(path) as f:
         return yaml.safe_load(f) or {}
 
 
@@ -54,15 +57,54 @@ def _resolve_blog_alias(alias: str, aliases: dict[str, str]) -> str:
     return aliases.get(alias, alias)
 
 
-def _load_configs() -> dict[str, Any]:
+# Valid pattern modes. Adding a new pattern? Add an entry here + drop a
+# config/keywords-<mode>.yml + emoji prefix in PATTERN_EMOJI below.
+VALID_MODES = {
+    "default", "stack-audit", "churn", "pricing-rage",
+    "build-vs-buy", "rfp-bait", "resurrect", "rivals",
+}
+
+PATTERN_EMOJI = {
+    "default": "",
+    "stack-audit": "🧱",
+    "churn": "⚡",
+    "pricing-rage": "🔥",
+    "build-vs-buy": "⚖️",
+    "rfp-bait": "🤝",
+    "resurrect": "🪦",
+    "rivals": "🥷",
+}
+
+
+def _load_configs(mode: str = "default") -> dict[str, Any]:
+    """Load subs + mode-specific keywords + mode-specific weight overrides.
+
+    Mode override files (`keywords-<mode>.yml`, `weights-<mode>.yml`) are
+    optional. When present, they shadow the base files entirely (not merge —
+    pattern-specific gates can be radically different from default).
+    """
+    if mode not in VALID_MODES:
+        raise ValueError(f"unknown --mode {mode!r}; valid: {sorted(VALID_MODES)}")
+
     subs_cfg = _load_yaml("subreddits.yml")
-    keywords = _load_yaml("keywords.yml")
-    weights = _load_yaml("weights.yml")
+    base_kw = _load_yaml("keywords.yml")
+    base_w = _load_yaml("weights.yml")
+
+    # Mode-specific overrides
+    if mode != "default":
+        mode_kw = _load_yaml(f"keywords-{mode}.yml", optional=True)
+        mode_w = _load_yaml(f"weights-{mode}.yml", optional=True)
+        keywords = mode_kw or base_kw
+        weights = {**base_w, **mode_w} if mode_w else base_w
+    else:
+        keywords = base_kw
+        weights = base_w
+
     aliases = subs_cfg.get("blog_aliases", {})
     subs = subs_cfg.get("subreddits", [])
     for s in subs:
         s["backing_blogs"] = [_resolve_blog_alias(a, aliases) for a in s.get("backing_blogs", [])]
-    return {"subs": subs, "keywords": keywords, "weights": weights}
+    return {"subs": subs, "keywords": keywords, "weights": weights, "mode": mode}
 
 
 def _bucket_keywords(bucket: str, kw: dict[str, Any]) -> list[str]:
@@ -95,12 +137,32 @@ def cmd_fetch_score(
     daily_cap: int = 15,
     no_cool: bool = False,
     cool_minutes: int = 30,
+    mode: str = "default",
+    rivals_brand: str | None = None,
 ) -> None:
-    """Run the daily surface pipeline. New surfaces land in the cooling queue
-    (state='drafting') unless `no_cool=True`; mature drafts flush to 'hot'
-    on each run; 14d-old surfaces decay to 'dead'."""
-    cfg = _load_configs()
+    """Run the surface pipeline for a specific pattern mode.
+
+    Modes (see VALID_MODES):
+      default        — general pain + named SaaS
+      stack-audit    — OPs listing many tools, asking to consolidate
+      churn          — switching/canceling + vendor anchor
+      pricing-rage   — price-hike threads (auto --no-cool)
+      build-vs-buy   — debates with numbers
+      rfp-bait       — "A vs B vs C" comparison threads
+      resurrect      — 6-18mo old high-quality threads
+      rivals         — competitor mention digest (requires rivals_brand)
+
+    Each mode optionally loads `config/keywords-<mode>.yml` and
+    `config/weights-<mode>.yml`. Missing mode-config falls back to default.
+    """
+    cfg = _load_configs(mode=mode)
     weights = cfg["weights"]
+    # pricing-rage is time-sensitive — auto-disable cooling unless overridden
+    if mode == "pricing-rage" and not no_cool:
+        no_cool = True
+    # rivals requires brand argument
+    if mode == "rivals" and not rivals_brand:
+        raise ValueError("--rivals-brand is required when --mode=rivals")
 
     with store.connect() as conn:
         run_id = store.start_run(conn)
@@ -223,6 +285,8 @@ def cmd_fetch_score(
             s["pain_summary"] = _pain_summary(post, s["blog_matches"])
             s["fit_summary"] = _fit_summary(sub_row, s["blog_matches"])
             s["score_internal"] = post["score_internal"]
+            s["pattern"] = mode
+            s["pattern_emoji"] = PATTERN_EMOJI.get(mode, "")
             kept_for_output.append(s)
         selected = kept_for_output
 
@@ -230,9 +294,10 @@ def cmd_fetch_score(
         notes = "; ".join(all_notes) if all_notes else ""
         store.finish_run(conn, run_id, total_fetched, len(selected), notes)
 
-    from .lib import output as out_mod  # local import to avoid hard dep at setup time
+    from .lib import output as out_mod
     payload = {
         "run_id": run_id,
+        "mode": mode,
         "fetched": total_fetched,
         "surfaced": len(selected),
         "dropped_counts": dropped_counts,
@@ -370,6 +435,14 @@ def main(argv: list[str] | None = None) -> None:
                          "(use for time-sensitive patterns like pricing-rage)")
     fs.add_argument("--cool-minutes", type=int, default=30,
                     help="Cooling queue hold duration (default 30)")
+    fs.add_argument("--mode", choices=sorted(VALID_MODES), default="default",
+                    help="Pattern mode — gate and keywords change per pattern")
+    fs.add_argument("--rivals-brand", type=str, default=None,
+                    help="Brand name to track (required if --mode=rivals)")
+
+    ov = sub.add_parser("op-vet", help="Score a Reddit OP profile (utility, one-shot)")
+    ov.add_argument("username", type=str)
+
     sub.add_parser("status", help="Print last-run status as JSON")
 
     blog = sub.add_parser("blog", help="Blog map operations").add_subparsers(dest="blogcmd", required=True)
@@ -383,11 +456,22 @@ def main(argv: list[str] | None = None) -> None:
         cmd_fetch_score(
             args.limit_per_sub, args.daily_cap,
             no_cool=args.no_cool, cool_minutes=args.cool_minutes,
+            mode=args.mode, rivals_brand=args.rivals_brand,
         )
+    elif args.cmd == "op-vet":
+        cmd_op_vet(args.username)
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "blog" and args.blogcmd == "ingest":
         cmd_blog_ingest()
+
+
+def cmd_op_vet(username: str) -> None:
+    """Standalone OP profile scorer. Outputs JSON: {karma, age_days,
+    sub_breakdown_top, verdict, reason}. Used by `/reddit-engage:op-vet`."""
+    with store.connect() as conn:
+        result = author_vet.vet_author(username, conn=conn)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

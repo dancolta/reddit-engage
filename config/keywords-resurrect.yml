@@ -1,0 +1,33 @@
+# Pattern: resurrect
+# 6-18 month old threads that still get Google traffic. Late comments compound
+# via SEO indefinitely. Low velocity, high cumulative impressions.
+
+shared:
+  - alternative
+  - "best tool"
+  - "recommend"
+  - "looking for"
+  - "anyone using"
+  - "what do you use"
+  - "switched from"
+  - "vs"
+  - "review"
+  - "thoughts on"
+  - "experience with"
+  - "honest opinion"
+  - "stack"
+  - "workflow"
+  - "expensive"
+  - "cheap"
+  - "free alternative"
+  - "open source"
+
+operator:
+  - "before I sign up"
+  - "before committing"
+  - "before paying"
+
+builder:
+  - "self-host"
+  - "self host"
+  - "alternative to"
