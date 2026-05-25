@@ -120,6 +120,33 @@ def test_tier1_drop_removed():
     assert reason == "removed_or_locked"
 
 
+def test_drop_nsfw_post():
+    post = make_post(over_18=True)
+    sub = make_sub()
+    passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert not passes
+    assert reason == "nsfw_post"
+
+
+def test_drop_nsfw_sub_blocklist():
+    post = make_post(subreddit="ButtsAndBareFeet")
+    sub = make_sub(name="ButtsAndBareFeet")
+    passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert not passes
+    assert reason == "nsfw_sub"
+
+
+def test_drop_crosspost_subreddit_mismatch():
+    """A post fetched from r/sales but whose JSON says subreddit=programming
+    (a crosspost surfaced in /new) gets rejected. NSFW-sub blocklist fires
+    first if applicable; this test covers the non-NSFW case."""
+    post = make_post(subreddit="programming")
+    sub = make_sub(name="sales")
+    passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert not passes
+    assert reason == "crosspost_subreddit_mismatch"
+
+
 def test_tier2_keyword_min_blocks_zero_match():
     """Tier 2 requires at least 1 keyword. Zero matches drops the post."""
     post = make_post(title="random unrelated post", body="nothing relevant",

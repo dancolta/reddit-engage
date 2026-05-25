@@ -220,7 +220,21 @@ def _apply_overrides(defaults: dict[str, Any], overrides: dict[str, Any] | None)
     return out
 
 
-ABSOLUTE_REJECT_REASONS = {"removed_or_locked", "negative_topic", "vendor_content"}
+ABSOLUTE_REJECT_REASONS = {
+    "removed_or_locked", "negative_topic", "vendor_content",
+    "nsfw_post", "nsfw_sub", "crosspost_subreddit_mismatch",
+}
+
+# NSFW sub blocklist. Belt-and-braces: even if Reddit forgets to flag a post
+# as over_18, posts originating from these subs are dropped. List can grow.
+NSFW_SUB_BLOCKLIST = {
+    "buttsandbarefeet", "gonewild", "nsfw", "porn", "porninfifteenseconds",
+    "pornid", "pornandbros", "amateur", "amateurfans", "onlyfans",
+    "footfetish", "feet", "feetpics", "ass", "boobs", "tits", "milf",
+    "wetladies", "girlsfinishingthejob", "altgonewild", "realgirls",
+    "sexygirls", "asiansgonewild", "nsfw_gif", "nsfwfunny", "nsfw411",
+    "nsfwoutfits", "nsfwhardcore", "rule34", "hentai",
+}
 
 
 def evaluate_gate(
@@ -233,11 +247,27 @@ def evaluate_gate(
 ) -> tuple[bool, str]:
     """Evaluate the gate for a single post. Returns (passes, reason).
 
-    Absolute rejects (removed/locked, negative topic, vendor content) are
-    checked first and bypass the backfill path so they NEVER surface.
+    Absolute rejects (NSFW, removed/locked, negative topic, vendor content,
+    crosspost-from-wrong-sub) are checked first and bypass the backfill
+    path so they NEVER surface.
     """
     title = post.get("title", "")
     body = post.get("body", "") or ""
+
+    # NSFW gate: post-level flag, sub-level blocklist, OR crosspost from NSFW.
+    if post.get("over_18"):
+        return False, "nsfw_post"
+    post_sub_lower = post.get("subreddit", "").lower()
+    if post_sub_lower in NSFW_SUB_BLOCKLIST:
+        return False, "nsfw_sub"
+
+    # Crosspost integrity check: the post's reported subreddit must match
+    # the sub we fetched from. If it doesn't (rare but possible via Reddit
+    # listing edge cases), drop the post. This catches NSFW content cross-
+    # posted into a SFW sub where the JSON serves the original post data.
+    fetched_sub = sub.get("name", "").lower()
+    if post_sub_lower and fetched_sub and post_sub_lower != fetched_sub:
+        return False, "crosspost_subreddit_mismatch"
 
     if post.get("removed") or post.get("locked"):
         return False, "removed_or_locked"

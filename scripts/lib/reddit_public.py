@@ -122,6 +122,20 @@ def parse_post(child: dict[str, Any]) -> dict[str, Any] | None:
     removed = bool(data.get("removed_by_category") or data.get("removed") or
                    author == "[deleted]" or selftext == "[removed]")
 
+    # NSFW: Reddit flags posts via over_18 (post-level) and the host subreddit
+    # may also be NSFW. Either one is sufficient to reject. Cross-posts from
+    # NSFW subs that surface in a SFW sub's /new feed still carry over_18=True.
+    over_18 = bool(data.get("over_18") or data.get("thumbnail") == "nsfw")
+
+    # Crosspost detection: posts with crosspost_parent_list are reposts from
+    # other subs. Even if the host sub is SFW, the original may not be.
+    crosspost_parent = data.get("crosspost_parent_list") or []
+    is_crosspost = bool(crosspost_parent)
+    if is_crosspost:
+        parent = crosspost_parent[0] if isinstance(crosspost_parent, list) and crosspost_parent else {}
+        if parent.get("over_18"):
+            over_18 = True
+
     return {
         "id": post_id,
         "subreddit": str(data.get("subreddit", "")).strip(),
@@ -136,6 +150,8 @@ def parse_post(child: dict[str, Any]) -> dict[str, Any] | None:
         "upvote_ratio": data.get("upvote_ratio"),
         "removed": removed,
         "locked": bool(data.get("locked")),
+        "over_18": over_18,
+        "is_crosspost": is_crosspost,
     }
 
 

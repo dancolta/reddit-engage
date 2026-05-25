@@ -11,3 +11,6 @@ db/*.sqlite-*
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# voice-profile is local-only until Dan signals it's ready to ship
+voice-profile.md
