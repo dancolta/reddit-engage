@@ -12,7 +12,7 @@ Run it whenever you want. Each scan returns ~10 of the strongest threads directl
 
 ```bash
 /plugin install dancolta/subscope
-/subscope:onboard       # paste 2-3 URLs, first scan in ~5 min
+/subscope:onboard       # mandatory targeting setup, ends with your first scan
 /subscope:run           # any subsequent scan
 ```
 
@@ -78,17 +78,21 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 ![workflow demo: terminal types /subscope:run, counters increment, five ranked surfaces populate with pattern badges](assets/workflow.gif)
 
-**The setup is where the targeting actually happens.** `/subscope:profile` runs a deep 8-question interview (~12 minutes) that produces a real targeting profile:
+**The setup is where the targeting actually happens.** Every install goes through one onboarding flow: `/subscope:onboard`. No shortcut, no fast path. You won't see a single scored post until the flow ends, that's the tradeoff.
 
-- **ICP definition.** Who you want to reach, what role, what stage of buying.
-- **Competitor anchor list.** The brands your buyer is churning from, comparing you against, or rage-quitting.
-- **Pain language.** The actual phrases buyers use, extracted from your homepage and the interview, not generic SEO keywords.
-- **Subreddit tiers.** Bullseye subs scanned on every run (Tier 1) vs opportunistic subs where only standouts surface (Tier 2).
-- **Few-shot example posts.** Sample threads the LLM grader uses to recognize what a real buying moment looks like in your category.
+Here's what the flow walks you through:
 
-Those become four config files at `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains). Every scan reads them. This is the actual product differentiator: the profile is built specifically for you, not pulled from a generic SaaS-founder template.
+1. **Paste 2-3 URLs.** Your homepage plus a couple of case studies, blog posts, or pricing pages. subscope reads them and pulls positioning, buyer language, and the tools your case studies mention.
+2. **Auto-enrich (when available).** DataForSEO for competitor domains and ranked keywords, Firecrawl for deeper crawl, a 30-second Reddit warm-scan against archetype-seeded subs. If DataForSEO and Firecrawl aren't configured, the flow falls back to URL parsing + your answers. Inference quality drops, the profile still ships.
+3. **Review card.** A high-level sanity check on everything inferred so far: ICP, competitors, candidate subreddits in Tier 1 / Tier 2 buckets, keyword sets, and example pain posts seen this week. You correct anything obviously wrong inline before the deeper questions begin.
+4. **8 deep questions.** Field-level confirm or refine. Each question shows the inferred answer pre-filled with a confidence score. High-confidence ones are 5-second taps. Low-confidence ones (competitor anchor, the literal pain quote your buyers used) get real attention because URLs can't infer them.
+5. **Reddit access.** Public JSON (zero setup, works now) or OAuth (~2 min, 10x rate budget, enables postmortem reply tracking).
+6. **Destinations.** Chat (default), Notion, Slack, Obsidian, multi-select.
+7. **First scan runs.** Top ~10 threads land in chat with pattern badges.
 
-Don't want to answer 8 questions on day 1? `/subscope:onboard` is the URL-first fast path (~5 minutes, ends with your first scan in chat). You paste your homepage plus 2-3 case study or blog URLs. subscope reads them, infers your positioning, buyer titles, competitors, candidate subreddits, and pain language, then shows it all in one review card you correct inline before anything is written. Optional sources sharpen the inference when available: DataForSEO for competitor domains and ranked keywords, Firecrawl for deeper crawl, and a 30-second Reddit warm-scan against archetype-seeded subs. Same four config files, same shape, less precision than the deep interview. Upgrade to `/subscope:profile` whenever you want without losing your existing config.
+The flow writes four config files at `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains). Every future scan reads them. This is the actual product differentiator: the profile is built specifically for you, not pulled from a generic SaaS-founder template.
+
+Need to refine later? `/subscope:profile` is a per-section deep dive: "redo just the competitor anchor", "rebuild pain language", "swap a subreddit tier". Not a full re-interview, just the section that's drifted.
 
 Once your profile is in place, each scan fetches new posts from your configured subs, filters throwaway accounts before scoring, and ranks what's left by signal strength: freshness, upvote velocity, comment velocity, keyword density, and which of 8 buying-intent patterns the post matches. Tier 1 surfaces every run. Tier 2 surfaces only when a standout appears.
 
@@ -119,9 +123,9 @@ The 4 core skills above are what you'll use day to day. The other 12 are setup, 
 
 | Skill | What it does |
 |---|---|
-| `/subscope:setup` | First-run wizard. Walks you through OAuth, LLM provider, surface choice (chat / Notion / Slack / Obsidian), and a dry-run validation. ~10 minutes. |
-| `/subscope:onboard` | URL-first quick profile builder (~5 minutes, ends with your first scan). Paste your homepage + 2-3 case study URLs, review the inferred ICP/competitors/subreddits/keywords in one card, correct inline, and a scan runs immediately. Optional DataForSEO + Firecrawl + Reddit warm-scan sources sharpen the inference when available. The fast path. |
-| `/subscope:profile` | 8-question deep profile interview (~12 minutes). Builds your full ICP, competitor anchor list, pain language, subreddit tiers, and few-shot examples. The slow path that gives sharper targeting. |
+| `/subscope:setup` | Standalone configuration wizard for OAuth, LLM provider, surface choice (chat / Notion / Slack / Obsidian), and dry-run validation. Most users don't need this — `/subscope:onboard` covers it. |
+| `/subscope:onboard` | Mandatory first-run flow. Paste your homepage + 2-3 case study URLs, auto-enrich via DataForSEO/Firecrawl/warm-scan when available, review the inferred ICP/competitors/subreddits/keywords in one card, lock the 8 deep questions field by field, pick Reddit access + destinations, and the first scan runs at the end. No fast path. |
+| `/subscope:profile` | Per-section deep dive for refining an existing profile. "Redo competitor anchor", "rebuild pain language", "swap a subreddit tier". Not a full re-interview, just the section that's drifted. |
 
 **Pattern-specific scans** (each runs `fetch-score --mode <pattern>` so you can target one intent class on demand)
 
