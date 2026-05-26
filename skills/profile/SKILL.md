@@ -12,9 +12,9 @@ Don't know which subreddits matter? Neither did we. This is an 8-question conver
 
 ## The pacing rule
 
-**One question per turn. Wait for an answer.** Don't batch across themes. Reflect-and-advance after each answer: *"Got it — RevOps-as-a-service for Series A founders skipping the hire."* Don't say "got it" alone — that's filler.
+**One question per turn. Wait for an answer.** Don't batch across themes. Reflect-and-advance after each answer in one line: *"Got it, RevOps-as-a-service for Series A founders skipping the hire."* Don't say "got it" alone, that's filler.
 
-Escalate to pushback only when the answer is a category not a position: *"'B2B SaaS' covers a lot — pick the buyer you'd rather get a DM from."*
+Escalate to pushback only when the answer is a category not a position: *"'B2B SaaS' covers a lot, pick the buyer you'd rather get a DM from."*
 
 ## Phase labels
 
@@ -171,7 +171,7 @@ No "ready to go?!" energy. State the command, the output shape, the time, seed a
 - **No exclamation marks anywhere.** This audience flinches at exclamation marks.
 - **No "Let's build your profile together!" / "Welcome to the wizard!"** Instant trust kill.
 - **No emoji in question prompts.** Pixel-monospace voice; phase em-rules already carry the rhythm.
-- **Never auto-fill from the URL without showing what was extracted.** Silent ingestion feels invasive.
+- **Never pre-fill answers from any source.** Not from prior conversation context, not from the website, not from archetypes, not from "what I know about you". The user types their own answers. Pre-filled drafts feel invasive and the user will reject them. The only legitimate auto-action is Q2's WebFetch, and even then you show what was extracted before treating it as ground truth.
 - **Don't ask "are you sure?" between every question.** Trust the user to type their own answer; only confirm at synthesis reveal.
 - **Don't write any YAML file without `show / continue` confirmation.** Even if the user says "just trust the synth", the confirm is the consent gate.
 - **Don't suggest re-running /profile after /profile.** Use /tune for refinement.
