@@ -1,13 +1,8 @@
-"""Render the reddit-engage hero GIF in pure Python + Pillow.
+"""Render the subscope hero GIF in pure Python + Pillow.
 
-NodeSparks brand colors:
-  Orange       #f15b25  (primary highlight)
-  Orange dark  #bf3e0f  (pulse trail)
-  Teal         #46ccde  (secondary accent)
-  Teal dark    #147b87  (less-active state)
-  Dark bg      #2d2d2d  (canvas)
-  Light text   #ebe8e7  (body)
-  Muted        #545454  (subtle elements)
+Aesthetic: 8-bit arcade scanner. Title bar, skill strip lighting up
+left-to-right, layer chips appearing, three sample surfaces filling in,
+end-frame hold.
 
 Output: assets/hero.gif (1280x640, ~5s loop with hold, <2MB)
 
@@ -15,8 +10,8 @@ Design notes:
 - No emoji — Menlo doesn't have those glyphs; bracket labels render cleanly
   and fit the 8-bit aesthetic better
 - 32 total frames: 24 animation + 8 hold on the static end-frame
-- End-frame shows FULL digest panel + footer — GitHub auto-pauses GIFs
-  and that's what 70% of viewers see
+- End-frame shows FULL digest panel + the closing line — GitHub auto-pauses
+  GIFs and that's what 70% of viewers see
 """
 from __future__ import annotations
 
@@ -76,13 +71,13 @@ def chip(d, x, y, text, fill, text_color=None, h=30):
 
 
 def draw_title_bar(d):
-    d.text((60, 30), "REDDIT-ENGAGE", font=F_TITLE, fill=ORANGE)
-    d.text((60, 96), "DAILY PAIN-POST RADAR", font=F_SUB, fill=MUTED)
+    d.text((60, 30), "SUBSCOPE", font=F_TITLE, fill=ORANGE)
+    d.text((60, 96), "PATTERN-AWARE SUBREDDIT SCANNER", font=F_SUB, fill=MUTED)
     # Right side chips
     x = W - 60
-    bbox_d = d.textbbox((0, 0), "DEDUP ✓", font=F_CHIP)
+    bbox_d = d.textbbox((0, 0), "DEDUP ON", font=F_CHIP)
     cw1 = (bbox_d[2] - bbox_d[0]) + 20
-    chip(d, x - cw1, 44, "DEDUP ✓", TEAL_DARK)
+    chip(d, x - cw1, 44, "DEDUP ON", TEAL_DARK)
     bbox_v = d.textbbox((0, 0), "v0.1.0", font=F_CHIP)
     cw2 = (bbox_v[2] - bbox_v[0]) + 20
     chip(d, x - cw1 - cw2 - 8, 44, "v0.1.0", ORANGE)
@@ -110,13 +105,14 @@ def draw_skill_strip(d, y, lit_count):
 
 
 def draw_layer_chips(d, y):
-    """Layer status chips: REGEX OAUTH LLM NOTION OBSIDIAN."""
+    """Layer status chips: REGEX OAUTH LLM NOTION OBSIDIAN SLACK."""
     layers = [
-        ("REGEX ✓", GREEN),
-        ("OAUTH ✓", TEAL_DARK),
-        ("LLM ✓", TEAL_DARK),
-        ("NOTION ✓", TEAL_DARK),
-        ("OBSIDIAN ✓", TEAL_DARK),
+        ("REGEX ON", GREEN),
+        ("OAUTH ON", TEAL_DARK),
+        ("LLM ON", TEAL_DARK),
+        ("NOTION ON", TEAL_DARK),
+        ("OBSIDIAN ON", TEAL_DARK),
+        ("SLACK ON", TEAL_DARK),
     ]
     x = 60
     gap = 6
@@ -160,17 +156,14 @@ def draw_digest_panel(d, rows_visible=3):
 
 
 def draw_footer(d, pulse=False):
-    text_main = "YOU read.   YOU judge.   YOU reply."
+    """Closing line: a stat snapshot, not a tagline. Cycles the orange
+    accent on the cap value at end-frame for subtle motion under the hold."""
+    color = ORANGE if pulse else LIGHT
+    text_main = "5 - 15 SURFACES / DAY      8 INTENT CLASSES      LOCAL SQLITE"
     bbox = d.textbbox((0, 0), text_main, font=F_TAGLINE_BIG)
     tw = bbox[2] - bbox[0]
     cx = (W - tw) // 2
-    color = ORANGE if pulse else LIGHT
-    d.text((cx, 552), text_main, font=F_TAGLINE_BIG, fill=color)
-    manifesto = "The automation stops where the conversation starts."
-    bbox = d.textbbox((0, 0), manifesto, font=F_TAGLINE)
-    tw = bbox[2] - bbox[0]
-    cx = (W - tw) // 2
-    d.text((cx, 590), manifesto, font=F_TAGLINE, fill=MUTED)
+    d.text((cx, 568), text_main, font=F_TAGLINE_BIG, fill=color)
 
 
 def make_frame(i: int) -> Image.Image:
