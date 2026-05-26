@@ -20,25 +20,13 @@ Every morning, ~10 of the strongest threads land directly in your Claude Code ch
 
 ## Who this is for
 
-### B2B SaaS
-_Project management, analytics, productivity, HR, anything per-seat._
+**B2B SaaS founder** (project management, analytics, productivity, HR, anything per-seat). At 11am someone posts in r/SaaS: *"30-person team, Notion is a mess, what's next?"* That thread will have 80 replies by tomorrow. You want to be in it at reply 5, not reply 95. subscope drops it into your chat while the OP is still in the comments reading.
 
-subscope catches posts like *"We outgrew Notion at 30 people, what's everyone moving to?"* in r/SaaS, the moment a real buyer publicly admits their current tool is broken.
+**Sales or marketing tool** (CRM, outreach, automation). A sales ops manager opens their inbox to a 40% Apollo renewal hike, posts in r/sales: *"Apollo just hiked us 40%, who's everyone moving to?"* Within hours that thread is a vendor pile-on. subscope catches it before the OP starts booking demos, the small window where one good comment changes the shortlist.
 
-### Sales or marketing tool
-_CRM, outreach, automation._
+**Agency or freelance practice** (marketing, RevOps, dev work). This one is incoming demand, not competitor defection. Someone posts in r/Entrepreneur: *"Need a freelance Webflow dev who actually knows e-commerce, 4 weeks part-time."* The OP will get 8 generic pitches by end of day. subscope hands you the brief while you still have time to write something that is not a copy of the previous reply.
 
-It catches posts like *"Apollo just hiked our renewal 40%, what's everyone moving to?"* in r/sales the morning they go up, before the OP picks their next vendor.
-
-### Agency or freelance practice
-_Marketing, RevOps, dev work._
-
-It catches *"Need a freelance Webflow dev who actually knows e-commerce"* in r/Entrepreneur before five other agencies pile into the comments.
-
-### Developer tool
-_API, framework, infra._
-
-It catches *"Anyone moved off Temporal at scale? Looking for something lighter."* in r/devops while they are still in the discovery phase.
+**Developer tool** (API, framework, infra). An engineer posts in r/devops: *"Anyone moved off Temporal at scale? Looking for something lighter."* They are in discovery, comparing alternatives, reading docs. subscope catches the thread during the part where you can shape what they evaluate, not the part where they are justifying a tool they already picked.
 
 ---
 
