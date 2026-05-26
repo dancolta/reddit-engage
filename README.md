@@ -111,13 +111,36 @@ subscope slots into the tools you already use.
 <details>
 <summary>All 16 skills</summary>
 
-The 4 core skills above plus 12 pattern-scan and utility skills:
+The 4 core skills above are what you'll use day to day. The other 12 are setup, pattern-specific scans, and one-off utilities.
 
-`/subscope:onboard` `/subscope:profile` `/subscope:setup` `/subscope:pulse`
-`/subscope:pricing-rage` `/subscope:churn` `/subscope:build-vs-buy` `/subscope:rfp-bait`
-`/subscope:stack-audit` `/subscope:alternative-seeking` `/subscope:resurrect` `/subscope:rivals`
+**Setup and onboarding**
 
-Each pattern skill runs `fetch-score --mode <pattern>` so you can scan a single intent class on demand. All 16 listed in [`skills/`](skills/).
+| Skill | What it does |
+|---|---|
+| `/subscope:setup` | First-run wizard. Walks you through OAuth, LLM provider, surface choice (chat / Notion / Slack / Obsidian), and a dry-run validation. ~10 minutes. |
+| `/subscope:onboard` | 3-question quick profile builder (~60 seconds). Uses archetype matching plus your homepage URL to bootstrap your config. The fast path. |
+| `/subscope:profile` | 8-question deep profile interview (~12 minutes). Builds your full ICP, competitor anchor list, pain language, subreddit tiers, and few-shot examples. The slow path that gives sharper targeting. |
+
+**Pattern-specific scans** (each runs `fetch-score --mode <pattern>` so you can target one intent class on demand)
+
+| Skill | What it catches |
+|---|---|
+| `/subscope:pricing-rage` | Renewal-hike rage threads. Cooling queue skipped because these go cold fast. |
+| `/subscope:churn` | "Looking to ditch X for..." posts. Active switching intent. |
+| `/subscope:build-vs-buy` | In-house vs SaaS debates with actual numbers (engineering hours, TCO). |
+| `/subscope:rfp-bait` | "A vs B vs C" comparison threads where multiple vendors are named. |
+| `/subscope:stack-audit` | Posts where someone lists 8+ tools and asks what to cut. Highest-intent format. |
+| `/subscope:resurrect` | 6 to 18-month-old quality threads that still pull Google traffic. Late comments compound forever. |
+| `/subscope:rivals` | Today's mentions of any competitor in your `brand_anchor` list. |
+
+**Utilities**
+
+| Skill | What it does |
+|---|---|
+| `/subscope:pulse` | Weekly Obsidian digest. Builds a markdown summary of the week's surfaces and writes it to your vault. |
+| `/subscope:op-vet <user>` | Vet a single Reddit user before replying. Returns karma, age, audience-fit breakdown, GO / HOLD / SKIP verdict. |
+
+Skill source files in [`skills/`](skills/).
 
 </details>
 
