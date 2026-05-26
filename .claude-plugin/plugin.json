@@ -3,7 +3,7 @@
   "name": "subscope",
   "displayName": "subscope",
   "version": "0.1.0",
-  "description": "Daily subreddit scanner that surfaces pain-pattern posts (pricing rage, churn, build-vs-buy, alternative-seeking) inside your Claude Code session. Pattern-aware, not keyword-spam. Human-in-the-loop, closed-loop learner from your own sent replies. Free, local, BYO-LLM. The automation stops where the conversation starts.",
+  "description": "Classifies Reddit posts into 8 buyer-intent patterns and surfaces up to 12 per day, ranked. Runs locally inside your Claude Code session. BYO LLM (Anthropic, OpenAI, Groq, OpenRouter, Ollama). Optional Notion, Slack, Obsidian outputs.",
   "author": {
     "name": "Dan Colta",
     "url": "https://github.com/dancolta"
@@ -15,9 +15,9 @@
     "reddit",
     "subreddit-scanner",
     "pain-patterns",
+    "intent-classification",
     "social-listening",
     "inbound",
-    "human-in-the-loop",
     "notion",
     "obsidian",
     "slack",
