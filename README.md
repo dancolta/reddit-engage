@@ -76,9 +76,19 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 ![workflow demo: terminal types /subscope:run, counters increment, five ranked surfaces populate with pattern badges](assets/workflow.gif)
 
-You answer 3 questions about your product during `/subscope:onboard` (60 seconds). subscope builds a profile that maps which subreddits to scan and what buying signals to watch for.
+**The setup is where the targeting actually happens.** `/subscope:profile` runs a deep 8-question interview (~12 minutes) that produces a real targeting profile:
 
-Subreddits are split into two tiers. Tier 1 are your bullseye subs, scanned on every run. Tier 2 are broader subs where only standouts surface. Throwaway accounts are filtered before scoring. What's left gets ranked by signal strength: how fresh the post is, how fast it's gaining upvotes and comments, keyword density, and which of 8 buying-intent patterns it matches.
+- **ICP definition** — who you want to reach, what role, what stage of buying
+- **Competitor anchor list** — the brands your buyer is churning from, comparing you against, or rage-quitting
+- **Pain language** — the actual phrases buyers use, extracted from your homepage and the interview, not generic SEO keywords
+- **Subreddit tiers** — bullseye subs scanned on every run (Tier 1) vs opportunistic subs where only standouts surface (Tier 2)
+- **Few-shot example posts** — sample threads the LLM grader uses to recognize what a real buying moment looks like in your category
+
+Those become four config files at `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains). Every scan reads them. This is the actual product differentiator: the profile is built specifically for you, not pulled from a generic SaaS-founder template.
+
+Don't have 12 minutes on day 1? `/subscope:onboard` is a 3-question quick version (~60 seconds) that uses 6 built-in archetypes plus your homepage URL to bootstrap the same four config files. Same shape, less precision. Upgrade to `/subscope:profile` whenever you want without losing your existing config.
+
+Once your profile is in place, each scan fetches new posts from your configured subs, filters throwaway accounts before scoring, and ranks what's left by signal strength: freshness, upvote velocity, comment velocity, keyword density, and which of 8 buying-intent patterns the post matches. Tier 1 surfaces every run. Tier 2 surfaces only when a standout appears.
 
 ---
 
