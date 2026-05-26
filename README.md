@@ -20,13 +20,25 @@ Every morning, ~10 of the strongest threads land directly in your Claude Code ch
 
 ## Who this is for
 
-**If you sell B2B SaaS** (project management, analytics, productivity, HR, anything per-seat): subscope catches posts like *"We outgrew Notion at 30 people, what's everyone moving to?"* in r/SaaS — the moment a real buyer publicly admits their current tool is broken.
+### B2B SaaS
+_Project management, analytics, productivity, HR, anything per-seat._
 
-**If you sell a sales or marketing tool** (CRM, outreach, automation): it catches posts like *"Apollo just hiked our renewal 40%, what's everyone moving to?"* in r/sales — the morning they go up, before the OP picks their next vendor.
+subscope catches posts like *"We outgrew Notion at 30 people, what's everyone moving to?"* in r/SaaS, the moment a real buyer publicly admits their current tool is broken.
 
-**If you run an agency or freelance practice** (marketing, RevOps, dev work): it catches *"Need a freelance Webflow dev who actually knows e-commerce"* in r/Entrepreneur — before five other agencies pile into the comments.
+### Sales or marketing tool
+_CRM, outreach, automation._
 
-**If you ship a developer tool** (API, framework, infra): it catches *"Anyone moved off Temporal at scale? Looking for something lighter."* in r/devops — while they're still in the discovery phase.
+It catches posts like *"Apollo just hiked our renewal 40%, what's everyone moving to?"* in r/sales the morning they go up, before the OP picks their next vendor.
+
+### Agency or freelance practice
+_Marketing, RevOps, dev work._
+
+It catches *"Need a freelance Webflow dev who actually knows e-commerce"* in r/Entrepreneur before five other agencies pile into the comments.
+
+### Developer tool
+_API, framework, infra._
+
+It catches *"Anyone moved off Temporal at scale? Looking for something lighter."* in r/devops while they are still in the discovery phase.
 
 ---
 
