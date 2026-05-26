@@ -25,7 +25,7 @@ from typing import Any
 
 import yaml
 
-from .lib import author_vet, classify, reddit_oauth, reddit_public, score, slack, store
+from .lib import author_vet, classify, reddit, score, slack, store
 
 
 def _resolve_config_dir() -> Path:
@@ -229,8 +229,8 @@ def cmd_fetch_score(
             try:
                 # Prefer OAuth path (10x rate headroom + identity scope); falls
                 # back to public JSON automatically when oauth.json missing or
-                # PRAW not installed. See reddit_oauth.fetch_delta() docstring.
-                posts = reddit_oauth.fetch_delta(s["name"], last_cursor, max_limit=limit_per_sub)
+                # PRAW not installed. See reddit.fetch_delta() docstring.
+                posts = reddit.fetch_delta(s["name"], last_cursor, max_limit=limit_per_sub)
             except Exception as e:
                 fetch_errors.append(f"r/{s['name']}: {e}")
                 continue

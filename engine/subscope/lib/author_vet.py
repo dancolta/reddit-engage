@@ -18,7 +18,7 @@ import sqlite3
 import time
 from typing import Any
 
-from . import reddit_oauth, store
+from . import reddit, store
 
 
 # Subs that signal "wrong audience" — hustle-bros, beginners, not real operators.
@@ -112,7 +112,7 @@ def vet_author(
         return cached
 
     # Fresh fetch
-    about = reddit_oauth.fetch_user_about(username)
+    about = reddit.fetch_user_about(username)
     if not about:
         result = _result("pass", "fetch_failed", 0, 0, 0.0, False)
         _write_cache(conn, username, result, sub_breakdown={}, now=now)
@@ -135,7 +135,7 @@ def vet_author(
         return result
 
     # Last (most expensive) check: sub histogram
-    sub_breakdown = reddit_oauth.fetch_user_recent_subs(username, limit=100) or {}
+    sub_breakdown = reddit.fetch_user_recent_subs(username, limit=100) or {}
     wrong_frac = _wrong_audience_fraction(sub_breakdown)
     if wrong_frac > MAX_WRONG_AUDIENCE_FRACTION:
         result = _result("fail", "wrong_audience", karma, age_days, wrong_frac, False)

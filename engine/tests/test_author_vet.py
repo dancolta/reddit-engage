@@ -1,6 +1,6 @@
 """Tests for author quality pre-gate.
 
-Mocks the Reddit fetches (reddit_oauth.fetch_user_about / fetch_user_recent_subs)
+Mocks the Reddit fetches (reddit.fetch_user_about / fetch_user_recent_subs)
 since we can't hit the real API in CI.
 """
 import sqlite3
@@ -38,7 +38,7 @@ def test_deleted_author_fails_immediately():
 
 def test_account_too_young_fails():
     about = make_about(karma=500, age_days=10)  # 10d old, fails 30d min
-    with patch.object(author_vet.reddit_oauth, "fetch_user_about", return_value=about):
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about):
         result = author_vet.vet_author("babyacct", now=NOW)
     assert result["verdict"] == "fail"
     assert result["reason"] == "account_too_young"
@@ -47,7 +47,7 @@ def test_account_too_young_fails():
 
 def test_low_karma_fails():
     about = make_about(karma=10, age_days=200)
-    with patch.object(author_vet.reddit_oauth, "fetch_user_about", return_value=about):
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about):
         result = author_vet.vet_author("lurker42", now=NOW)
     assert result["verdict"] == "fail"
     assert result["reason"] == "low_karma"
@@ -57,8 +57,8 @@ def test_wrong_audience_fails():
     """OP whose comments are >80% in r/Entrepreneur class subs = drop."""
     about = make_about(karma=500, age_days=365)
     sub_hist = {"Entrepreneur": 60, "smallbusiness": 25, "startups": 12, "sales": 3}
-    with patch.object(author_vet.reddit_oauth, "fetch_user_about", return_value=about):
-        with patch.object(author_vet.reddit_oauth, "fetch_user_recent_subs", return_value=sub_hist):
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about):
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value=sub_hist):
             result = author_vet.vet_author("hustlebro", now=NOW)
     assert result["verdict"] == "fail"
     assert result["reason"] == "wrong_audience"
@@ -69,8 +69,8 @@ def test_real_operator_passes():
     """Operator OP: good karma, mature account, distributed sub activity."""
     about = make_about(karma=500, age_days=365)
     sub_hist = {"sales": 40, "RevOps": 30, "CFO": 20, "Entrepreneur": 5, "askmenover30": 5}
-    with patch.object(author_vet.reddit_oauth, "fetch_user_about", return_value=about):
-        with patch.object(author_vet.reddit_oauth, "fetch_user_recent_subs", return_value=sub_hist):
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about):
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value=sub_hist):
             result = author_vet.vet_author("real_operator", now=NOW)
     assert result["verdict"] == "pass"
     assert result["reason"] is None
@@ -79,7 +79,7 @@ def test_real_operator_passes():
 def test_fetch_failure_degrades_open():
     """If Reddit returns None (404, suspended, network), default to pass —
     don't kill a real lead because the API hiccuped."""
-    with patch.object(author_vet.reddit_oauth, "fetch_user_about", return_value=None):
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=None):
         result = author_vet.vet_author("unreachable", now=NOW)
     assert result["verdict"] == "pass"
     assert result["reason"] == "fetch_failed"
@@ -94,8 +94,8 @@ def test_cache_hit_skips_network(tmp_path):
     about = make_about(karma=500, age_days=365)
     sub_hist = {"sales": 50, "RevOps": 50}
 
-    with patch.object(author_vet.reddit_oauth, "fetch_user_about", return_value=about) as m_about:
-        with patch.object(author_vet.reddit_oauth, "fetch_user_recent_subs", return_value=sub_hist) as m_subs:
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about) as m_about:
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value=sub_hist) as m_subs:
             r1 = author_vet.vet_author("cache_test", conn=conn, now=NOW)
             r2 = author_vet.vet_author("cache_test", conn=conn, now=NOW + 60)
     assert r1["verdict"] == "pass"
@@ -115,8 +115,8 @@ def test_cache_expires_after_ttl(tmp_path):
     about = make_about(karma=500, age_days=365)
     sub_hist = {"sales": 100}
 
-    with patch.object(author_vet.reddit_oauth, "fetch_user_about", return_value=about) as m_about:
-        with patch.object(author_vet.reddit_oauth, "fetch_user_recent_subs", return_value=sub_hist):
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about) as m_about:
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value=sub_hist):
             author_vet.vet_author("stale_test", conn=conn, now=NOW)
             # 8 days later
             author_vet.vet_author("stale_test", conn=conn, now=NOW + 8 * 86400)

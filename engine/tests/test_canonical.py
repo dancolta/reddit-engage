@@ -4,22 +4,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subscope.lib import reddit_public  # noqa: E402
+from subscope.lib import reddit  # noqa: E402
 
 
 def test_canonical_from_id():
     data = {"id": "abc123", "permalink": "/r/smallbusiness/comments/abc123/foo/"}
-    assert reddit_public.canonical_url(data) == "https://reddit.com/comments/abc123/"
+    assert reddit.canonical_url(data) == "https://reddit.com/comments/abc123/"
 
 
 def test_canonical_from_t3_name():
     data = {"name": "t3_abc123", "permalink": "/r/smallbusiness/comments/abc123/foo/"}
-    assert reddit_public.canonical_url(data) == "https://reddit.com/comments/abc123/"
+    assert reddit.canonical_url(data) == "https://reddit.com/comments/abc123/"
 
 
 def test_canonical_from_permalink_only():
     data = {"permalink": "/r/SaaS/comments/xyz789/title_slug/"}
-    assert reddit_public.canonical_url(data) == "https://reddit.com/comments/xyz789/"
+    assert reddit.canonical_url(data) == "https://reddit.com/comments/xyz789/"
 
 
 def test_canonical_strips_subreddit():
@@ -28,12 +28,12 @@ def test_canonical_strips_subreddit():
     a = {"id": "ghi555", "permalink": "/r/smallbusiness/comments/ghi555/foo/"}
     b = {"id": "ghi555", "permalink": "/r/Entrepreneur/comments/ghi555/different_slug/"}
     # Same id = same canonical regardless of subreddit
-    assert reddit_public.canonical_url(a) == reddit_public.canonical_url(b)
+    assert reddit.canonical_url(a) == reddit.canonical_url(b)
 
 
 def test_canonical_empty_returns_empty():
-    assert reddit_public.canonical_url({}) == ""
-    assert reddit_public.canonical_url({"permalink": "/garbage"}) == ""
+    assert reddit.canonical_url({}) == ""
+    assert reddit.canonical_url({"permalink": "/garbage"}) == ""
 
 
 def test_parse_post_removed_detection():
@@ -51,18 +51,18 @@ def test_parse_post_removed_detection():
             "num_comments": 0,
         },
     }
-    post = reddit_public.parse_post(fixtures)
+    post = reddit.parse_post(fixtures)
     assert post is not None
     assert post["removed"] is True
 
 
 def test_parse_post_skips_invalid():
     # kind != t3
-    assert reddit_public.parse_post({"kind": "t1", "data": {}}) is None
+    assert reddit.parse_post({"kind": "t1", "data": {}}) is None
     # no permalink
-    assert reddit_public.parse_post({"kind": "t3", "data": {}}) is None
+    assert reddit.parse_post({"kind": "t3", "data": {}}) is None
     # permalink lacks /comments/
-    assert reddit_public.parse_post(
+    assert reddit.parse_post(
         {"kind": "t3", "data": {"permalink": "/r/x/about", "id": "abc"}}
     ) is None
 

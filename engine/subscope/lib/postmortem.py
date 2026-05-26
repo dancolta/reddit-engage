@@ -1,7 +1,7 @@
 """Postmortem: auto-detect Dan's replies to surfaced posts + record 7-day outcomes.
 
 Closes the loop on "which patterns convert, which flop". No manual tagging
-required — `reddit_oauth.fetch_user_recent_subs`-style identity scope lets
+required — `reddit.fetch_user_recent_subs`-style identity scope lets
 us walk the user's own recent comments and match against surfaced.post_id.
 
 Flow:
@@ -15,7 +15,7 @@ All three functions are designed to run on a cron / daily. Idempotent —
 running multiple times in a day adds no duplicates and does no extra work
 for replies that already have a 7-day outcome.
 
-Requires OAuth (identity scope). If `reddit_oauth.has_oauth()` returns False,
+Requires OAuth (identity scope). If `reddit.has_oauth()` returns False,
 all three functions short-circuit + log once.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ import sys
 import time
 from typing import Any
 
-from . import reddit_oauth, store
+from . import reddit, store
 
 
 REPLY_LOG_SCHEMA = """
@@ -60,10 +60,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 def _own_username() -> str | None:
     """Return the configured Reddit username from oauth.json, or None."""
-    if not reddit_oauth.has_oauth():
+    if not reddit.has_oauth():
         return None
     try:
-        cfg = json.loads(reddit_oauth.oauth_config_path().read_text())
+        cfg = json.loads(reddit.oauth_config_path().read_text())
         return cfg.get("username") or None
     except (OSError, json.JSONDecodeError):
         return None
@@ -138,9 +138,9 @@ def detect_replies(conn: sqlite3.Connection, limit: int = 100) -> dict[str, int]
 def _fetch_own_comments(username: str, limit: int = 100) -> list[dict[str, Any]] | None:
     """Fetch Dan's own /user/<me>/comments. Uses OAuth (identity scope)
     if available, falls back to public path."""
-    if reddit_oauth.has_oauth():
+    if reddit.has_oauth():
         try:
-            client = reddit_oauth._build_praw_client()
+            client = reddit._build_praw_client()
             out: list[dict[str, Any]] = []
             for c in client.redditor(username).comments.new(limit=limit):
                 out.append({
@@ -156,12 +156,12 @@ def _fetch_own_comments(username: str, limit: int = 100) -> list[dict[str, Any]]
             _log(f"OAuth comment fetch failed → fallback: {e}")
 
     # Public fallback
-    from . import reddit_public
-    safe = reddit_oauth._safe_username(username)
+    from . import reddit
+    safe = reddit._safe_username(username)
     if not safe:
         return None
     url = f"https://www.reddit.com/user/{safe}/comments.json?limit={limit}"
-    data = reddit_public.fetch_json(url)
+    data = reddit.fetch_json(url)
     if not data:
         return None
     out2: list[dict[str, Any]] = []
@@ -184,7 +184,7 @@ def update_outcomes(conn: sqlite3.Connection) -> dict[str, int]:
     Returns {scored, skipped_too_young, fetch_failures}.
     """
     ensure_schema(conn)
-    if not reddit_oauth.has_oauth():
+    if not reddit.has_oauth():
         _log("OAuth not configured — skipping update_outcomes (public fallback also limited)")
         # We CAN still try via public endpoint, but accuracy degrades.
 
@@ -226,9 +226,9 @@ def update_outcomes(conn: sqlite3.Connection) -> dict[str, int]:
 
 def _fetch_comment_outcome(comment_id: str) -> dict[str, Any] | None:
     """Fetch a comment's current state. Tries OAuth, falls back to public."""
-    if reddit_oauth.has_oauth():
+    if reddit.has_oauth():
         try:
-            client = reddit_oauth._build_praw_client()
+            client = reddit._build_praw_client()
             c = client.comment(id=comment_id)
             c.refresh()
             # PRAW lazy-loads replies. len(c.replies) is the actual direct-reply count
@@ -249,9 +249,9 @@ def _fetch_comment_outcome(comment_id: str) -> dict[str, Any] | None:
             _log(f"OAuth outcome fetch failed for {comment_id}: {e}")
 
     # Public path
-    from . import reddit_public
+    from . import reddit
     url = f"https://www.reddit.com/comments/{comment_id}.json"
-    data = reddit_public.fetch_json(url)
+    data = reddit.fetch_json(url)
     if not data or not isinstance(data, list):
         return None
     try:
