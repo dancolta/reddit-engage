@@ -2,6 +2,8 @@
 
 # subscope
 
+[![License: MIT](https://img.shields.io/github/license/dancolta/subscope?color=blue)](LICENSE) [![Release](https://img.shields.io/github/v/release/dancolta/subscope)](https://github.com/dancolta/subscope/releases) [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+
 ![subscope hero: 8-bit arcade scanner UI with subreddit feeds, skill chips lighting up, and three sample surfaces in a digest panel](assets/hero.gif)
 
 **subscope reads Reddit for you and finds threads where someone is actively shopping for what you sell.**
