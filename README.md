@@ -4,130 +4,121 @@
 
 ![subscope hero: 8-bit arcade scanner UI with subreddit feeds, skill chips lighting up, and three sample surfaces in a digest panel](assets/hero.gif)
 
-**A Claude Code plugin that classifies Reddit posts into 8 buyer-intent patterns and surfaces up to 12 per day, ranked. Runs locally. No SaaS.**
+**subscope reads Reddit for you and finds threads where someone is actively shopping for what you sell.**
+
+Every morning, ~10 of the strongest threads land directly in your Claude Code chat. Things like "Apollo renewal hike, what's the alternative?" or "switching from HubSpot, recommendations?". You read them, decide which deserve a reply, and write the comment yourself on Reddit. Free. No API keys. Runs inside Claude Code.
 
 ```bash
 /plugin install dancolta/subscope
-/subscope:onboard       # 3 questions, 60 seconds
-/subscope:run           # your first daily scan
+/subscope:onboard       # 3 questions, 60s
+/subscope:run           # your first scan
 ```
 
 </div>
 
 ---
 
-## Pattern engine
+## Who this is for
 
-Eight intent classes, each with its own scoring path. A `pricing-rage` thread and an `alternative-seeking` thread are different buying signals and rank separately.
+**If you sell B2B SaaS** (project management, analytics, productivity, HR, anything per-seat): subscope catches posts like *"We outgrew Notion at 30 people, what's everyone moving to?"* in r/SaaS — the moment a real buyer publicly admits their current tool is broken.
 
-| Class | What it captures |
+**If you sell a sales or marketing tool** (CRM, outreach, automation): it catches posts like *"Apollo just hiked our renewal 40%, what's everyone moving to?"* in r/sales — the morning they go up, before the OP picks their next vendor.
+
+**If you run an agency or freelance practice** (marketing, RevOps, dev work): it catches *"Need a freelance Webflow dev who actually knows e-commerce"* in r/Entrepreneur — before five other agencies pile into the comments.
+
+**If you ship a developer tool** (API, framework, infra): it catches *"Anyone moved off Temporal at scale? Looking for something lighter."* in r/devops — while they're still in the discovery phase.
+
+---
+
+## What you do day to day
+
+| Command | What it does |
 |---|---|
-| `pricing-rage` | Public upset about a renewal hike |
+| `/subscope:run` | Daily scan — top ~10 threads land in chat with pattern badges |
+| `/subscope:judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
+| `/subscope:tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
+| `/subscope:postmortem` | Auto-tracks the replies you actually send on Reddit, scores them 7 days later (upvotes, follow-ups, removal status), feeds that back into next week's rankings |
+
+**The tool gets sharper for your specific niche the longer you use it, because it learns from what actually worked.**
+
+---
+
+## The 8 signals it catches
+
+Each pattern has its own scoring path. A `pricing-rage` thread and an `alternative-seeking` thread rank separately because they are different buying moments.
+
+| Pattern | What it captures |
+|---|---|
+| `pricing-rage` | Public anger about a renewal hike |
 | `churn` | "Looking to ditch X for..." threads |
 | `build-vs-buy` | Debates with actual numbers attached |
 | `rfp-bait` | A vs B vs C comparison threads |
-| `stack-audit` | "Help me cut tools from my stack" |
-| `alternative-seeking` | Explicit "alternative to X?" posts |
-| `resurrect` | Quality threads aged 6 to 18 months |
+| `stack-audit` | "Help me cut tools from my stack" posts |
+| `alternative-seeking` | Explicit "alternative to X?" threads |
+| `resurrect` | Quality threads aged 6 to 18 months still getting traffic |
 | `rivals` | Any mention of a brand in your competitive set |
 
 ---
 
-## Daily workflow
+## How it works
 
 ![workflow demo: terminal types /subscope:run, counters increment, five ranked surfaces populate with pattern badges](assets/workflow.gif)
 
-**Onboard once.** Three questions: who you reach, what you sell, your homepage URL. Claude reads the answers and writes a config tuned to your product. Uses your existing Claude Code subscription, no extra cost.
+You answer 3 questions about your product during `/subscope:onboard` (60 seconds). subscope builds a profile that maps which subreddits to scan and what buying signals to watch for.
 
-For deeper targeting, `/subscope:profile` runs an 8-question interview (~12 minutes). If you skip both flows, one of 6 built-in archetypes (revops-leader, bootstrapped-saas, agency-owner, indie-hacker, consultant, plg-devtool) seeds the config from your answers. Four pre-bundled presets ship under `presets/` for users who want a flat starting point instead.
-
-**Daily scan.** `/subscope:run` fetches your subreddits, runs intent gates, scores survivors, and lists results in chat. Default cap is 12.
-
-```bash
-PYTHONPATH=engine python3 -m subscope.cli fetch-score --max-surfaces 25
-```
+Subreddits are split into two tiers. Tier 1 are your bullseye subs, scanned every morning. Tier 2 are broader subs where only standouts surface. Throwaway accounts are filtered before scoring. What's left gets ranked by signal strength: how fresh the post is, how fast it's gaining upvotes and comments, keyword density, and which of 8 buying-intent patterns it matches.
 
 ---
 
-## Outputs
+## Integrations
 
-| Output | Setup |
-|---|---|
-| Inline markdown table in Claude Code chat | none (default) |
-| Notion database with 14-column triage schema (includes OP score) | ~5 min |
-| Slack webhook push (formatted message) | paste one URL |
-| Weekly Obsidian digest via `/subscope:pulse` | vault path in config |
-| JSON-only via stdout | `modes: []` in `surface.yml` |
+subscope slots into the tools you already use.
 
----
+| Integration | Why | Setup |
+|---|---|---|
+| Reddit OAuth | Recommended. 10x rate budget, enables postmortem reply tracking | Free script app at reddit.com/prefs/apps |
+| Bulk LLM grading | Optional. Grade posts at scale via any of 5 providers | One API key in setup wizard |
+| Notion daily triage DB | Optional. 14-column triage schema with OP score | ~5 min |
+| Slack daily push | Optional. Formatted morning digest to your channel | Paste one webhook URL |
+| Obsidian weekly digest | Optional. Weekly pulse via `/subscope:pulse` | Vault path in config |
 
-## Intelligence layer
-
-**Author vet pre-gate.** Karma, account age, and audience-fit are checked before a post enters the scoring pool. Throwaway accounts and karma-farmer OPs are filtered out at this stage.
-
-**Permanent SQLite deduplication.** Every surfaced post is recorded. A post that appeared yesterday never reappears.
-
-**Cooling queue (15 min).** New surfaces hold in a queue before promotion so you don't engage with posts that look algorithmic. Pricing-rage threads bypass the queue, those posts lose value within hours.
-
-**Postmortem learner.** `/subscope:postmortem` auto-detects your sent replies, pulls 7-day outcomes (upvotes, follow-up replies, lock status), and adjusts per-subreddit weights and per-keyword scores for the next run. No other tool in this category learns from what you actually sent.
-
-**Tune.** `/subscope:tune` runs 3 rounds of Good/Bad/Meh marks on recent surfaces and back-propagates into the same weights. Use it when the daily list drifts.
-
-**Judge.** `/subscope:judge <n>` sends a single surface body to Claude in your active Code session and returns intent + reply angle. No API key, no cost beyond your subscription.
+**Supported LLM providers for bulk grading:** Anthropic, OpenAI, Groq, OpenRouter, Ollama. Provider is auto-detected from your key prefix. Without a key, the regex gate runs alone and `/subscope:judge` handles ad-hoc grading at no extra cost.
 
 ---
 
-## Bring your own LLM
+<details>
+<summary>All 16 skills</summary>
 
-Bulk LLM grading on every run is opt-in. Any OpenAI-compatible endpoint works:
+The 4 core skills above plus 12 pattern-scan and utility skills:
 
-| Provider | Key prefix or base URL |
-|---|---|
-| Anthropic | `sk-ant-...` |
-| OpenAI | `sk-...` |
-| Groq | `gsk_...` |
-| OpenRouter | `sk-or-...` |
-| Together / Fireworks | provider key + `LLM_BASE_URL` |
-| Local Ollama | `http://localhost:11434/v1` |
+`/subscope:onboard` `/subscope:profile` `/subscope:setup` `/subscope:pulse`
+`/subscope:pricing-rage` `/subscope:churn` `/subscope:build-vs-buy` `/subscope:rfp-bait`
+`/subscope:stack-audit` `/subscope:alternative-seeking` `/subscope:resurrect` `/subscope:rivals`
 
-Provider auto-detected from the key prefix. Cost: ~$0.50/day at 5,000 graded posts (typical SaaS founder scan). Without a key, the regex gate runs alone and `/subscope:judge` handles ad-hoc grading free.
+Each pattern skill runs `fetch-score --mode <pattern>` so you can scan a single intent class on demand. All 16 listed in [`skills/`](skills/).
+
+</details>
 
 ---
 
-## Power user
+## Setup
 
-- `--max-surfaces N` raises the daily cap per run
-- `~/.config/subscope/keywords-<mode>.yml` overrides per-mode keywords
-- `~/.config/subscope/weights.yml` exposes scoring weights, gate thresholds, per-subreddit caps
-- All 16 invocable commands are listed in [skills/](skills/)
+Run `/subscope:setup`. The wizard presents each optional layer. Skip any of them and the default runs without it. Runs on day 1 with zero API keys.
 
----
+Need more than 10 results per run? `--max-surfaces N` raises the cap.
 
-## Install
-
-```bash
-/plugin install dancolta/subscope
-/subscope:setup
-```
-
-Runs on day 1 with zero API keys. The wizard presents each optional layer; skip any and the default runs without it.
-
-**Reddit OAuth** (recommended). Register a free script-type app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps). 10x rate budget plus identity scope for postmortem reply tracking.
-
-**LLM key, Notion, Slack, Obsidian** are all optional, one field each in the wizard. Config lives at `~/.config/subscope/`, every file written with `chmod 600`.
+Config lives at `~/.config/subscope/`. Every file is written with `chmod 600`.
 
 ---
 
-## Privacy and security
+## Privacy
 
-- Local SQLite at `~/.local/share/subscope/subscope.sqlite` (0o600)
-- Reddit OAuth creds at `~/.config/subscope/oauth.json` (0o600), written atomically with `os.open(O_EXCL, 0o600)` so the file is never world-readable
-- SSRF guard on every user-configurable URL. Private IPs (RFC-1918), AWS metadata (`169.254.169.254`), and `http://` to non-localhost hosts are refused before the request fires
-- When you opt into bulk LLM grading, post bodies (capped at 800 chars) go to your configured endpoint. One-time stderr banner the first time
-- Zero telemetry
+- All data is local. SQLite at `~/.local/share/subscope/subscope.sqlite`, config at `~/.config/subscope/`. Both `0o600`.
+- Reddit OAuth credentials are written atomically so the file is never world-readable at any point during creation.
+- When bulk LLM grading is enabled, post bodies (capped at 800 chars) go to your configured endpoint. A one-time notice appears the first time. Zero telemetry otherwise.
 
 ---
 
-subscope surfaces and ranks. You write the reply on Reddit yourself, in your voice, from your account.
+You find the thread. You write the reply. subscope handles the part that would take you an hour every morning.
 
 MIT. See [LICENSE](LICENSE).
