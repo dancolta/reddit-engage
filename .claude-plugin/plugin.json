@@ -27,23 +27,20 @@
   "userConfig": {
     "reddit_client_id": {
       "type": "string",
-      "title": "Reddit OAuth client ID",
-      "description": "From https://www.reddit.com/prefs/apps — create a 'script' type app, redirect URI http://localhost. The 14-char string under your app name.",
-      "required": true,
+      "title": "Reddit OAuth client ID (optional)",
+      "description": "Optional. Subscope works without OAuth via public Reddit JSON (rate-limited but functional). Add OAuth for 10x higher rate limits + postmortem tracking. From https://www.reddit.com/prefs/apps, create a 'script' app with redirect URI http://localhost. The 14-char string under your app name. You can also add this later via /subscope:onboard.",
       "sensitive": true
     },
     "reddit_client_secret": {
       "type": "string",
-      "title": "Reddit OAuth client secret",
-      "description": "The 'secret' field from the same Reddit app registration.",
-      "required": true,
+      "title": "Reddit OAuth client secret (optional)",
+      "description": "Optional. The 'secret' field from the same Reddit app registration. Required only if reddit_client_id is set.",
       "sensitive": true
     },
     "reddit_username": {
       "type": "string",
-      "title": "Reddit username",
-      "description": "Your Reddit username (without u/ prefix). Used for OAuth identity scope and postmortem reply tracking.",
-      "required": true
+      "title": "Reddit username (optional)",
+      "description": "Optional. Your Reddit username without the u/ prefix. Required only if reddit_client_id is set. Used for OAuth identity scope and postmortem reply tracking."
     },
     "notion_api_key": {
       "type": "string",
@@ -70,13 +67,13 @@
     "slack_webhook_url": {
       "type": "string",
       "title": "Slack webhook URL (optional)",
-      "description": "Daily surface list gets pushed to this Slack channel. Get one from https://api.slack.com/messaging/webhooks. Must be https://hooks.slack.com/... — anything else is rejected. Leave blank to skip.",
+      "description": "Daily surface list gets pushed to this Slack channel. Get one from https://api.slack.com/messaging/webhooks. Must be https://hooks.slack.com/, anything else is rejected. Leave blank to skip.",
       "sensitive": true
     },
     "llm_api_key": {
       "type": "string",
       "title": "LLM API key (optional)",
-      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip — /subscope:judge still works free via your Claude Code subscription.",
+      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip. /subscope:judge still works free via your Claude Code subscription.",
       "sensitive": true
     },
     "llm_base_url": {

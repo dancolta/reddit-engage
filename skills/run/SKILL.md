@@ -10,10 +10,10 @@ Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate 
 
 ## Preflight
 
-1. Verify the plugin is set up:
-   - `~/.config/subscope/oauth.json` exists OR the user has run `/subscope:setup`
-   - At least one preset is active in `~/.config/subscope/subreddits.yml`
-2. If preflight fails, redirect the user to `/subscope:setup`.
+1. Check whether user has personalized targeting at `~/.config/subscope/subreddits.yml`. If missing, the engine still runs using bundled generic defaults, but results will be off-target. Recommend `/subscope:onboard` (one conversation, ~5 min, includes the first scan) with a one-line nudge:
+   `(no personal targeting found, scanning with generic defaults. /subscope:onboard for sharper results.)`
+   Proceed with the run unless user explicitly cancels.
+2. OAuth is NOT required. The engine falls back to public Reddit JSON when `~/.config/subscope/oauth.json` is absent. If OAuth is missing, emit one info line at the start of the scan output: `(running on public JSON, rate-limited. Run /subscope:onboard --reauth to upgrade.)`.
 
 ## Daily run procedure
 

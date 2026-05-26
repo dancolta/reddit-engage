@@ -22,7 +22,7 @@ vault_path: /Users/dan/Documents/MyVault
 pulse_folder: subscope  # optional, defaults to 'subscope'
 ```
 
-If `obsidian.yml` missing: print "Obsidian vault not configured. Skip `/subscope:setup` or drop `~/.config/subscope/obsidian.yml` with a `vault_path:` line, then re-run."
+If `obsidian.yml` missing: print "Obsidian vault not configured. Run `/subscope:onboard` to wire it (or drop `~/.config/subscope/obsidian.yml` with a `vault_path:` line manually), then re-run."
 
 ## Generate digest
 

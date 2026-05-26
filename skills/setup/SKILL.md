@@ -1,24 +1,40 @@
 ---
 name: setup
-description: Interactive onboarding wizard for subscope. Walks new users through Reddit OAuth (optional), LLM provider config (optional), industry preset selection, optional Notion DB hookup, optional Obsidian vault wiring, and a final dry-run validation. Conversational — pauses for each user decision. Triggers on "setup subscope", "/subscope:setup", "initialize subscope", "configure subscope", "onboard me", "first-time setup", or when daily run fails due to missing config.
+description: Reconfigure individual pieces of subscope after first-run onboarding. Use this when you want to add or change LLM provider, swap a destination (Notion / Slack / Obsidian), or rotate credentials. NOT the first-run flow. First-time users should run /subscope:onboard instead. Triggers on "/subscope:setup", "reconfigure subscope", "change subscope settings", "update subscope LLM", "rotate subscope credentials", "swap subscope destination".
 allowed-tools: Bash, Read, Write, Edit
 ---
 
 # /subscope:setup
 
-Conversational setup wizard. Resumable — each step checks current state and skips if already configured.
+Reconfiguration tool for an already-onboarded subscope install. For first-run, route the user to `/subscope:onboard` instead. The 6 steps below are now individually addressable: ask the user which one they want to change before walking the whole flow.
 
 ## Goal
 
-Get a new user from `/plugin install` → first working `/subscope:run` in under 10 minutes, with green checks at every step.
+Let an existing user change one piece of their config without re-doing the whole onboarding.
 
 ## Procedure
 
-Greet the user briefly:
+First, check whether the user has already onboarded:
 
-> Setting up subscope. I'll walk you through the OAuth, preset, and optional integrations. Each step is skippable if you don't need it — say "skip" anytime.
+```bash
+[ -f ~/.config/subscope/subreddits.yml ] && echo "ONBOARDED" || echo "NOT_ONBOARDED"
+```
 
-Then run the steps in order. Pause for input at each.
+If `NOT_ONBOARDED`: redirect to `/subscope:onboard` and stop. Do not run the steps below for a new install.
+
+If `ONBOARDED`: ask which piece they want to change:
+
+> What do you want to reconfigure?
+>   1. Reddit OAuth (add or rotate)
+>   2. LLM provider (add or swap)
+>   3. Targeting (re-pick preset, or re-run /subscope:onboard for full re-do)
+>   4. Notion database
+>   5. Slack webhook
+>   6. Obsidian vault
+>
+> Pick a number, or type "all" to walk every step.
+
+Then jump to that step only. Each step is independent.
 
 ### Step 1 — Reddit OAuth (optional but recommended)
 
