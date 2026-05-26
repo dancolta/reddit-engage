@@ -6,7 +6,7 @@
 
 **subscope reads Reddit for you and finds threads where someone is actively shopping for what you sell.**
 
-Every morning, ~10 of the strongest threads land directly in your Claude Code chat. Things like "Apollo renewal hike, what's the alternative?" or "switching from HubSpot, recommendations?". You read them, decide which deserve a reply, and write the comment yourself on Reddit. Free. No API keys. Runs inside Claude Code.
+Run it whenever you want. Each scan returns ~10 of the strongest threads directly in your Claude Code chat. Things like "Apollo renewal hike, what's the alternative?" or "switching from HubSpot, recommendations?". You read them, decide which deserve a reply, and write the comment yourself on Reddit. Free. No API keys. Runs inside Claude Code.
 
 ```bash
 /plugin install dancolta/subscope
@@ -51,7 +51,7 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 | Command | What it does |
 |---|---|
-| `/subscope:run` | Daily scan — top ~10 threads land in chat with pattern badges |
+| `/subscope:run` | Manual scan, top ~10 threads land in chat with pattern badges |
 | `/subscope:judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
 | `/subscope:tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
 | `/subscope:postmortem` | Auto-tracks the replies you actually send on Reddit, scores them 7 days later (upvotes, follow-ups, removal status), feeds that back into next week's rankings |
@@ -66,7 +66,7 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 You answer 3 questions about your product during `/subscope:onboard` (60 seconds). subscope builds a profile that maps which subreddits to scan and what buying signals to watch for.
 
-Subreddits are split into two tiers. Tier 1 are your bullseye subs, scanned every morning. Tier 2 are broader subs where only standouts surface. Throwaway accounts are filtered before scoring. What's left gets ranked by signal strength: how fresh the post is, how fast it's gaining upvotes and comments, keyword density, and which of 8 buying-intent patterns it matches.
+Subreddits are split into two tiers. Tier 1 are your bullseye subs, scanned on every run. Tier 2 are broader subs where only standouts surface. Throwaway accounts are filtered before scoring. What's left gets ranked by signal strength: how fresh the post is, how fast it's gaining upvotes and comments, keyword density, and which of 8 buying-intent patterns it matches.
 
 ---
 
