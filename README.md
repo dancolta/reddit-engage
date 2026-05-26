@@ -78,11 +78,11 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 **The setup is where the targeting actually happens.** `/subscope:profile` runs a deep 8-question interview (~12 minutes) that produces a real targeting profile:
 
-- **ICP definition** — who you want to reach, what role, what stage of buying
-- **Competitor anchor list** — the brands your buyer is churning from, comparing you against, or rage-quitting
-- **Pain language** — the actual phrases buyers use, extracted from your homepage and the interview, not generic SEO keywords
-- **Subreddit tiers** — bullseye subs scanned on every run (Tier 1) vs opportunistic subs where only standouts surface (Tier 2)
-- **Few-shot example posts** — sample threads the LLM grader uses to recognize what a real buying moment looks like in your category
+- **ICP definition.** Who you want to reach, what role, what stage of buying.
+- **Competitor anchor list.** The brands your buyer is churning from, comparing you against, or rage-quitting.
+- **Pain language.** The actual phrases buyers use, extracted from your homepage and the interview, not generic SEO keywords.
+- **Subreddit tiers.** Bullseye subs scanned on every run (Tier 1) vs opportunistic subs where only standouts surface (Tier 2).
+- **Few-shot example posts.** Sample threads the LLM grader uses to recognize what a real buying moment looks like in your category.
 
 Those become four config files at `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains). Every scan reads them. This is the actual product differentiator: the profile is built specifically for you, not pulled from a generic SaaS-founder template.
 
