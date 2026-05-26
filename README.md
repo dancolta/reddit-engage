@@ -42,19 +42,6 @@ It catches *"Anyone moved off Temporal at scale? Looking for something lighter."
 
 ---
 
-## What you do day to day
-
-| Command | What it does |
-|---|---|
-| `/subscope:run` | Daily scan — top ~10 threads land in chat with pattern badges |
-| `/subscope:judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
-| `/subscope:tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
-| `/subscope:postmortem` | Auto-tracks the replies you actually send on Reddit, scores them 7 days later (upvotes, follow-ups, removal status), feeds that back into next week's rankings |
-
-**The tool gets sharper for your specific niche the longer you use it, because it learns from what actually worked.**
-
----
-
 ## The 8 signals it catches
 
 Each pattern has its own scoring path. A `pricing-rage` thread and an `alternative-seeking` thread rank separately because they are different buying moments.
@@ -69,6 +56,19 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 | `alternative-seeking` | Explicit "alternative to X?" threads |
 | `resurrect` | Quality threads aged 6 to 18 months still getting traffic |
 | `rivals` | Any mention of a brand in your competitive set |
+
+---
+
+## What you do day to day
+
+| Command | What it does |
+|---|---|
+| `/subscope:run` | Daily scan — top ~10 threads land in chat with pattern badges |
+| `/subscope:judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
+| `/subscope:tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
+| `/subscope:postmortem` | Auto-tracks the replies you actually send on Reddit, scores them 7 days later (upvotes, follow-ups, removal status), feeds that back into next week's rankings |
+
+**The tool gets sharper for your specific niche the longer you use it, because it learns from what actually worked.**
 
 ---
 
