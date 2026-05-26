@@ -12,8 +12,8 @@ Run it whenever you want. Each scan returns ~10 of the strongest threads directl
 
 ```bash
 /plugin install dancolta/subscope
-/subscope:onboard       # 3 questions, 60s
-/subscope:run           # your first scan
+/subscope:onboard       # paste 2-3 URLs, first scan in ~5 min
+/subscope:run           # any subsequent scan
 ```
 
 </div>
@@ -88,7 +88,7 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 Those become four config files at `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains). Every scan reads them. This is the actual product differentiator: the profile is built specifically for you, not pulled from a generic SaaS-founder template.
 
-Don't have 12 minutes on day 1? `/subscope:onboard` is a 3-question quick version (~60 seconds) that uses 6 built-in archetypes plus your homepage URL to bootstrap the same four config files. Same shape, less precision. Upgrade to `/subscope:profile` whenever you want without losing your existing config.
+Don't want to answer 8 questions on day 1? `/subscope:onboard` is the URL-first fast path (~5 minutes, ends with your first scan in chat). You paste your homepage plus 2-3 case study or blog URLs. subscope reads them, infers your positioning, buyer titles, competitors, candidate subreddits, and pain language, then shows it all in one review card you correct inline before anything is written. Optional sources sharpen the inference when available: DataForSEO for competitor domains and ranked keywords, Firecrawl for deeper crawl, and a 30-second Reddit warm-scan against archetype-seeded subs. Same four config files, same shape, less precision than the deep interview. Upgrade to `/subscope:profile` whenever you want without losing your existing config.
 
 Once your profile is in place, each scan fetches new posts from your configured subs, filters throwaway accounts before scoring, and ranks what's left by signal strength: freshness, upvote velocity, comment velocity, keyword density, and which of 8 buying-intent patterns the post matches. Tier 1 surfaces every run. Tier 2 surfaces only when a standout appears.
 
@@ -120,7 +120,7 @@ The 4 core skills above are what you'll use day to day. The other 12 are setup, 
 | Skill | What it does |
 |---|---|
 | `/subscope:setup` | First-run wizard. Walks you through OAuth, LLM provider, surface choice (chat / Notion / Slack / Obsidian), and a dry-run validation. ~10 minutes. |
-| `/subscope:onboard` | 3-question quick profile builder (~60 seconds). Uses archetype matching plus your homepage URL to bootstrap your config. The fast path. |
+| `/subscope:onboard` | URL-first quick profile builder (~5 minutes, ends with your first scan). Paste your homepage + 2-3 case study URLs, review the inferred ICP/competitors/subreddits/keywords in one card, correct inline, and a scan runs immediately. Optional DataForSEO + Firecrawl + Reddit warm-scan sources sharpen the inference when available. The fast path. |
 | `/subscope:profile` | 8-question deep profile interview (~12 minutes). Builds your full ICP, competitor anchor list, pain language, subreddit tiers, and few-shot examples. The slow path that gives sharper targeting. |
 
 **Pattern-specific scans** (each runs `fetch-score --mode <pattern>` so you can target one intent class on demand)
