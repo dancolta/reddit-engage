@@ -23,22 +23,22 @@ Run it whenever you want. Each scan returns ~10 of the strongest threads directl
 ### 🧱 B2B SaaS founder
 _Project management, analytics, productivity, HR, anything per-seat._
 
-At 11am someone posts in r/SaaS: *"30-person team, Notion is a mess, what's next?"* That thread will have 80 replies by tomorrow. You want to be in it at reply 5, not reply 95. subscope drops it into your chat while the OP is still in the comments reading.
+You run `/subscope:run` at 11am and it surfaces a thread posted two hours ago: *"30-person team, Notion is a mess, what's next?"* It has 6 replies. You write comment 7. By tomorrow it has 80 replies and a locked-in shortlist. The scan returned it while the OP was still active because you ran it early, not because anything was watching.
 
 ### 📈 Sales or marketing tool
 _CRM, outreach, automation._
 
-A sales ops manager opens their inbox to a 40% Apollo renewal hike, posts in r/sales: *"Apollo just hiked us 40%, who's everyone moving to?"* Within hours that thread is a vendor pile-on. subscope catches it before the OP starts booking demos, the small window where one good comment changes the shortlist.
+A sales ops manager posts in r/sales: *"Apollo just hiked us 40%, who's everyone moving to?"* You run a scan, the thread is four hours old with 12 replies. The OP has not started booking demos yet. That is the window. You get in before the vendor pile-on hardens into a shortlist, because you checked while the thread was still forming.
 
 ### 🛠️ Agency or freelance practice
 _Marketing, RevOps, dev work._
 
-This one is incoming demand, not competitor defection. Someone posts in r/Entrepreneur: *"Need a freelance Webflow dev who actually knows e-commerce, 4 weeks part-time."* The OP will get 8 generic pitches by end of day. subscope hands you the brief while you still have time to write something that is not a copy of the previous reply.
+This one is incoming demand, not competitor defection. You run the scan and it pulls a post from this morning: *"Need a freelance Webflow dev who actually knows e-commerce, 4 weeks part-time."* Eight people have replied with identical pitches. You are still early enough to write something different. The scan did not hand you the brief, it found it in the subs you configured. You ran it, you got the signal, you still have time to act on it.
 
 ### 🧑‍💻 Developer tool
 _API, framework, infra._
 
-An engineer posts in r/devops: *"Anyone moved off Temporal at scale? Looking for something lighter."* They are in discovery, comparing alternatives, reading docs. subscope catches the thread during the part where you can shape what they evaluate, not the part where they are justifying a tool they already picked.
+You run `/subscope:run` and one of the surfaces is an engineer asking: *"Anyone moved off Temporal at scale? Looking for something lighter?"* The thread is a few hours old. They are comparing options, reading docs, not yet committed. You have an input into what they evaluate. A week from now they are justifying a tool they already picked. You ran the scan when the thread was still in discovery.
 
 ---
 
@@ -128,6 +128,8 @@ Each pattern skill runs `fetch-score --mode <pattern>` so you can scan a single 
 Run `/subscope:setup`. The wizard presents each optional layer. Skip any of them and the default runs without it. Runs on day 1 with zero API keys.
 
 Need more than 10 results per run? `--max-surfaces N` raises the cap.
+
+Want recurring scans? Wrap `subscope fetch-score` in a cron job or launchd service. The SQLite cursor handles dedup across runs, so you never see the same thread twice.
 
 Config lives at `~/.config/subscope/`. Every file is written with `chmod 600`.
 
