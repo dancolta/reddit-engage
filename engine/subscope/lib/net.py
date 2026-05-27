@@ -1,4 +1,4 @@
-"""Shared networking utilities: SSRF guard, redacted error logging.
+"""Shared networking utilities: SSRF guard, SSL context, redacted error logging.
 
 Extracted from classify.py during ENR-2 so the same SSRF discipline applies
 to DataForSEO + Firecrawl adapters in enrich.py.
@@ -6,7 +6,35 @@ to DataForSEO + Firecrawl adapters in enrich.py.
 from __future__ import annotations
 
 import ipaddress
+import ssl
 import urllib.parse
+
+
+# Resolve an SSL context that works on stock macOS Python.org installs,
+# which ship with an empty CA bundle until the user runs Install
+# Certificates.command. We prefer `certifi`'s bundle when available so the
+# engine works out of the box; otherwise we fall back to Python's system
+# default (works on Linux, brew Python, conda Python). Called lazily because
+# many tests don't touch the network at all.
+_SSL_CTX: ssl.SSLContext | None = None
+
+
+def ssl_context() -> ssl.SSLContext:
+    """Return a process-cached SSLContext.
+
+    Tries certifi first (works everywhere); falls back to system defaults.
+    Both paths produce a context with hostname checking on, verification
+    required. Tests that monkeypatch _client_request never hit this.
+    """
+    global _SSL_CTX
+    if _SSL_CTX is not None:
+        return _SSL_CTX
+    try:
+        import certifi
+        _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        _SSL_CTX = ssl.create_default_context()
+    return _SSL_CTX
 
 
 # Hosts allowed despite resolving to private/loopback IPs (local dev servers).

@@ -211,7 +211,8 @@ def _client_request(
     net.validate_url(url, kind="enrichment endpoint")
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout,
+                                    context=net.ssl_context()) as resp:
             return resp.status, resp.read()
     except urllib.error.HTTPError as e:
         # Surface non-2xx with body so callers can classify (auth / rate-limit / 5xx)
