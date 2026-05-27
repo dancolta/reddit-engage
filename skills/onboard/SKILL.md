@@ -149,6 +149,8 @@ mkdir -p ~/.config/subscope && touch ~/.config/subscope/.oauth-skipped
 
 Otherwise parse the picks. For each picked integration, run its micro-prompt in order. Each one is its own short turn. Failed verification = re-ask once. Failed twice = log it, continue with the next pick.
 
+**Per-sub-prompt skip path.** If at any sub-prompt the user replies "skip" (case-insensitive), drop that integration immediately, write a marker (`touch ~/.config/subscope/.<name>-skipped`), and move to the next picked integration without re-asking. If it was the last pick, jump straight to T7. Do not re-render the menu, do not ask for confirmation.
+
 ### oauth
 
 Print verbatim:
