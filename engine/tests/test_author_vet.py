@@ -36,6 +36,54 @@ def test_deleted_author_fails_immediately():
     assert result["reason"] == "deleted_or_private"
 
 
+# ─── PIPE-1: weights.yml externalization (default + override) ────────
+
+def test_min_comment_karma_default_unchanged():
+    """Without weights.yml override, default 50 still applies (regression guard)."""
+    about = make_about(karma=30, age_days=365)  # 30 karma < default 50
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about):
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value={}):
+            result = author_vet.vet_author("u", now=NOW, weights=None)
+    assert result["verdict"] == "fail"
+    assert result["reason"] == "low_karma"
+
+
+def test_min_comment_karma_overridable_from_weights():
+    """Lowering min_comment_karma via weights.yml lets a karma=30 user pass."""
+    about = make_about(karma=30, age_days=365)
+    weights = {"author_vet": {"min_comment_karma": 10}}
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about):
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value={}):
+            result = author_vet.vet_author("u", now=NOW, weights=weights)
+    assert result["verdict"] == "pass"
+
+
+def test_min_account_age_overridable_from_weights():
+    about = make_about(karma=500, age_days=10)  # 10d old
+    weights = {"author_vet": {"min_account_age_days": 5}}
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=about):
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value={}):
+            result = author_vet.vet_author("u", now=NOW, weights=weights)
+    assert result["verdict"] == "pass"
+
+
+def test_load_thresholds_falls_back_when_block_missing():
+    """weights dict without an author_vet block returns defaults."""
+    age, karma, frac = author_vet._load_thresholds({})
+    assert age == author_vet.MIN_ACCOUNT_AGE_DAYS
+    assert karma == author_vet.MIN_COMMENT_KARMA
+    assert frac == author_vet.MAX_WRONG_AUDIENCE_FRACTION
+
+
+def test_load_thresholds_none_weights_returns_defaults():
+    age, karma, frac = author_vet._load_thresholds(None)
+    assert age == author_vet.MIN_ACCOUNT_AGE_DAYS
+    assert karma == author_vet.MIN_COMMENT_KARMA
+    assert frac == author_vet.MAX_WRONG_AUDIENCE_FRACTION
+
+
+# ─── Existing pre-PIPE-1 tests ────────────────────────────────────────
+
 def test_account_too_young_fails():
     about = make_about(karma=500, age_days=10)  # 10d old, fails 30d min
     with patch.object(author_vet.reddit, "fetch_user_about", return_value=about):

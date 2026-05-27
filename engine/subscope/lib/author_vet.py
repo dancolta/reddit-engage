@@ -31,10 +31,29 @@ WRONG_AUDIENCE_SUBS = {
     "FinancialPlanning", "millionaire", "millionairemakers",
 }
 
-# Account age + karma thresholds (configurable via weights.yml in future).
+# Default thresholds. Overridable via weights.yml `author_vet:` block; see
+# `_load_thresholds()`. Defaults preserved for backward compat — installs
+# without the new block see identical behavior to pre-PIPE-1.
 MIN_ACCOUNT_AGE_DAYS = 30
 MIN_COMMENT_KARMA = 50
 MAX_WRONG_AUDIENCE_FRACTION = 0.80  # >80% in wrong-audience subs = drop
+
+
+def _load_thresholds(weights: dict[str, Any] | None = None) -> tuple[int, int, float]:
+    """Return (min_account_age_days, min_comment_karma, max_wrong_audience_fraction).
+
+    Reads from a `author_vet:` block in `weights` if provided. Falls back to
+    module-level defaults when the block is absent or missing keys, so
+    installs without the new YAML block keep their existing behavior.
+    """
+    if not weights:
+        return MIN_ACCOUNT_AGE_DAYS, MIN_COMMENT_KARMA, MAX_WRONG_AUDIENCE_FRACTION
+    block = weights.get("author_vet") or {}
+    return (
+        int(block.get("min_account_age_days", MIN_ACCOUNT_AGE_DAYS)),
+        int(block.get("min_comment_karma", MIN_COMMENT_KARMA)),
+        float(block.get("max_wrong_audience_fraction", MAX_WRONG_AUDIENCE_FRACTION)),
+    )
 
 
 CACHE_SCHEMA = """
@@ -78,6 +97,7 @@ def vet_author(
     username: str,
     conn: sqlite3.Connection | None = None,
     now: int | None = None,
+    weights: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return verdict on an author.
 
@@ -122,13 +142,15 @@ def vet_author(
     created = int(about.get("created_utc") or 0)
     age_days = max(0, (now - created) // 86400) if created else 0
 
-    if age_days < MIN_ACCOUNT_AGE_DAYS:
+    min_age_days, min_karma, max_wrong_frac = _load_thresholds(weights)
+
+    if age_days < min_age_days:
         result = _result("fail", "account_too_young", karma, age_days, 0.0, False)
         _write_cache(conn, username, result, sub_breakdown={}, now=now,
                      comment_karma=karma, created_utc=created)
         return result
 
-    if karma < MIN_COMMENT_KARMA:
+    if karma < min_karma:
         result = _result("fail", "low_karma", karma, age_days, 0.0, False)
         _write_cache(conn, username, result, sub_breakdown={}, now=now,
                      comment_karma=karma, created_utc=created)
@@ -137,7 +159,7 @@ def vet_author(
     # Last (most expensive) check: sub histogram
     sub_breakdown = reddit.fetch_user_recent_subs(username, limit=100) or {}
     wrong_frac = _wrong_audience_fraction(sub_breakdown)
-    if wrong_frac > MAX_WRONG_AUDIENCE_FRACTION:
+    if wrong_frac > max_wrong_frac:
         result = _result("fail", "wrong_audience", karma, age_days, wrong_frac, False)
     else:
         result = _result("pass", None, karma, age_days, wrong_frac, False)

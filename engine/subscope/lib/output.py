@@ -9,6 +9,90 @@ import time
 from typing import Any
 
 
+# Engine counter key → (group, user-friendly label)
+# Used by render_footer() to translate dropped_counts dict into plain English.
+# Order inside each group reflects logical reading order, but rendering sorts
+# by count descending within each group.
+DROPPED_LABELS: dict[str, tuple[str, str]] = {
+    # Subreddit rules
+    "tier1_post_age": ("Subreddit rules", "post too old (Tier 1)"),
+    "tier2_post_age": ("Subreddit rules", "post too old (Tier 2)"),
+    "tier1_keyword_density": ("Subreddit rules", "weak keyword match (Tier 1)"),
+    "tier2_keyword_density": ("Subreddit rules", "weak keyword match (Tier 2)"),
+    "tier1_no_saas_brand": ("Subreddit rules", "no SaaS brand mentioned (Tier 1)"),
+    "tier2_no_saas_brand": ("Subreddit rules", "no SaaS brand mentioned (Tier 2)"),
+    "tier3_quarantined": ("Subreddit rules", "quarantined sub (Tier 3, off by config)"),
+    "tier1_velocity_floor": ("Subreddit rules", "thread engagement too low (Tier 1)"),
+    "tier2_velocity_floor": ("Subreddit rules", "thread engagement too low (Tier 2)"),
+    # Author quality
+    "author_vet_low_karma": ("Author quality", "OP karma too low"),
+    "author_vet_account_too_young": ("Author quality", "OP account too young"),
+    "author_vet_throwaway": ("Author quality", "OP looks like a throwaway"),
+    "author_vet_wrong_audience": ("Author quality", "OP posts mostly in unrelated subs"),
+    # Content rules
+    "vendor_content": ("Content rules", "vendor / promo content"),
+    "negative_topic": ("Content rules", "negative-topic blocklist"),
+    "classifier_vendor": ("Content rules", "LLM flagged as vendor pitch"),
+}
+
+GROUP_ORDER = ("Subreddit rules", "Author quality", "Content rules")
+
+
+def _humanize_unknown_key(key: str) -> str:
+    """Fallback for counter keys not in DROPPED_LABELS. Underscores to spaces."""
+    return key.replace("_", " ")
+
+
+def _build_dropped_footer(dropped_counts: dict[str, int]) -> list[str]:
+    """Render the grouped dropped-counts footer as a list of lines.
+
+    Returns an empty list when there's nothing to show. The caller decides
+    how to integrate (markdown vs table renderers both consume this).
+
+    Layout:
+        <total> posts filtered before scoring:
+
+        Group A
+          NN  label
+          NN  label
+
+        Group B
+          NN  label
+    """
+    nonzero = {k: v for k, v in dropped_counts.items() if v}
+    if not nonzero:
+        return []
+    total = sum(nonzero.values())
+
+    # Bucket by group
+    grouped: dict[str, list[tuple[int, str]]] = {g: [] for g in GROUP_ORDER}
+    unknown_group: list[tuple[int, str]] = []
+    for key, count in nonzero.items():
+        if key in DROPPED_LABELS:
+            group, label = DROPPED_LABELS[key]
+            grouped.setdefault(group, []).append((count, label))
+        else:
+            unknown_group.append((count, _humanize_unknown_key(key)))
+
+    lines: list[str] = [f"{total} posts filtered before scoring:"]
+    for group in GROUP_ORDER:
+        rows = grouped.get(group, [])
+        if not rows:
+            continue
+        rows.sort(key=lambda r: -r[0])  # descending count
+        lines.append("")
+        lines.append(group)
+        for count, label in rows:
+            lines.append(f"  {count:>3}  {label}")
+    if unknown_group:
+        unknown_group.sort(key=lambda r: -r[0])
+        lines.append("")
+        lines.append("Other")
+        for count, label in unknown_group:
+            lines.append(f"  {count:>3}  {label}")
+    return lines
+
+
 def _age_label(created_utc: int, now: int | None = None) -> str:
     t = now if now is not None else int(time.time())
     delta_min = max(0, (t - int(created_utc)) // 60)
@@ -42,13 +126,14 @@ def render(surfaces: list[dict[str, Any]], run_notes: str = "",
             lines.append("")
 
     lines.append("──")
-    summary = f"{len(surfaces)} surfaces today ({len(t1)} Tier 1 / {len(t2)} Tier 2)."
+    lines.append(f"{len(surfaces)} surfaces today ({len(t1)} Tier 1, {len(t2)} Tier 2).")
     if dropped_counts:
-        parts = [f"{v} {k}" for k, v in dropped_counts.items() if v]
-        if parts:
-            summary += " Dropped at gate: " + ", ".join(parts) + "."
-    lines.append(summary)
+        footer = _build_dropped_footer(dropped_counts)
+        if footer:
+            lines.append("")
+            lines.extend(footer)
     if run_notes:
+        lines.append("")
         lines.append(f"Status: {run_notes}")
     return "\n".join(lines)
 
@@ -125,12 +210,12 @@ def render_table(surfaces: list[dict[str, Any]],
             lines.append(_render_table_row(i, s))
         lines.append("")
 
-    summary = f"{len(surfaces)} surfaces today ({len(t1)} T1 / {len(t2)} T2)."
+    lines.append(f"{len(surfaces)} surfaces today ({len(t1)} Tier 1, {len(t2)} Tier 2).")
     if dropped_counts:
-        parts = [f"{v} {k}" for k, v in dropped_counts.items() if v]
-        if parts:
-            summary += " Dropped at gate: " + ", ".join(parts) + "."
-    lines.append(summary)
+        footer = _build_dropped_footer(dropped_counts)
+        if footer:
+            lines.append("")
+            lines.extend(footer)
     return "\n".join(lines)
 
 

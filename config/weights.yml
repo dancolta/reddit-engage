@@ -53,11 +53,12 @@ scoring:
 # Attention dropoff (Nielsen Norman): 50% drop at position 7, 80% at position 10.
 # Surfaces beyond 10 train skim-dismiss; 15+ trains app abandonment.
 daily_output:
-  hard_ceiling: 12                 # absolute max — surface 11+ does damage
-  default_target: 10               # what /subscope:run aims for on a normal day
-  minimum: 6                       # below this product feels broken
+  hard_ceiling: 12                 # absolute max, surface 11+ does damage
+  default_target: 10               # what /subscope-run aims for on a normal day
+  minimum: 5                       # below this product feels broken (was 6, PIPE-1)
   tier1_per_sub_cap: 2             # max 2 Tier 1 surfaces per sub per day
-  tier2_per_sub_cap: 1             # max 1 Tier 2 surface per sub per day
+  tier2_per_sub_cap: 2             # max 2 Tier 2 surfaces per sub per day (was 1, PIPE-1)
+  backfill_sub_cap_bonus: 1        # PIPE-1: relax per-sub cap by +1 during backfill
   # Pattern-specific overrides (engine reads these per --mode)
   pattern_caps:
     "default": 10
@@ -68,6 +69,24 @@ daily_output:
     "churn": 8
     "build-vs-buy": 6
     "rfp-bait": 6
+
+# === Freshness floor (PIPE-1) ===
+# Auto-promote near-miss posts younger than max_age_hours, up to max_promoted.
+# Bypasses per-sub caps. Freshness IS the signal: a 2h-old post that fails
+# keyword density is often a real ICP signal the keyword set didn't anticipate.
+freshness_floor:
+  enabled: true
+  max_age_hours: 24
+  max_promoted: 3
+
+# === Author quality thresholds (PIPE-1) ===
+# Externalized from author_vet.py module constants. Defaults preserve previous
+# behavior. Loosen these (e.g. min_comment_karma: 25) when surface volume is
+# chronically low; tighten when noise grows.
+author_vet:
+  min_comment_karma: 50
+  min_account_age_days: 30
+  max_wrong_audience_fraction: 0.80
 
 # === Cooling queue ===
 # 15 min sweet spot: <2 min triggers bot-flag, >30 min stales past user session.

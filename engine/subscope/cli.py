@@ -251,7 +251,7 @@ def cmd_fetch_score(
                 # Author pre-gate (Phase 1.5): drop low-karma / young / wrong-audience
                 # OPs before scoring. Cached 7d to avoid refetching same OP across runs.
                 # Degrades open on fetch failure (verdict='pass', reason='fetch_failed').
-                vet = author_vet.vet_author(post.get("author", ""), conn=conn)
+                vet = author_vet.vet_author(post.get("author", ""), conn=conn, weights=weights)
                 if vet["verdict"] == "fail":
                     reason = f"author_vet_{vet['reason']}"
                     dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
@@ -370,23 +370,37 @@ def cmd_fetch_score(
 def _select_daily(candidates: list[dict[str, Any]], near_miss_pool: list[dict[str, Any]],
                   weights: dict[str, Any], daily_cap: int,
                   max_surfaces: int | None = None) -> list[dict[str, Any]]:
-    """Pick daily surfaces. Hard ceiling, per-sub caps, AND minimum-floor backfill.
+    """Pick daily surfaces. Hard ceiling, per-sub caps, freshness floor, and
+    minimum-floor backfill.
 
     Order of priority:
       1. Gate-passing Tier 1 posts (top N by score, capped per sub)
       2. Gate-passing Tier 2 posts (top by score, capped per sub)
-      3. If still under `minimum`, backfill from near-miss pool by score
-         (still age-gated, just below the keyword bar or other soft signal)
+      3. Freshness floor: auto-promote any near-miss post < `freshness_floor.max_age_hours`
+         old, up to `freshness_floor.max_promoted`. Bypasses per-sub caps because
+         freshness IS the signal. Tagged `freshness_promoted=True` for telemetry.
+      4. If still under `minimum`, backfill from remaining near-miss pool by score.
+         During backfill ONLY, per-sub caps relax by `backfill_sub_cap_bonus`
+         so a sub that already supplied a hot Tier-2 surface can still backfill.
 
     `max_surfaces` is the power-user override (--max-surfaces flag). Beats
-    weights.yml hard_ceiling when set. Per-sub caps still apply — the user
-    can pull from more SUBS, not more posts per sub (quality guardrail).
+    weights.yml hard_ceiling when set. Per-sub caps still apply on Tier 1/Tier 2
+    selection — the user can pull from more SUBS, not more posts per sub
+    (quality guardrail). Freshness + backfill phases relax this.
     """
     out_cfg = weights.get("daily_output", {})
     cap = max_surfaces or int(out_cfg.get("hard_ceiling", daily_cap))
     minimum = int(out_cfg.get("minimum", 0))
     t1_per_sub = int(out_cfg.get("tier1_per_sub_cap", 2))
     t2_per_sub = int(out_cfg.get("tier2_per_sub_cap", 1))
+    backfill_bonus = int(out_cfg.get("backfill_sub_cap_bonus", 0))
+
+    fresh_cfg = weights.get("freshness_floor") or {}
+    fresh_enabled = bool(fresh_cfg.get("enabled", False))
+    fresh_max_age_s = int(fresh_cfg.get("max_age_hours", 24)) * 3600
+    fresh_max_promoted = int(fresh_cfg.get("max_promoted", 3))
+
+    now_ts = int(time.time())
 
     # Deduplicate by (subreddit, title) before selection. Two posts in
     # /new with identical titles from the same sub almost always means
@@ -406,14 +420,20 @@ def _select_daily(candidates: list[dict[str, Any]], near_miss_pool: list[dict[st
 
     chosen: list[dict[str, Any]] = []
     sub_counts: dict[str, int] = {}
+    chosen_ids: set[str] = set()
+
+    def _take(c: dict[str, Any]) -> None:
+        chosen.append(c)
+        chosen_ids.add(c["post"]["id"])
+        sub_counts[c["sub"]["name"]] = sub_counts.get(c["sub"]["name"], 0) + 1
+
     for c in t1_pool:
         if len(chosen) >= cap:
             break
         name = c["sub"]["name"]
         if sub_counts.get(name, 0) >= t1_per_sub:
             continue
-        chosen.append(c)
-        sub_counts[name] = sub_counts.get(name, 0) + 1
+        _take(c)
 
     for c in t2_pool:
         if len(chosen) >= cap:
@@ -421,24 +441,49 @@ def _select_daily(candidates: list[dict[str, Any]], near_miss_pool: list[dict[st
         name = c["sub"]["name"]
         if sub_counts.get(name, 0) >= t2_per_sub:
             continue
-        chosen.append(c)
-        sub_counts[name] = sub_counts.get(name, 0) + 1
+        _take(c)
 
-    # Minimum-floor backfill: if still under `minimum`, pull from the near-miss pool
-    # (posts that failed a soft signal like keyword density, ranked by computed score).
-    # Per-sub caps still apply so backfill cannot concentrate in one sub.
+    # Phase 3: Freshness floor. Auto-promote near-miss posts younger than the
+    # configured window. Bypasses per-sub caps because freshness IS the signal
+    # (a 2h-old post that fails keyword density is often a real ICP signal
+    # the keyword set just didn't anticipate yet).
+    if fresh_enabled and near_miss_pool and len(chosen) < cap:
+        fresh_candidates = [
+            c for c in near_miss_pool
+            if c["post"]["id"] not in chosen_ids
+            and (now_ts - int(c["post"].get("created_utc", 0))) < fresh_max_age_s
+        ]
+        fresh_candidates.sort(
+            key=lambda c: int(c["post"].get("created_utc", 0)),
+            reverse=True,
+        )
+        promoted = 0
+        for c in fresh_candidates:
+            if promoted >= fresh_max_promoted or len(chosen) >= cap:
+                break
+            c["freshness_promoted"] = True
+            _take(c)
+            promoted += 1
+
+    # Phase 4: Minimum-floor backfill. If still under `minimum`, pull from the
+    # near-miss pool by score. Per-sub caps relax by `backfill_sub_cap_bonus`
+    # so a sub that supplied a hot Tier 2 surface (consuming its quota) can
+    # still backfill. Without this, scans on narrow profiles return <minimum
+    # surfaces even when good candidates exist.
     if minimum > 0 and len(chosen) < minimum and near_miss_pool:
-        near_miss_pool.sort(key=lambda c: c["post"]["score_internal"], reverse=True)
-        for c in near_miss_pool:
+        remaining = [
+            c for c in near_miss_pool if c["post"]["id"] not in chosen_ids
+        ]
+        remaining.sort(key=lambda c: c["post"]["score_internal"], reverse=True)
+        for c in remaining:
             if len(chosen) >= min(cap, minimum):
                 break
             name = c["sub"]["name"]
-            sub_cap = t1_per_sub if c["sub"]["tier"] == 1 else t2_per_sub
-            if sub_counts.get(name, 0) >= sub_cap:
+            base_cap = t1_per_sub if c["sub"]["tier"] == 1 else t2_per_sub
+            if sub_counts.get(name, 0) >= base_cap + backfill_bonus:
                 continue
             c["backfilled"] = True
-            chosen.append(c)
-            sub_counts[name] = sub_counts.get(name, 0) + 1
+            _take(c)
 
     return chosen
 
@@ -569,9 +614,14 @@ def _emit_max_surfaces_warning(n: int) -> None:
 
 def cmd_op_vet(username: str) -> None:
     """Standalone OP profile scorer. Outputs JSON: {karma, age_days,
-    sub_breakdown_top, verdict, reason}. Used by `/subscope-op-vet`."""
+    sub_breakdown_top, verdict, reason}. Used by `/subscope-op-vet`.
+
+    Honors weights.yml `author_vet:` block so /tune-loosened thresholds apply
+    to ad-hoc op-vets too (architect's consistency note from PIPE-1 review).
+    """
+    weights = _load_configs(mode="default")["weights"]
     with store.connect() as conn:
-        result = author_vet.vet_author(username, conn=conn)
+        result = author_vet.vet_author(username, conn=conn, weights=weights)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
