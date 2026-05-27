@@ -28,7 +28,7 @@
     "reddit_client_id": {
       "type": "string",
       "title": "Reddit OAuth client ID (optional)",
-      "description": "Optional. Subscope works without OAuth via public Reddit JSON (rate-limited but functional). Add OAuth for 10x higher rate limits + postmortem tracking. From https://www.reddit.com/prefs/apps, create a 'script' app with redirect URI http://localhost. The 14-char string under your app name. You can also add this later via /subscope:onboard.",
+      "description": "Optional. Subscope works without OAuth via public Reddit JSON (rate-limited but functional). Add OAuth for 10x higher rate limits + postmortem tracking. From https://www.reddit.com/prefs/apps, create a 'script' app with redirect URI http://localhost:8080. The 14-char string under your app name. You can also add this later via /subscope:onboard.",
       "sensitive": true
     },
     "reddit_client_secret": {
@@ -44,14 +44,14 @@
     },
     "notion_api_key": {
       "type": "string",
-      "title": "Notion API key (optional)",
-      "description": "Enables daily triage board sync. Create at https://www.notion.so/profile/integrations. Leave blank to disable Notion features.",
+      "title": "Notion API key (legacy SDK path, optional)",
+      "description": "Legacy direct-SDK path. Recommended: skip this and run /subscope:onboard, which installs the official Notion MCP (OAuth via browser, no manual token). If you prefer the SDK path, create an internal integration at https://www.notion.so/profile/integrations and paste the token here.",
       "sensitive": true
     },
     "notion_database_id": {
       "type": "string",
-      "title": "Notion database ID (optional)",
-      "description": "32-character ID of the surfaces database. Required if notion_api_key is set; the setup wizard can create the DB for you."
+      "title": "Notion database ID (legacy SDK path, optional)",
+      "description": "Legacy: the 32-character ID of the surfaces database. Required only when notion_api_key is set (SDK path). With the MCP path, /subscope:run resolves the database by name at runtime, no ID needed."
     },
     "obsidian_vault_path": {
       "type": "directory",
