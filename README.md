@@ -4,11 +4,11 @@
 
 [![License: MIT](https://img.shields.io/github/license/dancolta/subscope?color=blue)](LICENSE) [![Release](https://img.shields.io/github/v/release/dancolta/subscope)](https://github.com/dancolta/subscope/releases) [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 
-![subscope hero: 8-bit arcade scanner UI with subreddit feeds, skill chips lighting up, and three sample surfaces in a digest panel](assets/hero.gif)
+![subscope hero: 8-bit arcade scanner, purple grid background, SUBSCOPE title pulsing as the magenta scan-line sweeps across, pattern words like PRICING-RAGE / CHURN / ALTERNATIVES flashing in colored brackets](assets/hero.gif)
 
 **subscope reads Reddit for you and finds threads where someone is actively shopping for what you sell.**
 
-Run it whenever you want. Each scan returns ~10 of the strongest threads directly in your Claude Code chat. Things like "Apollo renewal hike, what's the alternative?" or "switching from HubSpot, recommendations?". You read them, decide which deserve a reply, and write the comment yourself on Reddit. Free. No API keys. Runs inside Claude Code.
+Run it whenever you want. Each scan returns 5 to 12 of the strongest threads directly in your Claude Code chat. Things like "Apollo renewal hike, what's the alternative?" or "switching from HubSpot, recommendations?". You read them, decide which deserve a reply, and write the comment yourself on Reddit. Free. No API keys. Runs inside Claude Code.
 
 ```bash
 /plugin install dancolta/subscope
@@ -65,7 +65,7 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 | Command | What it does |
 |---|---|
-| `/subscope-run` | Manual scan, top ~10 threads land in chat with pattern badges |
+| `/subscope-run` | Manual scan, 5 to 12 threads land in chat with pattern badges. Posts under 24 hours old get a freshness boost so first-mover threads surface even when the keyword gate barely catches them. |
 | `/subscope-judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
 | `/subscope-tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
 
@@ -87,7 +87,7 @@ Seven turns, plain questions, one confirmation, optional integrations, first sca
 4. **What is the pain?** A real customer quote is gold. Paraphrase is fine.
 5. **Confirm the scan card.** Five fields merged from your three answers plus the URL fetch: what you sell, buyers, pain pattern, 4-6 candidate subreddits, up to 6 competitors. Reply `go` to lock it, or tell the flow what to fix and the card re-renders.
 6. **Connect integrations (optional).** One menu, multi-pick. DataForSEO, Firecrawl, Notion, Slack, Obsidian. Reply `skip` to skip the whole menu, or `skip` inside any sub-prompt to drop just that one. A failed paste re-asks once, then moves on. The scan still runs.
-7. **First scan runs.** If DataForSEO or Firecrawl keys were set up, the engine warms the enrichment cache against your homepage once. Then the top ~10 threads land in chat with pattern badges.
+7. **First scan runs.** If DataForSEO or Firecrawl keys were set up, the engine warms the enrichment cache against your homepage once. Then 5 to 12 threads land in chat with pattern badges, grouped by tier, with a plain-English summary of what was filtered before scoring (subreddit rules, author quality, content rules).
 
 The flow writes config files to `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains, plus one file per connected integration). Every future scan reads them. The product differentiator: the profile is built specifically for you from your URLs, archetype map, and answers, not pulled from a generic SaaS-founder template.
 
@@ -159,6 +159,11 @@ Skill source files in [`skills/`](skills/).
 Run `/subscope-setup`. The wizard presents each optional layer. Skip any of them and the default runs without it. Runs on day 1 with zero API keys.
 
 Need more than 10 results per run? `--max-surfaces N` raises the cap.
+
+Want to tune the scan without touching code? Three knobs in `~/.config/subscope/weights.yml`:
+- `daily_output.minimum` (default 5) and `tier2_per_sub_cap` (default 2) control how aggressively backfill kicks in when the gate pool is thin.
+- `freshness_floor.max_age_hours` / `max_promoted` (defaults 24h / 3 per run) control how many sub-24-hour posts get auto-promoted past the keyword gate.
+- `author_vet.min_comment_karma` / `min_account_age_days` (defaults 50 / 30) control OP-quality strictness. Lower these when the daily list runs dry.
 
 Want recurring scans? Wrap `subscope fetch-score` in a cron job or launchd service. The SQLite cursor handles dedup across runs, so you never see the same thread twice.
 
