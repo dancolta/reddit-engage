@@ -10,8 +10,8 @@ If you opened a clone and asked Claude to help you contribute, this is the orien
 
 A Python engine + Claude Code skills:
 
-- **`engine/subscope/`** — Python. Fetches Reddit (PRAW or public JSON), runs regex + optional LLM gates, scores survivors, writes to SQLite, prints JSON to stdout. Stdlib + pyyaml + optional `praw`, `openai`, `notion-client`.
-- **`skills/*/SKILL.md`** — 16 user-invocable Claude Code skills. Each one is a single Markdown file that tells Claude how to orchestrate a workflow (Notion sync via MCP, Obsidian write via MCP, Playwright blog refresh, etc.). The Python engine does no MCP work — the skill layer does.
+- **`engine/subscope/`** — Python. Fetches Reddit via public JSON, runs regex + optional LLM gates, scores survivors, writes to SQLite, prints JSON to stdout. Stdlib + pyyaml + optional `openai`, `notion-client`.
+- **`skills/*/SKILL.md`** — 15 user-invocable Claude Code skills. Each one is a single Markdown file that tells Claude how to orchestrate a workflow (Notion sync via MCP, Obsidian write via MCP, Playwright blog refresh, etc.). The Python engine does no MCP work — the skill layer does.
 - **`config/`** — YAML defaults: weights, default subreddits, default keywords, scoring caps. Public users override by writing to `~/.config/subscope/`.
 - **`presets/`** — 4 starter bundles (b2b-saas-founder, agency-owner, indie-hacker, consultant) for users who don't want to run `/subscope:onboard`.
 - **`assets/`** — README hero GIF + the Python+Pillow render script.
@@ -29,27 +29,27 @@ The engine is intentionally separable: you could pipe its JSON output to any orc
 │   ├── subscope/
 │   │   ├── cli.py                # all CLI subcommands (fetch-score, status, op-vet, ...)
 │   │   ├── lib/                  # the engine modules
-│   │   │   ├── store.py          # SQLite + XDG paths
+│   │   │   ├── store.py          # SQLite + XDG paths + enrichment cache helpers
 │   │   │   ├── score.py          # gate + score + selection
-│   │   │   ├── reddit.py         # PRAW with public-JSON fallback
-│   │   │   ├── reddit_public.py  # the fallback
+│   │   │   ├── reddit.py         # public-JSON fetcher
 │   │   │   ├── classify.py       # OpenAI-compat bulk LLM grader
 │   │   │   ├── author_vet.py     # OP karma/age/audience pre-gate
 │   │   │   ├── archetype_map.py  # 6 archetypes for /onboard + /profile
 │   │   │   ├── profile_synth.py  # 8-Q + 3-Q config synthesis
 │   │   │   ├── obsidian_sync.py  # weekly pulse digest builder
-│   │   │   ├── postmortem.py     # auto-detect + score sent replies
+│   │   │   ├── enrich.py         # DataForSEO + Firecrawl conditional consumers
+│   │   │   ├── net.py            # SSRF guard + certifi-aware SSL context
 │   │   │   ├── slack.py          # optional webhook push
 │   │   │   ├── tune_engine.py    # /tune ranker back-prop
 │   │   │   └── output.py         # markdown + table renderers
 │   │   └── prompts/              # system prompts (classify, profile_synth)
-│   ├── scripts/                  # one-shot helpers (write_oauth, notion_admin, ...)
-│   └── tests/                    # pytest, 100+ tests
-├── skills/                       # 16 SKILL.md files, one per pattern
+│   ├── scripts/                  # one-shot helpers (write_dataforseo_config, write_firecrawl_config, notion_admin, ...)
+│   └── tests/                    # pytest
+├── skills/                       # 15 SKILL.md files, one per pattern
 ├── config/                       # default YAML (subreddits, keywords, weights, presets)
 ├── presets/                      # 4 starter bundles
 ├── assets/                       # hero.gif + render_hero.py
-└── docs/                         # setup-oauth.md, setup-notion.md (public only)
+└── docs/                         # setup-notion.md (public only)
 ```
 
 ---
@@ -71,7 +71,7 @@ These are non-negotiable for any PR:
 
 ## Adding a new pattern skill
 
-The 16 patterns share one engine (`fetch-score --mode <pattern>`). Adding a pattern is ~30 minutes:
+The 8 patterns share one engine (`fetch-score --mode <pattern>`). Adding a pattern is ~30 minutes:
 
 1. Add pattern keywords: `config/keywords-<pattern>.yml`
 2. Add cap in `config/weights.yml` under `pattern_caps`
@@ -110,7 +110,7 @@ pip install -e '.[dev]'
 python3 -m pytest engine/tests/
 ```
 
-114 tests, target <1s total runtime. New PRs must keep the suite green.
+205 tests, target <1s total runtime. New PRs must keep the suite green.
 
 End-to-end smoke (live Reddit fetch, no posting):
 

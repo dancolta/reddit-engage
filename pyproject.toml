@@ -1,7 +1,7 @@
 [project]
 name = "subscope"
-version = "0.1.0"
-description = "Daily subreddit scanner: surfaces pain-pattern posts (pricing rage, churn, build-vs-buy, alternative-seeking) inside your Claude Code session. Pattern-aware, human-in-the-loop, closed-loop learner from your own sent replies."
+version = "0.2.0"
+description = "Daily subreddit scanner: surfaces pain-pattern posts (pricing rage, churn, build-vs-buy, alternative-seeking) inside your Claude Code session. Pattern-aware, human-in-the-loop."
 authors = [{ name = "Dan Colta" }]
 license = { text = "MIT" }
 readme = "README.md"
@@ -25,8 +25,6 @@ dependencies = [
 # Works with: OpenAI, Anthropic (/openai/v1), Groq, OpenRouter, Together,
 # Fireworks, Anyscale, local Ollama, any OpenAI-compatible endpoint.
 llm = ["openai>=1.30.0,<2.0"]
-# OAuth + identity scope for Reddit
-reddit = ["praw>=7.7.0,<8.0"]
 # Notion daily-triage sync
 notion = ["notion-client>=2.2.0,<3.0"]
 # Dev / test

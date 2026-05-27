@@ -68,9 +68,8 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 | `/subscope:run` | Manual scan, top ~10 threads land in chat with pattern badges |
 | `/subscope:judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
 | `/subscope:tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
-| `/subscope:postmortem` | Auto-tracks the replies you actually send on Reddit, scores them 7 days later (upvotes, follow-ups, removal status), feeds that back into next week's rankings |
 
-**The tool gets sharper for your specific niche the longer you use it, because it learns from what actually worked.**
+**The tool gets sharper for your specific niche the longer you use it, because `/subscope:tune` back-propagates your good/bad/meh judgments into per-sub weights and keyword scores.**
 
 ---
 
@@ -87,7 +86,7 @@ Seven turns, plain questions, one confirmation, optional integrations, first sca
 3. **Who buys it?** A job title is enough.
 4. **What is the pain?** A real customer quote is gold. Paraphrase is fine.
 5. **Confirm the scan card.** Five fields merged from your three answers plus the URL fetch: what you sell, buyers, pain pattern, 4-6 candidate subreddits, up to 6 competitors. Reply `go` to lock it, or tell the flow what to fix and the card re-renders.
-6. **Connect integrations (optional).** One menu, multi-pick. Reddit OAuth, DataForSEO, Firecrawl, Notion, Slack, Obsidian. Reply `skip` to skip the whole menu, or `skip` inside any sub-prompt to drop just that one. A failed paste re-asks once, then moves on. The scan still runs.
+6. **Connect integrations (optional).** One menu, multi-pick. DataForSEO, Firecrawl, Notion, Slack, Obsidian. Reply `skip` to skip the whole menu, or `skip` inside any sub-prompt to drop just that one. A failed paste re-asks once, then moves on. The scan still runs.
 7. **First scan runs.** If DataForSEO or Firecrawl keys were set up, the engine warms the enrichment cache against your homepage once. Then the top ~10 threads land in chat with pattern badges.
 
 The flow writes config files to `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains, plus one file per connected integration). Every future scan reads them. The product differentiator: the profile is built specifically for you from your URLs, archetype map, and answers, not pulled from a generic SaaS-founder template.
@@ -104,7 +103,6 @@ subscope slots into the tools you already use.
 
 | Integration | Why | Setup |
 |---|---|---|
-| Reddit OAuth | Recommended. 10x rate budget, enables postmortem reply tracking | Free script app at reddit.com/prefs/apps |
 | Bulk LLM grading | Optional. Grade posts at scale via any of 5 providers | One API key in setup wizard |
 | DataForSEO | Optional. SERP-verified competitor list for brand-anchor seeding + ranked-keyword extension | Paste login + API password during onboarding |
 | Firecrawl | Optional. Cleaner positioning extraction from your homepage + link context on surfaced Reddit posts that cite comparison pages | Paste `fc-…` API key during onboarding |
@@ -119,16 +117,16 @@ subscope slots into the tools you already use.
 ---
 
 <details>
-<summary>All 16 skills</summary>
+<summary>All 15 skills</summary>
 
-The 4 core skills above are what you'll use day to day. The other 12 are setup, pattern-specific scans, and one-off utilities.
+The 3 core skills above are what you'll use day to day. The other 12 are setup, pattern-specific scans, and one-off utilities.
 
 **Setup and onboarding**
 
 | Skill | What it does |
 |---|---|
-| `/subscope:setup` | Standalone configuration wizard for OAuth, LLM provider, surface choice (chat / Notion / Slack / Obsidian), and dry-run validation. Most users don't need this; `/subscope:onboard` covers it. |
-| `/subscope:onboard` | Mandatory first-run flow. Seven turns: paste URLs, answer what-you-sell / who-buys-it / what-is-the-pain, confirm the targeting card, pick optional integrations (OAuth, DataForSEO, Firecrawl, Notion, Slack, Obsidian), and the first scan runs at the end. No fast path. |
+| `/subscope:setup` | Standalone configuration wizard for LLM provider, surface choice (chat / Notion / Slack / Obsidian), and dry-run validation. Most users don't need this; `/subscope:onboard` covers it. |
+| `/subscope:onboard` | Mandatory first-run flow. Seven turns: paste URLs, answer what-you-sell / who-buys-it / what-is-the-pain, confirm the targeting card, pick optional integrations (DataForSEO, Firecrawl, Notion, Slack, Obsidian), and the first scan runs at the end. No fast path. |
 | `/subscope:profile` | Per-section deep dive for refining an existing profile. "Redo competitor anchor", "rebuild pain language", "swap a subreddit". Not a full re-interview, just the section that's drifted. |
 
 **Pattern-specific scans** (each runs `fetch-score --mode <pattern>` so you can target one intent class on demand)
@@ -171,8 +169,8 @@ Config lives at `~/.config/subscope/`. Every file is written with `chmod 600`.
 ## Privacy
 
 - All data is local. SQLite at `~/.local/share/subscope/subscope.sqlite`, config at `~/.config/subscope/`. Both `0o600`.
-- Reddit OAuth credentials are written atomically so the file is never world-readable at any point during creation.
-- When bulk LLM grading is enabled, post bodies (capped at 800 chars) go to your configured endpoint. A one-time notice appears the first time. Zero telemetry otherwise.
+- All credentials (LLM, DataForSEO, Firecrawl, Notion, Slack) are written atomically with `0o600` from the moment they appear on disk, no umask race.
+- When bulk LLM grading or DataForSEO or Firecrawl is enabled, the relevant data (post bodies capped at 800 chars for LLM, your homepage for Firecrawl, domain queries for DataForSEO) goes to your configured endpoint. A one-time stderr notice appears the first time per provider. Zero telemetry otherwise.
 
 ---
 

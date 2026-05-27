@@ -16,4 +16,4 @@ Cooling queue applies (these aren't time-sensitive).
 
 Notion `Pattern` = `resurrect`, emoji prefix `🪦`. Print `inline_markdown` verbatim.
 
-> **Note (Phase 3 implementation):** the search-API path requires extending `reddit_oauth.fetch_delta` with a search-mode branch. If not yet wired, this skill falls back to default `/new` and logs a warning — surface volume will be lower.
+> **Note:** the search-API path requires extending `reddit.fetch_delta` with a search-mode branch. If not yet wired, this skill falls back to default `/new` and logs a warning. Surface volume will be lower.

@@ -27,20 +27,19 @@ Three paths the user might take:
 
 **A. Surface number from today's list.** The most recent `inline_markdown` from `/subscope:run` is in your conversation context. Find the surface in the numbered list by index. Extract: post URL, title, body, subreddit.
 
-**B. Reddit URL pasted.** Read the post via the engine's already-installed reddit_oauth wrapper:
+**B. Reddit URL pasted.** Read the post via the engine's public-JSON fetcher:
 
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
 import sys
-from urllib.parse import urlparse
-from subscope.lib import reddit_oauth, reddit_public
+from subscope.lib import reddit
 # Extract post ID from URL
 url = '$REDDIT_URL'
 import re
 m = re.search(r'/comments/([a-z0-9]+)', url)
 if not m: print('Bad URL'); sys.exit(1)
 pid = m.group(1)
-data = reddit_public.fetch_json(f'https://www.reddit.com/comments/{pid}.json')
+data = reddit.fetch_json(f'https://www.reddit.com/comments/{pid}.json')
 post = data[0]['data']['children'][0]['data']
 import json
 print(json.dumps({'subreddit': post.get('subreddit'), 'title': post.get('title'), 'body': (post.get('selftext') or '')[:800]}))

@@ -25,63 +25,17 @@ If `NOT_ONBOARDED`: redirect to `/subscope:onboard` and stop. Do not run the ste
 If `ONBOARDED`: ask which piece they want to change:
 
 > What do you want to reconfigure?
->   1. Reddit OAuth (add or rotate)
->   2. LLM provider (add or swap)
->   3. Targeting (re-pick preset, or re-run /subscope:onboard for full re-do)
->   4. Notion database
->   5. Slack webhook
->   6. Obsidian vault
+>   1. LLM provider (add or swap)
+>   2. Targeting (re-pick preset, or re-run /subscope:onboard for full re-do)
+>   3. Notion database
+>   4. Slack webhook
+>   5. Obsidian vault
 >
 > Pick a number, or type "all" to walk every step.
 
 Then jump to that step only. Each step is independent.
 
-### Step 1 — Reddit OAuth (optional but recommended)
-
-```bash
-[ -f ~/.config/subscope/oauth.json ] && echo "EXISTS" || echo "MISSING"
-```
-
-If `EXISTS`: tell the user "Reddit OAuth already configured — moving on." Continue to Step 2.
-
-If `MISSING`: ask:
-
-> Reddit OAuth gives you 10x more API rate budget + enables postmortem reply tracking. Want to set it up now? (yes / skip)
-
-If yes:
-1. Tell them to open https://www.reddit.com/prefs/apps and click "create another app..." at the bottom.
-2. Settings: name = `subscope`, type = **script** (critical), redirect URI = `http://localhost`.
-3. Once they click "create app", ask for the **14-character string** under the app name (that's `client_id`).
-4. Ask for the **secret** field.
-5. Ask for their Reddit username.
-
-Then write the credentials via the atomic-perms helper (creates the file with 0o600 from the moment it appears on disk — no umask race):
-
-```bash
-cd "$CLAUDE_PLUGIN_ROOT" && cat <<EOF | PYTHONPATH=engine python3 -m scripts.write_oauth
-{
-  "client_id":     "$CLIENT_ID",
-  "client_secret": "$CLIENT_SECRET",
-  "username":      "$USERNAME",
-  "user_agent":    "subscope/0.1 by u/$USERNAME"
-}
-EOF
-```
-
-Verify:
-
-```bash
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
-from subscope.lib import reddit_oauth
-print('has_oauth:', reddit_oauth.has_oauth())
-"
-```
-
-If `True`: ✓ proceed. If `False`: re-prompt for credentials, don't continue with broken state.
-
-If user said "skip": tell them "Skipping OAuth — the daily run will work via public Reddit JSON, but you won't be able to use postmortem until you re-run setup."
-
-### Step 2 — LLM provider (optional)
+### Step 1 — LLM provider (optional)
 
 Tell the user:
 
@@ -110,7 +64,7 @@ print(json.dumps(classify.status(), indent=2))
 
 If skip: write `{"provider": "disabled"}` to make the choice explicit.
 
-### Step 3 — Targeting (route to /onboard)
+### Step 2 — Targeting (route to /onboard)
 
 Don't pick a preset directly here. Tell the user:
 
@@ -124,7 +78,7 @@ If user explicitly wants preset here in setup (rare), show the 4 options + copy 
 
 Research backing (Phase 9.5 validation): generic preset alone produces 3/10 ICP-match per surface. The 3-question routing pushes it to 5-7/10. Don't deprive the user of that lift unless they explicitly opt out.
 
-### Step 4 — Where do you want to see your daily surfaces?
+### Step 3 — Where do you want to see your daily surfaces?
 
 Ask the user (this question is non-skippable, but every choice is valid):
 
@@ -149,9 +103,9 @@ default_render: table
 EOF
 ```
 
-If the user picked (b) or (c), continue to Step 4b (Notion setup) below. Otherwise skip Step 4b and continue to Step 5 (Obsidian).
+If the user picked (b) or (c), continue to Step 3b (Notion setup) below. Otherwise skip Step 3b and continue to Step 4 (Obsidian).
 
-### Step 4b — Notion DB hookup (only if Step 4 picked Notion)
+### Step 3b — Notion DB hookup (only if Step 3 picked Notion)
 
 If yes:
 1. Ask if they have a Notion API key + DB ID, OR want to use an existing DB URL.
@@ -179,7 +133,7 @@ cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 engine/scripts/notion_admi
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 engine/scripts/notion_admin.py migrate
 ```
 
-### Step 5 — Obsidian (optional)
+### Step 4 — Obsidian (optional)
 
 Ask:
 
@@ -201,7 +155,7 @@ vault_path: /Users/you/Documents/MyVault
 pulse_folder: subscope
 ```
 
-### Step 6 — Dry-run validation
+### Step 5 — Dry-run validation
 
 Now run the full pipeline once in dry mode to make sure everything works:
 
@@ -219,7 +173,6 @@ Translate the output to a green-check checklist:
 
 ```
 Setup complete:
-  ✓ OAuth: <yes/skip>
   ✓ LLM provider: <provider>
   ✓ Preset: <name>
   ✓ Notion: <yes/skip>
@@ -237,15 +190,16 @@ Setup is idempotent. Re-running detects existing config and skips configured ste
 
 | Step | File |
 |---|---|
-| OAuth | `~/.config/subscope/oauth.json` |
 | LLM | `~/.config/subscope/llm.json` |
 | Preset | `~/.config/subscope/subreddits.yml` + `keywords.yml` |
 | Notion | `~/.config/subscope/notion.yml` |
 | Obsidian | `~/.config/subscope/obsidian.yml` |
+| DataForSEO | `~/.config/subscope/dataforseo.yml` |
+| Firecrawl | `~/.config/subscope/firecrawl.yml` |
 
 ## Anti-patterns
 
-- Don't continue with broken state. If OAuth fails verification, ask the user to re-paste credentials — don't just write the file and pretend.
+- Don't continue with broken state. If a credential verification fails, ask the user to re-paste, don't just write the file and pretend.
 - Don't write API keys to anywhere except `~/.config/subscope/*.json` with `chmod 600`. Never echo them in chat.
 - Don't make decisions for the user. Every optional step gets a "yes/skip" prompt.
 - If a preset YAML is malformed (user-edited), fall back to the b2b-saas-founder default and tell them.

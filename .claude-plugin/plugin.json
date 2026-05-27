@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "subscope",
   "displayName": "subscope",
-  "version": "0.1.0",
-  "description": "Classifies Reddit posts into 8 buyer-intent patterns and surfaces up to 12 per day, ranked. Runs locally inside your Claude Code session. BYO LLM (Anthropic, OpenAI, Groq, OpenRouter, Ollama). Optional Notion, Slack, Obsidian outputs.",
+  "version": "0.2.0",
+  "description": "Classifies Reddit posts into 8 buyer-intent patterns and surfaces up to 12 per day, ranked. Runs locally inside your Claude Code session. BYO LLM (Anthropic, OpenAI, Groq, OpenRouter, Ollama). Optional Notion, Slack, Obsidian, DataForSEO, Firecrawl integrations.",
   "author": {
     "name": "Dan Colta",
     "url": "https://github.com/dancolta"
@@ -25,23 +25,6 @@
     "claude-code-plugin"
   ],
   "userConfig": {
-    "reddit_client_id": {
-      "type": "string",
-      "title": "Reddit OAuth client ID (optional)",
-      "description": "Optional. Subscope works without OAuth via public Reddit JSON (rate-limited but functional). Add OAuth for 10x higher rate limits + postmortem tracking. From https://www.reddit.com/prefs/apps, create a 'script' app with redirect URI http://localhost:8080. The 14-char string under your app name. You can also add this later via /subscope:onboard.",
-      "sensitive": true
-    },
-    "reddit_client_secret": {
-      "type": "string",
-      "title": "Reddit OAuth client secret (optional)",
-      "description": "Optional. The 'secret' field from the same Reddit app registration. Required only if reddit_client_id is set.",
-      "sensitive": true
-    },
-    "reddit_username": {
-      "type": "string",
-      "title": "Reddit username (optional)",
-      "description": "Optional. Your Reddit username without the u/ prefix. Required only if reddit_client_id is set. Used for OAuth identity scope and postmortem reply tracking."
-    },
     "notion_api_key": {
       "type": "string",
       "title": "Notion API key (legacy SDK path, optional)",

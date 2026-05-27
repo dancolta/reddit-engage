@@ -13,7 +13,6 @@ Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate 
 1. Check whether user has personalized targeting at `~/.config/subscope/subreddits.yml`. If missing, the engine still runs using bundled generic defaults, but results will be off-target. Recommend `/subscope:onboard` (one conversation, ~5 min, includes the first scan) with a one-line nudge:
    `(no personal targeting found, scanning with generic defaults. /subscope:onboard for sharper results.)`
    Proceed with the run unless user explicitly cancels.
-2. OAuth is NOT required. The engine falls back to public Reddit JSON when `~/.config/subscope/oauth.json` is absent. If OAuth is missing, emit one info line at the start of the scan output: `(running on public JSON, rate-limited. Run /subscope:onboard --reauth to upgrade.)`.
 
 ## Daily run procedure
 
@@ -29,7 +28,7 @@ Engine output: a single JSON document on stdout with `run_id`, `fetched`, `surfa
 
 Read `~/.config/subscope/notion.yml`. Branch on the `mode` field:
 
-**Branch A: `mode: mcp` (recommended path, OAuth via Notion MCP)**
+**Branch A: `mode: mcp` (recommended path, auth via Notion MCP)**
 
 1. Probe for any `mcp__*notion*` tool. If absent, print one line:
    `(Notion MCP not connected, skipping sync. Install with: claude mcp add --transport http notion https://mcp.notion.com/mcp)` and skip to Step 4.
@@ -88,13 +87,14 @@ All configs live under `${SUBSCOPE_CONFIG:-~/.config/subscope/}`:
 
 | File | Purpose |
 |---|---|
-| `oauth.json` | Reddit OAuth credentials (Phase 1) |
-| `llm.json` | LLM provider preference (Phase 2) |
-| `subreddits.yml` | Active sub list — copied from a preset at setup |
+| `llm.json` | LLM provider preference |
+| `subreddits.yml` | Active sub list, copied from a preset at setup |
 | `keywords.yml` | Active keyword bucket |
 | `weights.yml` | Score weights + gate thresholds |
 | `notion.yml` (optional) | Notion DB ID + integration |
 | `obsidian.yml` (optional) | Vault path for pulse digests |
+| `dataforseo.yml` (optional) | DataForSEO credentials |
+| `firecrawl.yml` (optional) | Firecrawl API key |
 
 State (SQLite, logs) lives under `${SUBSCOPE_DATA:-~/.local/share/subscope/}`.
 

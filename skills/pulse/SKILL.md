@@ -53,8 +53,4 @@ Print one line:
 Pulse written: <vault_path>/<pulse_folder>/<filename>  (N surfaces this week)
 ```
 
-Do not print the digest body — Dan reads it in Obsidian.
-
-## Optional: include postmortem stats
-
-If Phase 5 postmortem is wired and `reply_log` table has data, the digest will include reply outcomes (Phase 5.5 extends `build_weekly_digest`). No skill change needed — the engine handles it.
+Do not print the digest body. Dan reads it in Obsidian.

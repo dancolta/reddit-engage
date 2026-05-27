@@ -232,9 +232,7 @@ def cmd_fetch_score(
 
             last_cursor = db_sub.get("last_cursor")
             try:
-                # Prefer OAuth path (10x rate headroom + identity scope); falls
-                # back to public JSON automatically when oauth.json missing or
-                # PRAW not installed. See reddit.fetch_delta() docstring.
+                # Public-JSON-only fetcher. See reddit.fetch_delta() docstring.
                 posts = reddit.fetch_delta(s["name"], last_cursor, max_limit=limit_per_sub)
             except Exception as e:
                 fetch_errors.append(f"r/{s['name']}: {e}")

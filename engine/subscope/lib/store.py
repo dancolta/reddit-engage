@@ -118,7 +118,7 @@ def _xdg_data_dir() -> Path:
     else:
         d = Path.home() / ".local" / "share" / "subscope"
     d.mkdir(parents=True, exist_ok=True)
-    # 0o700: owner-only. Defends OAuth + Reddit credentials cached in companion files.
+    # 0o700: owner-only. Defends API credentials cached in companion files.
     try:
         d.chmod(stat.S_IRWXU)
     except OSError:

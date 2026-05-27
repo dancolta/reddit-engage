@@ -1,6 +1,6 @@
 ---
 name: onboard
-description: Mandatory first-run setup for subscope. One conversation, three plain questions, one confirmation, optional integrations, first scan. Paste URLs, answer what-you-sell / who-buys-it / what's-the-pain, confirm the targeting card, pick integrations to connect (Reddit OAuth, DataForSEO, Firecrawl, Notion, Slack, Obsidian), scan. No fast path. Every install passes through this. Triggers on "onboard", "/subscope:onboard", "set up subscope", "first time setup", "configure subscope", "get started with subscope", "install subscope".
+description: Mandatory first-run setup for subscope. One conversation, three plain questions, one confirmation, optional integrations, first scan. Paste URLs, answer what-you-sell / who-buys-it / what's-the-pain, confirm the targeting card, pick integrations to connect (DataForSEO, Firecrawl, Notion, Slack, Obsidian), scan. No fast path. Every install passes through this. Triggers on "onboard", "/subscope:onboard", "set up subscope", "first time setup", "configure subscope", "get started with subscope", "install subscope".
 allowed-tools: Bash, Read, Write, Edit, WebFetch
 ---
 
@@ -13,7 +13,7 @@ First-run setup. Seven turns, plain questions, one confirmation, optional integr
 1. **Ask, do not infer-and-confirm.** The user tells you what they sell, who buys it, what the pain is. Do not show an 8-field form for them to audit.
 2. **One thing per turn.** Each chat message asks for exactly one input or shows exactly one summary.
 3. **WebFetch silently in the background.** While the user answers turn 2, 3, 4 you are scraping their URLs. Never narrate this.
-4. **Integrations are optional, not deferred.** T6 offers OAuth, DataForSEO, Firecrawl, Notion, Slack, Obsidian as a single menu. Skip is a first-class choice.
+4. **Integrations are optional, not deferred.** T6 offers DataForSEO, Firecrawl, Notion, Slack, Obsidian as a single menu. Skip is a first-class choice.
 5. **Verify creds inline.** If a paste fails, re-ask once. Twice failed, log and move on. The scan still runs.
 6. **No filler.** No "welcome", "let's get started", "great", "perfect". No exclamation marks. No em dashes anywhere.
 
@@ -130,7 +130,6 @@ SUBSCOPE ONBOARDING  ·  6 / 7
 
 Connect anything before the scan?
 
-→  oauth        Reddit OAuth (10x rate, postmortem tracking)
 →  dataforseo   Competitor keywords + search intent
 →  firecrawl    Deeper URL crawling
 →  notion       Daily digest in a Notion database
@@ -138,64 +137,14 @@ Connect anything before the scan?
 →  obsidian     Weekly pulse in your vault
 
 Reply with the ones you want, space-separated. Or "skip".
-Example: "oauth notion" or "skip".
+Example: "dataforseo notion" or "skip".
 ```
 
-If user replies "skip", write a marker and jump to T7:
-
-```bash
-mkdir -p ~/.config/subscope && touch ~/.config/subscope/.oauth-skipped
-```
+If user replies "skip", jump straight to T7. No marker file needed.
 
 Otherwise parse the picks. For each picked integration, run its micro-prompt in order. Each one is its own short turn. Failed verification = re-ask once. Failed twice = log it, continue with the next pick.
 
 **Per-sub-prompt skip path.** If at any sub-prompt the user replies "skip" (case-insensitive), drop that integration immediately, write a marker (`touch ~/.config/subscope/.<name>-skipped`), and move to the next picked integration without re-asking. If it was the last pick, jump straight to T7. Do not re-render the menu, do not ask for confirmation.
-
-### oauth
-
-Print verbatim:
-
-```
-SUBSCOPE ONBOARDING  ·  6 / 7
-─────────────────────────────
-Reddit OAuth  (optional)
-
-Create a script app at:
-https://www.reddit.com/prefs/apps
-
-→  Type: script
-→  Redirect URI: http://localhost:8080
-
-Paste here:
-client_id client_secret username password
-
-Or reply "skip".
-```
-
-On paste, write atomically:
-
-```bash
-cd "$CLAUDE_PLUGIN_ROOT" && cat <<EOF | PYTHONPATH=engine python3 -m scripts.write_oauth
-{
-  "client_id":     "$CLIENT_ID",
-  "client_secret": "$CLIENT_SECRET",
-  "username":      "$USERNAME",
-  "password":      "$PASSWORD",
-  "user_agent":    "subscope/0.1 by u/$USERNAME"
-}
-EOF
-```
-
-Verify:
-
-```bash
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
-from subscope.lib import reddit
-print('has_oauth:', reddit.has_oauth())
-"
-```
-
-If verify fails, re-prompt once. If it fails twice, log and continue.
 
 ### dataforseo
 
@@ -454,17 +403,6 @@ On invocation, check for `~/.config/subscope/.onboard-draft.json`:
 The scratchpad records: URLs, WebFetch output, T2/T3/T4 answers, T5 confirmation, T6 picks. Resume lands at the unanswered turn.
 
 The scratchpad is cleared on successful T7 config write.
-
-## Re-auth path
-
-`/subscope:onboard --reauth` jumps straight to T6's oauth micro-prompt:
-
-```bash
-if [ "$1" = "--reauth" ]; then
-  rm -f ~/.config/subscope/.oauth-skipped
-  # jump to T6 oauth section
-fi
-```
 
 ## Anti-patterns
 
