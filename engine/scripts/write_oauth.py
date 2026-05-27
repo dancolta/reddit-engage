@@ -10,7 +10,12 @@ Usage:
     cat oauth.json | python3 -m scripts.write_oauth
 or:
     echo '{"client_id":"...","client_secret":"...","username":"...",
-           "user_agent":"subscope/0.1 by u/<name>"}' | python3 -m scripts.write_oauth
+           "password":"...","user_agent":"subscope/0.1 by u/<name>"}' \
+      | python3 -m scripts.write_oauth
+
+`password` is OPTIONAL but required at runtime for PRAW script-app grants
+(see engine/subscope/lib/reddit.py:_build_praw_client). Omitting it here
+will let the wizard succeed but reads will fall back to public JSON.
 """
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ from subscope.lib import store  # noqa: E402
 
 
 REQUIRED = ("client_id", "client_secret", "username", "user_agent")
+OPTIONAL = ("password",)
 
 
 def main() -> int:

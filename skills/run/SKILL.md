@@ -27,16 +27,29 @@ Engine output: a single JSON document on stdout with `run_id`, `fetched`, `surfa
 
 ### Step 2 — Optional Notion sync
 
-If `~/.config/subscope/notion.yml` exists AND `${user_config.notion_api_key}` is set:
+Read `~/.config/subscope/notion.yml`. Branch on the `mode` field:
 
-1. For each surface in the engine output, create a row in the configured Notion database with these fields:
-   - `Title`, `Tier`, `Subreddit`, `Score`, `Upvotes`, `Comments`, `Posted` (ISO date), `Pain`, `Fit`, `URL` (verbatim from engine output — **never hand-compose Reddit URLs**), `Surfaced on` (today, ISO)
-   - `Pattern` = the mode that produced the surface (default: `run`)
-   - `State` = `Drafting` if cooling queue active, else `Hot`
-   - `OP score` ← read from `surface.op_score` (string like `"2y old · 4.2k karma · 12% wrong-audience"`). Saves opening the OP's profile to evaluate quality.
-2. Notion sync failure is **non-fatal**. Capture the reason and proceed.
+**Branch A: `mode: mcp` (recommended path, OAuth via Notion MCP)**
 
-If Notion is not configured, skip silently.
+1. Probe for any `mcp__*notion*` tool. If absent, print one line:
+   `(Notion MCP not connected, skipping sync. Install with: claude mcp add --transport http notion https://mcp.notion.com/mcp)` and skip to Step 4.
+2. Resolve the database ID by calling the MCP `notion-search` tool with `query=<database_name from notion.yml>`. If multiple matches, prefer one with `object: database`. If no match, print `(Notion DB "<name>" not found, skipping sync)` and skip to Step 4.
+3. For each surface in the engine output, call the MCP `notion-create-pages` tool with `parent={"database_id": <resolved_id>}` and the property map below.
+4. Sync failure is **non-fatal**. Capture the reason and proceed.
+
+**Branch B: `api_key` + `database_id` (legacy SDK path)**
+
+1. For each surface, create a row in the configured Notion database via the Notion REST API using the api_key + database_id from notion.yml.
+2. Sync failure is **non-fatal**.
+
+**Property map (both branches):**
+
+- `Title`, `Tier`, `Subreddit`, `Score`, `Upvotes`, `Comments`, `Posted` (ISO date), `Pain`, `Fit`, `URL` (verbatim from engine output, **never hand-compose Reddit URLs**), `Surfaced on` (today, ISO)
+- `Pattern` = the mode that produced the surface (default: `run`)
+- `State` = `Drafting` if cooling queue active, else `Hot`
+- `OP score` ← read from `surface.op_score` (string like `"2y old · 4.2k karma · 12% wrong-audience"`)
+
+If `notion.yml` is missing, skip silently.
 
 ### Step 3 — Optional Slack push (handled by Python automatically)
 

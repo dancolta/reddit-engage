@@ -31,7 +31,7 @@ The engine is intentionally separable: you could pipe its JSON output to any orc
 │   │   ├── lib/                  # the engine modules
 │   │   │   ├── store.py          # SQLite + XDG paths
 │   │   │   ├── score.py          # gate + score + selection
-│   │   │   ├── reddit_oauth.py   # PRAW with public-JSON fallback
+│   │   │   ├── reddit.py         # PRAW with public-JSON fallback
 │   │   │   ├── reddit_public.py  # the fallback
 │   │   │   ├── classify.py       # OpenAI-compat bulk LLM grader
 │   │   │   ├── author_vet.py     # OP karma/age/audience pre-gate
@@ -62,7 +62,7 @@ These are non-negotiable for any PR:
 - **Parameterized SQL only.** Every `conn.execute()` must use `?` placeholders. f-string SQL is a defect.
 - **`chmod 600` on every config + DB file.** Atomic creation via `os.open(path, O_WRONLY|O_CREAT|O_TRUNC, 0o600)` — never `open()` then `chmod()` (umask race).
 - **XDG-compliant paths.** Config at `~/.config/subscope/` (or `$XDG_CONFIG_HOME/subscope/`), data at `~/.local/share/subscope/`. Override via `SUBSCOPE_CONFIG` / `SUBSCOPE_DATA` env for tests.
-- **Reddit username validation.** Any value interpolated into a `reddit.com/user/<x>/` URL must pass `reddit_oauth._safe_username()` regex first (defuses path-segment injection).
+- **Reddit username validation.** Any value interpolated into a `reddit.com/user/<x>/` URL must pass `reddit._safe_username()` regex first (defuses path-segment injection).
 - **No new shell=True subprocess calls.** Use `subprocess.run([..., args], shell=False)` with list args. The engine has zero `shell=True` calls today; keep it that way.
 - **SSRF guard.** Any user-configurable URL (LLM endpoint, Slack webhook, future adapters) must validate scheme + host before the HTTP call. See `classify._validate_base_url()` for the pattern.
 - **No telemetry, ever.** No analytics, no error reporting, no usage pings. If you need to send anything off the user's machine, it must be opt-in with a one-time stderr banner.
