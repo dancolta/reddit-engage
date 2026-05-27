@@ -2,7 +2,7 @@
 """Atomic 0o600 writer for dataforseo.yml.
 
 Persists DataForSEO Basic-Auth credentials (login + password) to
-`~/.config/subscope/dataforseo.yml`. Used by /subscope:onboard when the
+`~/.config/subscope/dataforseo.yml`. Used by /subscope-onboard when the
 DataForSEO MCP is missing but the user pastes credentials.
 
 Reads YAML-shaped content from stdin (must include `login` and `password`).

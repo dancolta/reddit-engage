@@ -1,12 +1,12 @@
 ---
-name: setup
-description: Reconfigure individual pieces of subscope after first-run onboarding. Use this when you want to add or change LLM provider, swap a destination (Notion / Slack / Obsidian), or rotate credentials. NOT the first-run flow. First-time users should run /subscope:onboard instead. Triggers on "/subscope:setup", "reconfigure subscope", "change subscope settings", "update subscope LLM", "rotate subscope credentials", "swap subscope destination".
+name: subscope-setup
+description: Reconfigure individual pieces of subscope after first-run onboarding. Use this when you want to add or change LLM provider, swap a destination (Notion / Slack / Obsidian), or rotate credentials. NOT the first-run flow. First-time users should run /subscope-onboard instead. Triggers on "/subscope-setup", "reconfigure subscope", "change subscope settings", "update subscope LLM", "rotate subscope credentials", "swap subscope destination".
 allowed-tools: Bash, Read, Write, Edit
 ---
 
-# /subscope:setup
+# /subscope-setup
 
-Reconfiguration tool for an already-onboarded subscope install. For first-run, route the user to `/subscope:onboard` instead. The 6 steps below are now individually addressable: ask the user which one they want to change before walking the whole flow.
+Reconfiguration tool for an already-onboarded subscope install. For first-run, route the user to `/subscope-onboard` instead. The 6 steps below are now individually addressable: ask the user which one they want to change before walking the whole flow.
 
 ## Goal
 
@@ -20,13 +20,13 @@ First, check whether the user has already onboarded:
 [ -f ~/.config/subscope/subreddits.yml ] && echo "ONBOARDED" || echo "NOT_ONBOARDED"
 ```
 
-If `NOT_ONBOARDED`: redirect to `/subscope:onboard` and stop. Do not run the steps below for a new install.
+If `NOT_ONBOARDED`: redirect to `/subscope-onboard` and stop. Do not run the steps below for a new install.
 
 If `ONBOARDED`: ask which piece they want to change:
 
 > What do you want to reconfigure?
 >   1. LLM provider (add or swap)
->   2. Targeting (re-pick preset, or re-run /subscope:onboard for full re-do)
+>   2. Targeting (re-pick preset, or re-run /subscope-onboard for full re-do)
 >   3. Notion database
 >   4. Slack webhook
 >   5. Obsidian vault
@@ -41,7 +41,7 @@ Tell the user:
 
 > subscope has three classification tiers:
 > 1. **Default:** regex-only gate, zero cost, no API key needed.
-> 2. **Interactive:** `/subscope:judge <surface-id>` uses your Claude Code subscription, free.
+> 2. **Interactive:** `/subscope-judge <surface-id>` uses your Claude Code subscription, free.
 > 3. **Bulk LLM:** any OpenAI-compatible provider (Anthropic, OpenAI, Groq, OpenRouter, Together, local Ollama). ~$0.50/day at 5K posts.
 >
 > Want to enable the bulk-LLM tier? (yes / skip)
@@ -68,11 +68,11 @@ If skip: write `{"provider": "disabled"}` to make the choice explicit.
 
 Don't pick a preset directly here. Tell the user:
 
-> Targeting works best with 3 quick questions — /subscope:onboard takes about 60 seconds and produces a config tuned to your specific work, not a generic lane. Recommended for almost everyone.
+> Targeting works best with 3 quick questions — /subscope-onboard takes about 60 seconds and produces a config tuned to your specific work, not a generic lane. Recommended for almost everyone.
 >
 > If you really want the 30-second generic lane: type `preset` and I'll show the 4 options.
 
-If user opts for `/subscope:onboard`: invoke it. The onboard skill handles preset escape internally (`/subscope:onboard preset`) for users who type `preset` mid-flow.
+If user opts for `/subscope-onboard`: invoke it. The onboard skill handles preset escape internally (`/subscope-onboard preset`) for users who type `preset` mid-flow.
 
 If user explicitly wants preset here in setup (rare), show the 4 options + copy chosen preset to `~/.config/subscope/`. But default is route to onboard.
 
@@ -179,7 +179,7 @@ Setup complete:
   ✓ Obsidian: <yes/skip>
   ✓ Dry-run surfaced N posts (limit=3 per sub)
 
-You're ready. Run /subscope:run for a real daily scan.
+You're ready. Run /subscope-run for a real daily scan.
 ```
 
 If any check fails, surface the failure clearly and suggest the fix.

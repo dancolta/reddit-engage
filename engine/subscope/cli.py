@@ -150,12 +150,12 @@ def cmd_orient() -> None:
         "posts nothing without you.\n"
     )
     fork = (
-        "\nThree quick questions so /subscope:run targets the right "
+        "\nThree quick questions so /subscope-run targets the right "
         "subreddits — about 60 seconds.\n\n"
-        "  Start with: /subscope:onboard\n\n"
+        "  Start with: /subscope-onboard\n\n"
         "Other paths:\n"
-        "  /subscope:onboard preset  — skip questions, pick a generic lane (~30s)\n"
-        "  /subscope:profile         — 8-question deep interview (~12min, "
+        "  /subscope-onboard preset  — skip questions, pick a generic lane (~30s)\n"
+        "  /subscope-profile         — 8-question deep interview (~12min, "
         "sharper targeting)\n"
     )
     print(welcome + fork)
@@ -569,7 +569,7 @@ def _emit_max_surfaces_warning(n: int) -> None:
 
 def cmd_op_vet(username: str) -> None:
     """Standalone OP profile scorer. Outputs JSON: {karma, age_days,
-    sub_breakdown_top, verdict, reason}. Used by `/subscope:op-vet`."""
+    sub_breakdown_top, verdict, reason}. Used by `/subscope-op-vet`."""
     with store.connect() as conn:
         result = author_vet.vet_author(username, conn=conn)
     print(json.dumps(result, ensure_ascii=False, indent=2))

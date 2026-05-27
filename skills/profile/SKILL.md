@@ -1,16 +1,16 @@
 ---
-name: profile
-description: Per-section deep dive for refining an existing subscope targeting profile. Not a full re-interview, just the section that's drifted. Pick one section (competitors, pain language, subreddit tiers, keywords, buyer titles, customers, content map, positioning), answer 1-3 focused questions, and the relevant YAML file is rewritten in place. Other sections are untouched. Use this after a few scans when one dimension feels off (too much noise from one sub, competitor anchor missing a name, pain phrasing not landing). Triggers on "profile", "/subscope:profile", "refine my profile", "redo competitor anchor", "redo subreddits", "rebuild pain language", "swap a subreddit", "update my targeting", "fix my profile", "tighten my profile".
+name: subscope-profile
+description: Per-section deep dive for refining an existing subscope targeting profile. Not a full re-interview, just the section that's drifted. Pick one section (competitors, pain language, subreddit tiers, keywords, buyer titles, customers, content map, positioning), answer 1-3 focused questions, and the relevant YAML file is rewritten in place. Other sections are untouched. Use this after a few scans when one dimension feels off (too much noise from one sub, competitor anchor missing a name, pain phrasing not landing). Triggers on "profile", "/subscope-profile", "refine my profile", "redo competitor anchor", "redo subreddits", "rebuild pain language", "swap a subreddit", "update my targeting", "fix my profile", "tighten my profile".
 allowed-tools: Bash, Read, Write, Edit, WebFetch
 ---
 
-# /subscope:profile
+# /subscope-profile
 
 Per-section deep dive. Not a full re-interview, just the section that's drifted.
 
-You ran `/subscope:onboard` once and the four config files at `~/.config/subscope/` are in place. After a few scans you notice: one subreddit floods the results with noise, the competitor anchor is missing a name, the pain language doesn't match how your buyers actually talk. That's the job for this skill. Pick the section, answer 1-3 focused questions, and only that section is rewritten.
+You ran `/subscope-onboard` once and the four config files at `~/.config/subscope/` are in place. After a few scans you notice: one subreddit floods the results with noise, the competitor anchor is missing a name, the pain language doesn't match how your buyers actually talk. That's the job for this skill. Pick the section, answer 1-3 focused questions, and only that section is rewritten.
 
-If you've never run onboarding before, run `/subscope:onboard` first. This skill assumes an existing config.
+If you've never run onboarding before, run `/subscope-onboard` first. This skill assumes an existing config.
 
 ## Procedure
 
@@ -25,13 +25,13 @@ required = ['subreddits.yml', 'keywords.yml', 'brand-anchor.yml', 'example-pains
 missing = [f for f in required if not (cfg / f).exists()]
 if missing:
     print('MISSING:', missing)
-    print('Run /subscope:onboard first.')
+    print('Run /subscope-onboard first.')
 else:
     print('OK')
 "
 ```
 
-If any required file is missing, stop and direct the user to `/subscope:onboard`.
+If any required file is missing, stop and direct the user to `/subscope-onboard`.
 
 ### Step 2: Pick a section
 
@@ -176,7 +176,7 @@ The "what they replaced" clause is the gold. It reveals adjacent tool
 categories and the trigger event.
 ```
 
-Free-text. Save to `~/.config/subscope/.customers.json` as a reference. No YAML write, but the next time you run `/subscope:profile` on competitors or pain language, this list is the seed.
+Free-text. Save to `~/.config/subscope/.customers.json` as a reference. No YAML write, but the next time you run `/subscope-profile` on competitors or pain language, this list is the seed.
 
 #### Section 7: Content map (blog-map.yml)
 
@@ -264,13 +264,13 @@ After all chosen sections are written:
 Updated: <list of sections>
 Backed up: <list of backup paths>
 
-Run /subscope:run to see the change reflected in the next scan.
-Run /subscope:tune after 2-3 scans if the ranker needs another pass.
+Run /subscope-run to see the change reflected in the next scan.
+Run /subscope-tune after 2-3 scans if the ranker needs another pass.
 ```
 
 ## Anti-patterns
 
-- **Never run the full 8-question onboard flow inside /profile.** That's `/subscope:onboard`. This skill is per-section only.
+- **Never run the full 8-question onboard flow inside /profile.** That's `/subscope-onboard`. This skill is per-section only.
 - **Never write multiple sections without separate confirms.** Each section is its own write gate.
 - **Never bypass the validator.** Each section has a min/max constraint set in `config/weights.yml`. Pasting "add 40 competitors" fails validation, surface the error inline.
 - **No exclamation marks. No em dashes.** Operational tone.
@@ -281,14 +281,14 @@ Run /subscope:tune after 2-3 scans if the ranker needs another pass.
 
 Per-section runs are short enough that resumability isn't needed. If the user abandons mid-section, nothing is written and the next invocation starts fresh.
 
-## When to use this vs /subscope:onboard
+## When to use this vs /subscope-onboard
 
 | Situation | Skill |
 |---|---|
-| First install, no config yet | `/subscope:onboard` |
-| Re-ran from a fresh clone, want to redo everything | `/subscope:onboard` (delete config first) |
-| One section feels off (competitor anchor stale, pain language too generic) | `/subscope:profile` |
-| Multiple sections feel off but core targeting is right | `/subscope:profile` (run the relevant sections in sequence) |
-| Pivoting to a new ICP entirely | `/subscope:onboard` (positioning has fully changed) |
+| First install, no config yet | `/subscope-onboard` |
+| Re-ran from a fresh clone, want to redo everything | `/subscope-onboard` (delete config first) |
+| One section feels off (competitor anchor stale, pain language too generic) | `/subscope-profile` |
+| Multiple sections feel off but core targeting is right | `/subscope-profile` (run the relevant sections in sequence) |
+| Pivoting to a new ICP entirely | `/subscope-onboard` (positioning has fully changed) |
 
 If in doubt: profile for refinement, onboard for re-orientation.

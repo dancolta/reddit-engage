@@ -1,16 +1,16 @@
 ---
-name: tune
-description: Sharpen the subscope ranker with 3 rounds of Good/Bad/Meh feedback. Shows you 10 recent surfaces, you mark each in terse format (1g 2g 3b 4m 5g ...), the engine back-propagates into per-sub weights + keyword scores. Faster than re-running /profile when the daily list feels mediocre. Triggers on "tune subscope", "/subscope:tune", "fix the rankings", "list is mediocre", "feedback on surfaces", "tune the ranker".
+name: subscope-tune
+description: Sharpen the subscope ranker with 3 rounds of Good/Bad/Meh feedback. Shows you 10 recent surfaces, you mark each in terse format (1g 2g 3b 4m 5g ...), the engine back-propagates into per-sub weights + keyword scores. Faster than re-running /profile when the daily list feels mediocre. Triggers on "tune subscope", "/subscope-tune", "fix the rankings", "list is mediocre", "feedback on surfaces", "tune the ranker".
 allowed-tools: Bash, Read, Write, Edit
 ---
 
-# /subscope:tune
+# /subscope-tune
 
 3-round feedback loop. You mark 10 surfaces per round, the engine adjusts weights between rounds, and your config gets sharper without re-running the full `/profile` interview.
 
 ## When to use
 
-The daily list (`/subscope:run`) feels mediocre. A few surfaces are great, a few are off, and you're not sure why. Instead of editing YAML by hand: tune.
+The daily list (`/subscope-run`) feels mediocre. A few surfaces are great, a few are off, and you're not sure why. Instead of editing YAML by hand: tune.
 
 ## Procedure
 
@@ -31,7 +31,7 @@ with store.connect() as conn:
 "
 ```
 
-If fewer than 10 surfaces returned, tell the user: *"Only N surfaces in the recent pool. Run /subscope:run first, then come back."*
+If fewer than 10 surfaces returned, tell the user: *"Only N surfaces in the recent pool. Run /subscope-run first, then come back."*
 
 ### Step 2 — Present in chat
 
@@ -96,7 +96,7 @@ After round 1's deltas, fetch the next 10 surfaces, present, parse, apply, show.
 ```
 Tuning complete. Updated weights saved to ~/.config/subscope/subreddits.yml.
 
-Next /subscope:run should reflect these changes. If a sub's weight drops
+Next /subscope-run should reflect these changes. If a sub's weight drops
 below 0.2, consider quarantining it (edit subreddits.yml: tier: 3, weight: 0.0).
 
 To audit the tuning history: ~/.local/share/subscope/tune-sessions.jsonl
@@ -107,7 +107,7 @@ To audit the tuning history: ~/.local/share/subscope/tune-sessions.jsonl
 - **Don't auto-re-rank between marks.** Batch the round, apply once, show deltas. Per-mark re-ranking confuses the user about what's changing.
 - **Don't silently delete subs.** Even if a sub gets 10 bad marks in a row, the worst it does is drop to weight 0.1 (floor). Quarantine is a user decision, not a tune action.
 - **Don't ask "are you sure?" after each round.** The user signed up for 3 rounds; ship them through.
-- **Don't generate any new keywords from the marks.** This skill tunes EXISTING config, doesn't create new entries. New keywords come from `/subscope:profile`.
+- **Don't generate any new keywords from the marks.** This skill tunes EXISTING config, doesn't create new entries. New keywords come from `/subscope-profile`.
 - **Don't suggest re-running /profile after /tune.** It defeats the point. Mention only if 3 full rounds didn't materially change the ranker.
 
 ## Resumability

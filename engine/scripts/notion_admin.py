@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  database_id: {db_id}")
         print(f"  EOF")
         print()
-        print("Then /subscope:run will sync surfaces to your Notion board.")
+        print("Then /subscope-run will sync surfaces to your Notion board.")
         return 0
 
     if args.cmd == "migrate":

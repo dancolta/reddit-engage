@@ -12,8 +12,8 @@ Run it whenever you want. Each scan returns ~10 of the strongest threads directl
 
 ```bash
 /plugin install dancolta/subscope
-/subscope:onboard       # mandatory targeting setup, ends with your first scan
-/subscope:run           # any subsequent scan
+/subscope-onboard       # mandatory targeting setup, ends with your first scan
+/subscope-run           # any subsequent scan
 ```
 
 </div>
@@ -25,7 +25,7 @@ Run it whenever you want. Each scan returns ~10 of the strongest threads directl
 ### 🧱 B2B SaaS founder
 _Project management, analytics, productivity, HR, anything per-seat._
 
-You run `/subscope:run` at 11am and it surfaces a thread posted two hours ago: *"30-person team, Notion is a mess, what's next?"* It has 6 replies. You write comment 7. By tomorrow it has 80 replies and a locked-in shortlist. The scan returned it while the OP was still active because you ran it early, not because anything was watching.
+You run `/subscope-run` at 11am and it surfaces a thread posted two hours ago: *"30-person team, Notion is a mess, what's next?"* It has 6 replies. You write comment 7. By tomorrow it has 80 replies and a locked-in shortlist. The scan returned it while the OP was still active because you ran it early, not because anything was watching.
 
 ### 📈 Sales or marketing tool
 _CRM, outreach, automation._
@@ -40,7 +40,7 @@ This one is incoming demand, not competitor defection. You run the scan and it p
 ### 🧑‍💻 Developer tool
 _API, framework, infra._
 
-You run `/subscope:run` and one of the surfaces is an engineer asking: *"Anyone moved off Temporal at scale? Looking for something lighter?"* The thread is a few hours old. They are comparing options, reading docs, not yet committed. You have an input into what they evaluate. A week from now they are justifying a tool they already picked. You ran the scan when the thread was still in discovery.
+You run `/subscope-run` and one of the surfaces is an engineer asking: *"Anyone moved off Temporal at scale? Looking for something lighter?"* The thread is a few hours old. They are comparing options, reading docs, not yet committed. You have an input into what they evaluate. A week from now they are justifying a tool they already picked. You ran the scan when the thread was still in discovery.
 
 ---
 
@@ -65,19 +65,19 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 | Command | What it does |
 |---|---|
-| `/subscope:run` | Manual scan, top ~10 threads land in chat with pattern badges |
-| `/subscope:judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
-| `/subscope:tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
+| `/subscope-run` | Manual scan, top ~10 threads land in chat with pattern badges |
+| `/subscope-judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
+| `/subscope-tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
 
-**The tool gets sharper for your specific niche the longer you use it, because `/subscope:tune` back-propagates your good/bad/meh judgments into per-sub weights and keyword scores.**
+**The tool gets sharper for your specific niche the longer you use it, because `/subscope-tune` back-propagates your good/bad/meh judgments into per-sub weights and keyword scores.**
 
 ---
 
 ## How it works
 
-![workflow demo: terminal types /subscope:run, counters increment, five ranked surfaces populate with pattern badges](assets/workflow.gif)
+![workflow demo: terminal types /subscope-run, counters increment, five ranked surfaces populate with pattern badges](assets/workflow.gif)
 
-**The setup is where the targeting actually happens.** Every install goes through one onboarding flow: `/subscope:onboard`. No shortcut, no fast path. You won't see a single scored post until the flow ends, that's the tradeoff.
+**The setup is where the targeting actually happens.** Every install goes through one onboarding flow: `/subscope-onboard`. No shortcut, no fast path. You won't see a single scored post until the flow ends, that's the tradeoff.
 
 Seven turns, plain questions, one confirmation, optional integrations, first scan:
 
@@ -91,7 +91,7 @@ Seven turns, plain questions, one confirmation, optional integrations, first sca
 
 The flow writes config files to `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains, plus one file per connected integration). Every future scan reads them. The product differentiator: the profile is built specifically for you from your URLs, archetype map, and answers, not pulled from a generic SaaS-founder template.
 
-Need to refine later? `/subscope:profile` is a per-section deep dive: `redo just the competitor anchor`, `rebuild pain language`, `swap a subreddit`. Not a full re-interview, just the section that's drifted.
+Need to refine later? `/subscope-profile` is a per-section deep dive: `redo just the competitor anchor`, `rebuild pain language`, `swap a subreddit`. Not a full re-interview, just the section that's drifted.
 
 Once your profile is in place, each scan fetches new posts from your configured subs, filters throwaway accounts before scoring, and ranks what's left by signal strength: freshness, upvote velocity, comment velocity, keyword density, and which of 8 buying-intent patterns the post matches. Tier 1 surfaces every run. Tier 2 surfaces only when a standout appears.
 
@@ -108,9 +108,9 @@ subscope slots into the tools you already use.
 | Firecrawl | Optional. Cleaner positioning extraction from your homepage + link context on surfaced Reddit posts that cite comparison pages | Paste `fc-…` API key during onboarding |
 | Notion daily triage DB | Optional. 14-column triage schema with OP score | ~5 min |
 | Slack daily push | Optional. Formatted morning digest to your channel | Paste one webhook URL |
-| Obsidian weekly digest | Optional. Weekly pulse via `/subscope:pulse` | Vault path in config |
+| Obsidian weekly digest | Optional. Weekly pulse via `/subscope-pulse` | Vault path in config |
 
-**Supported LLM providers for bulk grading:** Anthropic, OpenAI, Groq, OpenRouter, Ollama. Provider is auto-detected from your key prefix. Without a key, the regex gate runs alone and `/subscope:judge` handles ad-hoc grading at no extra cost.
+**Supported LLM providers for bulk grading:** Anthropic, OpenAI, Groq, OpenRouter, Ollama. Provider is auto-detected from your key prefix. Without a key, the regex gate runs alone and `/subscope-judge` handles ad-hoc grading at no extra cost.
 
 **DataForSEO + Firecrawl behavior.** Both are silent no-ops when no key is present. When configured, DataForSEO seeds your `brand_anchor.yml` competitor list during onboarding (`competitors_domain` lookup) and Firecrawl scrapes your homepage for richer positioning copy. Every result is cached in SQLite (30 days for DFS, 90 days for Firecrawl). Daily scans are cache-read only and never touch the network for enrichment. Disable per-run with `--no-enrich`, globally with `SUBSCOPE_NO_ENRICH=1`.
 
@@ -125,28 +125,28 @@ The 3 core skills above are what you'll use day to day. The other 12 are setup, 
 
 | Skill | What it does |
 |---|---|
-| `/subscope:setup` | Standalone configuration wizard for LLM provider, surface choice (chat / Notion / Slack / Obsidian), and dry-run validation. Most users don't need this; `/subscope:onboard` covers it. |
-| `/subscope:onboard` | Mandatory first-run flow. Seven turns: paste URLs, answer what-you-sell / who-buys-it / what-is-the-pain, confirm the targeting card, pick optional integrations (DataForSEO, Firecrawl, Notion, Slack, Obsidian), and the first scan runs at the end. No fast path. |
-| `/subscope:profile` | Per-section deep dive for refining an existing profile. "Redo competitor anchor", "rebuild pain language", "swap a subreddit". Not a full re-interview, just the section that's drifted. |
+| `/subscope-setup` | Standalone configuration wizard for LLM provider, surface choice (chat / Notion / Slack / Obsidian), and dry-run validation. Most users don't need this; `/subscope-onboard` covers it. |
+| `/subscope-onboard` | Mandatory first-run flow. Seven turns: paste URLs, answer what-you-sell / who-buys-it / what-is-the-pain, confirm the targeting card, pick optional integrations (DataForSEO, Firecrawl, Notion, Slack, Obsidian), and the first scan runs at the end. No fast path. |
+| `/subscope-profile` | Per-section deep dive for refining an existing profile. "Redo competitor anchor", "rebuild pain language", "swap a subreddit". Not a full re-interview, just the section that's drifted. |
 
 **Pattern-specific scans** (each runs `fetch-score --mode <pattern>` so you can target one intent class on demand)
 
 | Skill | What it catches |
 |---|---|
-| `/subscope:pricing-rage` | Renewal-hike rage threads. Cooling queue skipped because these go cold fast. |
-| `/subscope:churn` | "Looking to ditch X for..." posts. Active switching intent. |
-| `/subscope:build-vs-buy` | In-house vs SaaS debates with actual numbers (engineering hours, TCO). |
-| `/subscope:rfp-bait` | "A vs B vs C" comparison threads where multiple vendors are named. |
-| `/subscope:stack-audit` | Posts where someone lists 8+ tools and asks what to cut. Highest-intent format. |
-| `/subscope:resurrect` | 6 to 18-month-old quality threads that still pull Google traffic. Late comments compound forever. |
-| `/subscope:rivals` | Today's mentions of any competitor in your `brand_anchor` list. |
+| `/subscope-pricing-rage` | Renewal-hike rage threads. Cooling queue skipped because these go cold fast. |
+| `/subscope-churn` | "Looking to ditch X for..." posts. Active switching intent. |
+| `/subscope-build-vs-buy` | In-house vs SaaS debates with actual numbers (engineering hours, TCO). |
+| `/subscope-rfp-bait` | "A vs B vs C" comparison threads where multiple vendors are named. |
+| `/subscope-stack-audit` | Posts where someone lists 8+ tools and asks what to cut. Highest-intent format. |
+| `/subscope-resurrect` | 6 to 18-month-old quality threads that still pull Google traffic. Late comments compound forever. |
+| `/subscope-rivals` | Today's mentions of any competitor in your `brand_anchor` list. |
 
 **Utilities**
 
 | Skill | What it does |
 |---|---|
-| `/subscope:pulse` | Weekly Obsidian digest. Builds a markdown summary of the week's surfaces and writes it to your vault. |
-| `/subscope:op-vet <user>` | Vet a single Reddit user before replying. Returns karma, age, audience-fit breakdown, GO / HOLD / SKIP verdict. |
+| `/subscope-pulse` | Weekly Obsidian digest. Builds a markdown summary of the week's surfaces and writes it to your vault. |
+| `/subscope-op-vet <user>` | Vet a single Reddit user before replying. Returns karma, age, audience-fit breakdown, GO / HOLD / SKIP verdict. |
 
 Skill source files in [`skills/`](skills/).
 
@@ -156,7 +156,7 @@ Skill source files in [`skills/`](skills/).
 
 ## Setup
 
-Run `/subscope:setup`. The wizard presents each optional layer. Skip any of them and the default runs without it. Runs on day 1 with zero API keys.
+Run `/subscope-setup`. The wizard presents each optional layer. Skip any of them and the default runs without it. Runs on day 1 with zero API keys.
 
 Need more than 10 results per run? `--max-surfaces N` raises the cap.
 

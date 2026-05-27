@@ -5,7 +5,7 @@ OpenAI, Groq, OpenRouter, Together, Fireworks, local Ollama, etc. The
 `_call_anthropic_native` path was removed in 9.6 (Anthropic's /openai/v1
 makes a separate Anthropic SDK redundant for our usage).
 
-Interactive subscription-powered classification lives in the `/subscope:judge`
+Interactive subscription-powered classification lives in the `/subscope-judge`
 SKILL, not this module.
 """
 import json
@@ -143,7 +143,7 @@ def test_status_returns_diagnostic():
 
 
 def test_load_prompt_is_public():
-    """Public so /subscope:judge skill can reuse the exact same prompt."""
+    """Public so /subscope-judge skill can reuse the exact same prompt."""
     prompt = classify.load_prompt()
     assert isinstance(prompt, str)
     assert len(prompt) > 100  # not the fallback stub

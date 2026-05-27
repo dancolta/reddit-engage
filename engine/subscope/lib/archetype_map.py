@@ -1,4 +1,4 @@
-"""6 pre-baked ICP archetypes for the `/subscope:profile` fallback path.
+"""6 pre-baked ICP archetypes for the `/subscope-profile` fallback path.
 
 When a user can't name the subs their audience uses (or pre-launch with no
 named competitors), the wizard falls back on matching the user's interview

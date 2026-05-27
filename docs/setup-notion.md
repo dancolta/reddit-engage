@@ -82,7 +82,7 @@ Notion's API can't create views programmatically. Open your new DB and create th
 ## 6. Verify
 
 ```bash
-/subscope:run
+/subscope-run
 ```
 
 Surfaces should appear inline AND in your Notion board. If only inline, check `~/.config/subscope/notion.yml` has both `api_key` and `database_id` set.
@@ -93,11 +93,11 @@ Surfaces should appear inline AND in your Notion board. If only inline, check `~
 |---|---|---|
 | `unauthorized` on setup | Integration not connected to parent page | Page → Connections → Add `subscope` |
 | `object_not_found` on setup | Wrong page ID, or page in different workspace than integration | Re-copy ID from page URL; confirm same workspace |
-| Setup succeeds but `/subscope:run` doesn't sync | `notion.yml` missing or wrong path | Run setup script output's `cat > ...` command exactly |
+| Setup succeeds but `/subscope-run` doesn't sync | `notion.yml` missing or wrong path | Run setup script output's `cat > ...` command exactly |
 | Rate-limited (429) | Daily volume > 3 req/sec sustained | Non-issue at normal volume; if it persists, lower `--daily-cap` |
 
 ## Privacy
 
 - Your `NOTION_API_KEY` lives in `~/.config/subscope/notion.yml` with mode 0600 (owner-only)
 - The plugin only writes to the database you supplied — it never touches other workspace content
-- No telemetry; no third-party calls; the only Notion API calls are `databases.create` (once, this script) + `pages.create` (every `/subscope:run`) + `pages.update` (decay job)
+- No telemetry; no third-party calls; the only Notion API calls are `databases.create` (once, this script) + `pages.create` (every `/subscope-run`) + `pages.update` (decay job)

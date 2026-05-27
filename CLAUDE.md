@@ -13,7 +13,7 @@ A Python engine + Claude Code skills:
 - **`engine/subscope/`** — Python. Fetches Reddit via public JSON, runs regex + optional LLM gates, scores survivors, writes to SQLite, prints JSON to stdout. Stdlib + pyyaml + optional `openai`, `notion-client`.
 - **`skills/*/SKILL.md`** — 15 user-invocable Claude Code skills. Each one is a single Markdown file that tells Claude how to orchestrate a workflow (Notion sync via MCP, Obsidian write via MCP, Playwright blog refresh, etc.). The Python engine does no MCP work — the skill layer does.
 - **`config/`** — YAML defaults: weights, default subreddits, default keywords, scoring caps. Public users override by writing to `~/.config/subscope/`.
-- **`presets/`** — 4 starter bundles (b2b-saas-founder, agency-owner, indie-hacker, consultant) for users who don't want to run `/subscope:onboard`.
+- **`presets/`** — 4 starter bundles (b2b-saas-founder, agency-owner, indie-hacker, consultant) for users who don't want to run `/subscope-onboard`.
 - **`assets/`** — README hero GIF + the Python+Pillow render script.
 
 The engine is intentionally separable: you could pipe its JSON output to any orchestrator, not just Claude Code.
@@ -82,11 +82,11 @@ The 8 patterns share one engine (`fetch-score --mode <pattern>`). Adding a patte
 ```markdown
 ---
 name: <pattern>
-description: One-paragraph description. Triggers on "<pattern>", "/subscope:<pattern>", "...".
+description: One-paragraph description. Triggers on "<pattern>", "/subscope-<pattern>", "...".
 allowed-tools: Bash, Read, Write
 ---
 
-# /subscope:<pattern>
+# /subscope-<pattern>
 
 [1-line intent]
 

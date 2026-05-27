@@ -39,7 +39,7 @@ def test_smoke_warmup_then_scan_attaches_link_context(monkeypatch):
     """Full path: onboarding warmup populates cache, simulated scan augments.
 
     Steps:
-      1. Write DFS + FC YAMLs (simulating finished /subscope:onboard).
+      1. Write DFS + FC YAMLs (simulating finished /subscope-onboard).
       2. Mock _client_request to return canned DFS competitors + FC scrape.
       3. Call enrich.warmup_for_onboarding('https://acme.com', conn) →
          cache gets 2 rows (one DFS, one FC).

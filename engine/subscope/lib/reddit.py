@@ -10,7 +10,7 @@ Public surface (what callers use):
   - _safe_username(username)                    : path-injection guard
 
 Reddit's logged-out /new.json supports ~30-60 QPM, sufficient for the manual
-`/subscope:run` pattern (a few subs per run, once or twice a day). OAuth was
+`/subscope-run` pattern (a few subs per run, once or twice a day). OAuth was
 removed in v0.2 because Reddit's account-creation captcha was blocking too
 many users from ever reaching the value path; the postmortem reply-tracking
 feature that needed OAuth went with it.

@@ -1,10 +1,10 @@
 ---
-name: onboard
-description: Mandatory first-run setup for subscope. One conversation, three plain questions, one confirmation, optional integrations, first scan. Paste URLs, answer what-you-sell / who-buys-it / what's-the-pain, confirm the targeting card, pick integrations to connect (DataForSEO, Firecrawl, Notion, Slack, Obsidian), scan. No fast path. Every install passes through this. Triggers on "onboard", "/subscope:onboard", "set up subscope", "first time setup", "configure subscope", "get started with subscope", "install subscope".
+name: subscope-onboard
+description: Mandatory first-run setup for subscope. One conversation, three plain questions, one confirmation, optional integrations, first scan. Paste URLs, answer what-you-sell / who-buys-it / what's-the-pain, confirm the targeting card, pick integrations to connect (DataForSEO, Firecrawl, Notion, Slack, Obsidian), scan. No fast path. Every install passes through this. Triggers on "onboard", "/subscope-onboard", "set up subscope", "first time setup", "configure subscope", "get started with subscope", "install subscope".
 allowed-tools: Bash, Read, Write, Edit, WebFetch
 ---
 
-# /subscope:onboard
+# /subscope-onboard
 
 First-run setup. Seven turns, plain questions, one confirmation, optional integrations, first scan.
 
@@ -387,9 +387,9 @@ SUBSCOPE ONBOARDING  ·  7 / 7
 ─────────────────────────────
 Done. Configs written to ~/.config/subscope/.
 
-→  /subscope:run        Fresh scan
-→  /subscope:tune       Sharpen the ranker after a few scans
-→  /subscope:profile    Refine a single section
+→  /subscope-run        Fresh scan
+→  /subscope-tune       Sharpen the ranker after a few scans
+→  /subscope-profile    Refine a single section
 ```
 
 ## Resumability
@@ -417,6 +417,6 @@ The scratchpad is cleared on successful T7 config write.
 
 ## What's NOT in this skill
 
-- LLM provider configuration. Power-user concern, kept in `/subscope:setup --llm`.
-- Per-section refinement. After onboarding, `/subscope:profile` handles single-section deep dives.
+- LLM provider configuration. Power-user concern, kept in `/subscope-setup --llm`.
+- Per-section refinement. After onboarding, `/subscope-profile` handles single-section deep dives.
 - Preset shortcut. There is no preset shortcut. Every install passes through the full flow.

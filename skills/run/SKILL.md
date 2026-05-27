@@ -1,17 +1,17 @@
 ---
-name: run
-description: Run the daily Reddit pain-post surface. Fetch new posts from configured subs, score by intent/keyword/freshness, optionally classify via Claude Haiku, dedup against history, hold in cooling queue, and emit inline markdown (plus optional Notion sync). Triggers on "run subscope", "/subscope run", "daily reddit", "scan reddit", "show today's reddit posts", or the default `/subscope:run` invocation.
+name: subscope-run
+description: Run the daily Reddit pain-post surface. Fetch new posts from configured subs, score by intent/keyword/freshness, optionally classify via Claude Haiku, dedup against history, hold in cooling queue, and emit inline markdown (plus optional Notion sync). Triggers on "run subscope", "/subscope run", "daily reddit", "scan reddit", "show today's reddit posts", or the default `/subscope-run` invocation.
 allowed-tools: Bash, Read, Write
 ---
 
-# /subscope:run
+# /subscope-run
 
 Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate + score + SQLite + JSON output. This skill is the Claude-side wrapper: it invokes the engine, optionally syncs to Notion (if configured), and prints the inline list to chat.
 
 ## Preflight
 
-1. Check whether user has personalized targeting at `~/.config/subscope/subreddits.yml`. If missing, the engine still runs using bundled generic defaults, but results will be off-target. Recommend `/subscope:onboard` (one conversation, ~5 min, includes the first scan) with a one-line nudge:
-   `(no personal targeting found, scanning with generic defaults. /subscope:onboard for sharper results.)`
+1. Check whether user has personalized targeting at `~/.config/subscope/subreddits.yml`. If missing, the engine still runs using bundled generic defaults, but results will be off-target. Recommend `/subscope-onboard` (one conversation, ~5 min, includes the first scan) with a one-line nudge:
+   `(no personal targeting found, scanning with generic defaults. /subscope-onboard for sharper results.)`
    Proceed with the run unless user explicitly cancels.
 
 ## Daily run procedure
@@ -60,7 +60,7 @@ Read `~/.config/subscope/surface.yml` if it exists:
 
 ```yaml
 modes: [table]            # or [notion], [table, notion], []
-default_render: table     # which surface /subscope:run prints first in chat
+default_render: table     # which surface /subscope-run prints first in chat
 ```
 
 Rendering rules:

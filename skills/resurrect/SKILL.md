@@ -1,10 +1,10 @@
 ---
-name: resurrect
-description: Find 6-18 month old high-quality Reddit threads that still get Google traffic. Late comments compound forever via SEO. Triggers on "resurrect threads", "/subscope:resurrect", "find old threads worth commenting", "SEO comment opportunities", "thread resurrect".
+name: subscope-resurrect
+description: Find 6-18 month old high-quality Reddit threads that still get Google traffic. Late comments compound forever via SEO. Triggers on "resurrect threads", "/subscope-resurrect", "find old threads worth commenting", "SEO comment opportunities", "thread resurrect".
 allowed-tools: Bash, Read, Write
 ---
 
-# /subscope:resurrect (🪦)
+# /subscope-resurrect (🪦)
 
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score --mode resurrect

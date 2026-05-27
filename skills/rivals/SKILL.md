@@ -1,16 +1,16 @@
 ---
-name: rivals
-description: Track today's Reddit mentions of competitors from your brand_anchor config. Pure competitive intel — surfaces every substantive mention of a named vendor in the last 24h across configured subs. Triggers on "rivals scan", "/subscope:rivals", "track competitor mentions", "competitor radar".
+name: subscope-rivals
+description: Track today's Reddit mentions of competitors from your brand_anchor config. Pure competitive intel — surfaces every substantive mention of a named vendor in the last 24h across configured subs. Triggers on "rivals scan", "/subscope-rivals", "track competitor mentions", "competitor radar".
 allowed-tools: Bash, Read, Write
 ---
 
-# /subscope:rivals (🥷)
+# /subscope-rivals (🥷)
 
-Scans today's Reddit mentions of any competitor in your `brand_anchor` config (set during /subscope:onboard or /subscope:profile). Surfaces substantive mentions in the last 24h — reviews, switching threads, pricing complaints, alternative-seeking posts.
+Scans today's Reddit mentions of any competitor in your `brand_anchor` config (set during /subscope-onboard or /subscope-profile). Surfaces substantive mentions in the last 24h — reviews, switching threads, pricing complaints, alternative-seeking posts.
 
 ```bash
 # user invocation
-/subscope:rivals
+/subscope-rivals
 ```
 
 Engine call:

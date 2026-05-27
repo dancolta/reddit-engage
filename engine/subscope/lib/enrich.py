@@ -2,7 +2,7 @@
 
 Mirrors the `classify.py` activation contract: config present → activate,
 config absent → silent no-op, any failure → fail open. The daily scan loop
-never touches the network; all HTTP fires from `/subscope:onboard` (Phase A)
+never touches the network; all HTTP fires from `/subscope-onboard` (Phase A)
 or out-of-band refresh callers, populating the `enrichment_cache` SQLite
 table. Scan-time consumers (Phase B) only read from the cache.
 
@@ -585,7 +585,7 @@ def warmup_for_onboarding(
     homepage_url: str,
     conn,
 ) -> dict[str, Any]:
-    """Phase A: one-shot enrichment fired during /subscope:onboard.
+    """Phase A: one-shot enrichment fired during /subscope-onboard.
 
     Called from the SKILL.md T7 step (after configs are written, before the
     first scan). When DFS+FC keys are present, fetches the user's homepage

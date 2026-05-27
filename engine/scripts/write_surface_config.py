@@ -7,7 +7,7 @@ secrets), but we still write owner-only for consistency.
 
 Schema:
     modes: [table]            # one or more of: table, notion, slack
-    default_render: table     # which one /subscope:run prints first
+    default_render: table     # which one /subscope-run prints first
 
 Usage:
     cat <<EOF | python3 -m scripts.write_surface_config

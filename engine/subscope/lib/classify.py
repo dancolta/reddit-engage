@@ -16,10 +16,10 @@ Returns a structured verdict per post:
 daily run uses regex + author-vet + tier gates only (zero LLM cost, zero
 auth requirement). LLM classification is opt-in per use case:
 
-1. **`/subscope:run` (default)** — regex-only gate. No classifier call.
+1. **`/subscope-run` (default)** — regex-only gate. No classifier call.
    Day-1 install works without any keys.
 
-2. **`/subscope:judge <surface-id>`** — interactive, Claude-driven via
+2. **`/subscope-judge <surface-id>`** — interactive, Claude-driven via
    your Claude Code subscription. Reads a single surface, runs the same
    classification prompt, returns verdict + reply angle. Free under
    subscription; cost lives with `claude` Code session, not this module.
@@ -35,7 +35,7 @@ auth requirement). LLM classification is opt-in per use case:
 ## Why no `claude` CLI subprocess path
 
 The Claude Code subscription's natural use is **interactive judgment** — one
-call at a time, human-driven, in chat. That's the `/subscope:judge` skill
+call at a time, human-driven, in chat. That's the `/subscope-judge` skill
 (skills/judge/SKILL.md). Bulk classification is what API keys are for —
 subprocess invocation of `claude` either loads expensive session context
 or requires an API key anyway.
@@ -222,7 +222,7 @@ def detect_provider() -> Provider:
 def load_prompt() -> str:
     """Load system prompt from prompts/classify.md.
 
-    Public so the `/subscope:judge` skill can share the exact same
+    Public so the `/subscope-judge` skill can share the exact same
     prompt as the bulk path. Cached on first call.
     """
     global _CACHED_PROMPT
@@ -348,7 +348,7 @@ def classify(
     Callers MUST treat None as "classifier unavailable" and fall through to
     regex-only gating. Never raises.
 
-    NOT called by the interactive `/subscope:judge` skill — that path
+    NOT called by the interactive `/subscope-judge` skill — that path
     is Claude-driven in-chat, not subprocess.
     """
     p: Provider = provider or detect_provider()

@@ -2,7 +2,7 @@
 """Atomic 0o600 writer for firecrawl.yml.
 
 Persists a Firecrawl API key to `~/.config/subscope/firecrawl.yml`. Used by
-/subscope:onboard when Firecrawl is opted in but neither the seo-firecrawl
+/subscope-onboard when Firecrawl is opted in but neither the seo-firecrawl
 skill nor a FIRECRAWL_API_KEY env var is detected.
 
 Reads YAML-shaped content from stdin (must include `api_key`).

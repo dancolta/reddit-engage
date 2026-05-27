@@ -28,13 +28,13 @@
     "notion_api_key": {
       "type": "string",
       "title": "Notion API key (legacy SDK path, optional)",
-      "description": "Legacy direct-SDK path. Recommended: skip this and run /subscope:onboard, which installs the official Notion MCP (OAuth via browser, no manual token). If you prefer the SDK path, create an internal integration at https://www.notion.so/profile/integrations and paste the token here.",
+      "description": "Legacy direct-SDK path. Recommended: skip this and run /subscope-onboard, which installs the official Notion MCP (OAuth via browser, no manual token). If you prefer the SDK path, create an internal integration at https://www.notion.so/profile/integrations and paste the token here.",
       "sensitive": true
     },
     "notion_database_id": {
       "type": "string",
       "title": "Notion database ID (legacy SDK path, optional)",
-      "description": "Legacy: the 32-character ID of the surfaces database. Required only when notion_api_key is set (SDK path). With the MCP path, /subscope:run resolves the database by name at runtime, no ID needed."
+      "description": "Legacy: the 32-character ID of the surfaces database. Required only when notion_api_key is set (SDK path). With the MCP path, /subscope-run resolves the database by name at runtime, no ID needed."
     },
     "obsidian_vault_path": {
       "type": "directory",
@@ -56,7 +56,7 @@
     "llm_api_key": {
       "type": "string",
       "title": "LLM API key (optional)",
-      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip. /subscope:judge still works free via your Claude Code subscription.",
+      "description": "Enables bulk LLM grading on every daily run. Works with any provider exposing an OpenAI-compatible endpoint: Anthropic (sk-ant-...), OpenAI (sk-...), Groq (gsk_...), OpenRouter (sk-or-...), Together, Fireworks, local Ollama. Auto-detected from key prefix. Leave blank to skip. /subscope-judge still works free via your Claude Code subscription.",
       "sensitive": true
     },
     "llm_base_url": {

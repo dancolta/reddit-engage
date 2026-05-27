@@ -1,10 +1,10 @@
 ---
-name: pulse
-description: Weekly Obsidian digest of subscope activity. Builds a sub × surface heat map plus tier counts for the trailing 7 days, writes it as a dated markdown note to the user's Obsidian vault. Optional — skipped if Obsidian vault not configured. Triggers on "weekly pulse", "/subscope:pulse", "obsidian pulse digest", "reddit engage weekly recap", "what did subscope surface this week".
+name: subscope-pulse
+description: Weekly Obsidian digest of subscope activity. Builds a sub × surface heat map plus tier counts for the trailing 7 days, writes it as a dated markdown note to the user's Obsidian vault. Optional — skipped if Obsidian vault not configured. Triggers on "weekly pulse", "/subscope-pulse", "obsidian pulse digest", "reddit engage weekly recap", "what did subscope surface this week".
 allowed-tools: Bash, Read, Write
 ---
 
-# /subscope:pulse
+# /subscope-pulse
 
 Weekly reflection layer. Notion is the daily-triage surface; Obsidian is the weekly-review surface where you spot patterns over time.
 
@@ -22,7 +22,7 @@ vault_path: /Users/dan/Documents/MyVault
 pulse_folder: subscope  # optional, defaults to 'subscope'
 ```
 
-If `obsidian.yml` missing: print "Obsidian vault not configured. Run `/subscope:onboard` to wire it (or drop `~/.config/subscope/obsidian.yml` with a `vault_path:` line manually), then re-run."
+If `obsidian.yml` missing: print "Obsidian vault not configured. Run `/subscope-onboard` to wire it (or drop `~/.config/subscope/obsidian.yml` with a `vault_path:` line manually), then re-run."
 
 ## Generate digest
 
