@@ -25,7 +25,7 @@ from typing import Any
 
 import yaml
 
-from .lib import author_vet, classify, reddit, score, slack, store
+from .lib import author_vet, classify, enrich, reddit, score, slack, store
 
 
 def _resolve_config_dir() -> Path:
@@ -169,6 +169,7 @@ def cmd_fetch_score(
     mode: str = "default",
     no_slack: bool = False,
     max_surfaces: int | None = None,        # power-user override, see weights.yml note
+    no_enrich: bool = False,                # kill switch for DFS + Firecrawl cache reads
 ) -> None:
     """Run the surface pipeline for a specific pattern mode.
 
@@ -187,6 +188,10 @@ def cmd_fetch_score(
     """
     cfg = _load_configs(mode=mode)
     weights = cfg["weights"]
+
+    # Plumb the --no-enrich flag through the module-level toggle so every
+    # downstream cache lookup honors it (mirrors set_disabled in classify.py).
+    enrich.set_disabled(no_enrich)
     # Resolve pattern-specific caps + cooling from weights.yml if not overridden
     out_cfg = weights.get("daily_output", {})
     if daily_cap is None:
@@ -298,6 +303,11 @@ def cmd_fetch_score(
                     )
                     if reason not in backfill_disallowed:
                         near_miss_pool.append(candidate)
+
+        # Phase B enrichment: pure cache-read augmentation on the gate-pass set
+        # BEFORE selection so any link_context can inform the inline table.
+        # No-op when no creds are present (default state) or when --no-enrich.
+        enrich.augment_scores(all_candidates, conn)
 
         # Daily mixing rule per plan 2f, with minimum-floor backfill.
         # Power-user override: --max-surfaces N bypasses weights.yml hard_ceiling.
@@ -461,12 +471,14 @@ def _fit_summary(sub_row: dict[str, Any], blog_matches: list[dict[str, Any]]) ->
 def cmd_status() -> None:
     with store.connect() as conn:
         last = store.stats_last_run(conn)
+        enrichment_state = enrich.status(conn)
     print(json.dumps({
         "last_run": last,
         "config_dir": str(CONFIG_DIR),
         "db_path": str(store.db_path()),
         "llm": classify.status(),
         "slack": slack.status(),
+        "enrichment": enrichment_state,
     }, default=str, indent=2))
 
 
@@ -497,6 +509,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="Cooling queue hold duration (default: read from weights.yml cooling)")
     fs.add_argument("--mode", choices=sorted(VALID_MODES), default="default",
                     help="Pattern mode — gate and keywords change per pattern")
+    fs.add_argument("--no-enrich", action="store_true",
+                    help="Disable DataForSEO + Firecrawl cache reads for this run.")
     fs.add_argument("--no-slack", action="store_true",
                     help="Skip Slack notification even if webhook is configured")
     fs.add_argument("--max-surfaces", type=int, default=None,
@@ -525,6 +539,7 @@ def main(argv: list[str] | None = None) -> None:
             no_cool=args.no_cool, cool_minutes=args.cool_minutes,
             mode=args.mode, no_slack=args.no_slack,
             max_surfaces=args.max_surfaces,
+            no_enrich=args.no_enrich,
         )
     elif args.cmd == "op-vet":
         cmd_op_vet(args.username)

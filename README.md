@@ -80,19 +80,19 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 **The setup is where the targeting actually happens.** Every install goes through one onboarding flow: `/subscope:onboard`. No shortcut, no fast path. You won't see a single scored post until the flow ends, that's the tradeoff.
 
-Here's what the flow walks you through:
+Seven turns, plain questions, one confirmation, optional integrations, first scan:
 
-1. **Paste 2-3 URLs.** Your homepage plus a couple of case studies, blog posts, or pricing pages. subscope reads them and pulls positioning, buyer language, and the tools your case studies mention.
-2. **Auto-enrich (when available).** DataForSEO for competitor domains and ranked keywords, Firecrawl for deeper crawl, a 30-second Reddit warm-scan against archetype-seeded subs. If DataForSEO and Firecrawl aren't configured, the flow falls back to URL parsing + your answers. Inference quality drops, the profile still ships.
-3. **Review card.** A high-level sanity check on everything inferred so far: ICP, competitors, candidate subreddits in Tier 1 / Tier 2 buckets, keyword sets, and example pain posts seen this week. You correct anything obviously wrong inline before the deeper questions begin.
-4. **8 deep questions.** Field-level confirm or refine. Each question shows the inferred answer pre-filled with a confidence score. High-confidence ones are 5-second taps. Low-confidence ones (competitor anchor, the literal pain quote your buyers used) get real attention because URLs can't infer them.
-5. **Reddit access.** Public JSON (zero setup, works now) or OAuth (~2 min, 10x rate budget, enables postmortem reply tracking).
-6. **Destinations.** Chat (default), Notion, Slack, Obsidian, multi-select.
-7. **First scan runs.** Top ~10 threads land in chat with pattern badges.
+1. **Paste URLs.** Homepage plus optional case studies, blog posts, or pricing pages. One per line. subscope scrapes them silently in the background while you answer the next three questions, pulling positioning, competitor names, buyer titles, and pain phrasing.
+2. **What do you sell?** One line.
+3. **Who buys it?** A job title is enough.
+4. **What is the pain?** A real customer quote is gold. Paraphrase is fine.
+5. **Confirm the scan card.** Five fields merged from your three answers plus the URL fetch: what you sell, buyers, pain pattern, 4-6 candidate subreddits, up to 6 competitors. Reply `go` to lock it, or tell the flow what to fix and the card re-renders.
+6. **Connect integrations (optional).** One menu, multi-pick. Reddit OAuth, DataForSEO, Firecrawl, Notion, Slack, Obsidian. Reply `skip` to skip the whole menu, or `skip` inside any sub-prompt to drop just that one. A failed paste re-asks once, then moves on. The scan still runs.
+7. **First scan runs.** If DataForSEO or Firecrawl keys were set up, the engine warms the enrichment cache against your homepage once. Then the top ~10 threads land in chat with pattern badges.
 
-The flow writes four config files at `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains). Every future scan reads them. This is the actual product differentiator: the profile is built specifically for you, not pulled from a generic SaaS-founder template.
+The flow writes config files to `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains, plus one file per connected integration). Every future scan reads them. The product differentiator: the profile is built specifically for you from your URLs, archetype map, and answers, not pulled from a generic SaaS-founder template.
 
-Need to refine later? `/subscope:profile` is a per-section deep dive: "redo just the competitor anchor", "rebuild pain language", "swap a subreddit tier". Not a full re-interview, just the section that's drifted.
+Need to refine later? `/subscope:profile` is a per-section deep dive: `redo just the competitor anchor`, `rebuild pain language`, `swap a subreddit`. Not a full re-interview, just the section that's drifted.
 
 Once your profile is in place, each scan fetches new posts from your configured subs, filters throwaway accounts before scoring, and ranks what's left by signal strength: freshness, upvote velocity, comment velocity, keyword density, and which of 8 buying-intent patterns the post matches. Tier 1 surfaces every run. Tier 2 surfaces only when a standout appears.
 
@@ -106,11 +106,15 @@ subscope slots into the tools you already use.
 |---|---|---|
 | Reddit OAuth | Recommended. 10x rate budget, enables postmortem reply tracking | Free script app at reddit.com/prefs/apps |
 | Bulk LLM grading | Optional. Grade posts at scale via any of 5 providers | One API key in setup wizard |
+| DataForSEO | Optional. SERP-verified competitor list for brand-anchor seeding + ranked-keyword extension | Paste login + API password during onboarding |
+| Firecrawl | Optional. Cleaner positioning extraction from your homepage + link context on surfaced Reddit posts that cite comparison pages | Paste `fc-…` API key during onboarding |
 | Notion daily triage DB | Optional. 14-column triage schema with OP score | ~5 min |
 | Slack daily push | Optional. Formatted morning digest to your channel | Paste one webhook URL |
 | Obsidian weekly digest | Optional. Weekly pulse via `/subscope:pulse` | Vault path in config |
 
 **Supported LLM providers for bulk grading:** Anthropic, OpenAI, Groq, OpenRouter, Ollama. Provider is auto-detected from your key prefix. Without a key, the regex gate runs alone and `/subscope:judge` handles ad-hoc grading at no extra cost.
+
+**DataForSEO + Firecrawl behavior.** Both are silent no-ops when no key is present. When configured, DataForSEO seeds your `brand_anchor.yml` competitor list during onboarding (`competitors_domain` lookup) and Firecrawl scrapes your homepage for richer positioning copy. Every result is cached in SQLite (30 days for DFS, 90 days for Firecrawl). Daily scans are cache-read only and never touch the network for enrichment. Disable per-run with `--no-enrich`, globally with `SUBSCOPE_NO_ENRICH=1`.
 
 ---
 
@@ -123,9 +127,9 @@ The 4 core skills above are what you'll use day to day. The other 12 are setup, 
 
 | Skill | What it does |
 |---|---|
-| `/subscope:setup` | Standalone configuration wizard for OAuth, LLM provider, surface choice (chat / Notion / Slack / Obsidian), and dry-run validation. Most users don't need this — `/subscope:onboard` covers it. |
-| `/subscope:onboard` | Mandatory first-run flow. Paste your homepage + 2-3 case study URLs, auto-enrich via DataForSEO/Firecrawl/warm-scan when available, review the inferred ICP/competitors/subreddits/keywords in one card, lock the 8 deep questions field by field, pick Reddit access + destinations, and the first scan runs at the end. No fast path. |
-| `/subscope:profile` | Per-section deep dive for refining an existing profile. "Redo competitor anchor", "rebuild pain language", "swap a subreddit tier". Not a full re-interview, just the section that's drifted. |
+| `/subscope:setup` | Standalone configuration wizard for OAuth, LLM provider, surface choice (chat / Notion / Slack / Obsidian), and dry-run validation. Most users don't need this; `/subscope:onboard` covers it. |
+| `/subscope:onboard` | Mandatory first-run flow. Seven turns: paste URLs, answer what-you-sell / who-buys-it / what-is-the-pain, confirm the targeting card, pick optional integrations (OAuth, DataForSEO, Firecrawl, Notion, Slack, Obsidian), and the first scan runs at the end. No fast path. |
+| `/subscope:profile` | Per-section deep dive for refining an existing profile. "Redo competitor anchor", "rebuild pain language", "swap a subreddit". Not a full re-interview, just the section that's drifted. |
 
 **Pattern-specific scans** (each runs `fetch-score --mode <pattern>` so you can target one intent class on demand)
 

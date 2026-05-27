@@ -164,7 +164,7 @@ def render_json_payload(surfaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for s in surfaces:
         post = s["post"]
         sub = s["sub"]
-        out.append({
+        entry = {
             "post_id": post["id"],
             "tier": sub["tier"],
             "subreddit": post["subreddit"],
@@ -182,7 +182,14 @@ def render_json_payload(surfaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {"title": m["title"], "url": m["url"]}
                 for m in s.get("blog_matches", [])
             ],
-        })
+        }
+        # Optional enrichment block: only emitted when augment_scores attached
+        # something (Firecrawl link_context, etc.). Empty dicts are omitted so
+        # consumers can use `"enrichment" in surface` as the truthy check.
+        enrichment = s.get("enrichment")
+        if enrichment:
+            entry["enrichment"] = enrichment
+        out.append(entry)
     return out
 
 

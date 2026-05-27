@@ -87,6 +87,18 @@ CREATE TABLE IF NOT EXISTS surfaced (
 );
 CREATE INDEX IF NOT EXISTS idx_surfaced_date ON surfaced(surfaced_on);
 CREATE INDEX IF NOT EXISTS idx_surfaced_state ON surfaced(state, surfaced_at);
+
+CREATE TABLE IF NOT EXISTS enrichment_cache (
+    provider          TEXT NOT NULL,
+    endpoint          TEXT NOT NULL,
+    key_hash          TEXT NOT NULL,
+    payload_json      TEXT NOT NULL,
+    fetched_at        INTEGER NOT NULL,
+    expires_at        INTEGER NOT NULL,
+    error             TEXT,
+    PRIMARY KEY (provider, endpoint, key_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_enrich_fresh ON enrichment_cache(provider, expires_at);
 """
 
 
@@ -348,3 +360,98 @@ def get_sub(conn: sqlite3.Connection, name: str) -> dict[str, Any] | None:
 def stats_last_run(conn: sqlite3.Connection) -> dict[str, Any]:
     row = conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
     return dict(row) if row else {}
+
+
+def _ensure_enrichment_cache_table(conn: sqlite3.Connection) -> None:
+    """Idempotent migration for the enrichment_cache table.
+
+    Existing DBs (created before the DFS+Firecrawl wiring) lack this table.
+    Call this lazily from every enrich_* helper so the table appears on first
+    use, no upgrade script required.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS enrichment_cache (
+            provider          TEXT NOT NULL,
+            endpoint          TEXT NOT NULL,
+            key_hash          TEXT NOT NULL,
+            payload_json      TEXT NOT NULL,
+            fetched_at        INTEGER NOT NULL,
+            expires_at        INTEGER NOT NULL,
+            error             TEXT,
+            PRIMARY KEY (provider, endpoint, key_hash)
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_enrich_fresh "
+        "ON enrichment_cache(provider, expires_at)"
+    )
+
+
+def enrich_get(
+    conn: sqlite3.Connection,
+    provider: str,
+    endpoint: str,
+    key_hash: str,
+) -> dict[str, Any] | None:
+    """Read a cached enrichment row. Returns None on miss OR on expiry.
+
+    A non-null `error` column signals a negative-cached failure; callers can
+    inspect `row["error"]` to short-circuit without re-fetching during the
+    backoff window.
+    """
+    _ensure_enrichment_cache_table(conn)
+    row = conn.execute(
+        "SELECT payload_json, fetched_at, expires_at, error "
+        "FROM enrichment_cache "
+        "WHERE provider = ? AND endpoint = ? AND key_hash = ?",
+        (provider, endpoint, key_hash),
+    ).fetchone()
+    if row is None:
+        return None
+    if row["expires_at"] <= int(time.time()):
+        return None
+    return dict(row)
+
+
+def enrich_put(
+    conn: sqlite3.Connection,
+    provider: str,
+    endpoint: str,
+    key_hash: str,
+    payload: str,
+    ttl_seconds: int,
+    error: str | None = None,
+) -> None:
+    """Upsert a cache row. `payload` is the serialized JSON string (caller
+    json.dumps's it). `error` non-null marks the row as a negative cache;
+    set a short TTL in that case.
+    """
+    _ensure_enrichment_cache_table(conn)
+    now = int(time.time())
+    conn.execute(
+        """INSERT INTO enrichment_cache
+               (provider, endpoint, key_hash, payload_json,
+                fetched_at, expires_at, error)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(provider, endpoint, key_hash) DO UPDATE SET
+               payload_json = excluded.payload_json,
+               fetched_at   = excluded.fetched_at,
+               expires_at   = excluded.expires_at,
+               error        = excluded.error""",
+        (provider, endpoint, key_hash, payload,
+         now, now + ttl_seconds, error),
+    )
+
+
+def enrich_purge_expired(conn: sqlite3.Connection) -> int:
+    """Delete expired rows. Returns count purged.
+
+    Cheap maintenance: called opportunistically (e.g. once per scan) so the
+    cache table stays bounded.
+    """
+    _ensure_enrichment_cache_table(conn)
+    cur = conn.execute(
+        "DELETE FROM enrichment_cache WHERE expires_at <= ?",
+        (int(time.time()),),
+    )
+    return cur.rowcount

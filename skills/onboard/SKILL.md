@@ -409,6 +409,20 @@ profile_synth.clear_draft('.onboard-draft.json')
 
 Validate via `profile_synth.validate_synthesis(payload, weights_cfg)`. If validation fails, surface the failures and ask for a one-line correction.
 
+Warm the enrichment cache once (Phase A — silent no-op if no DataForSEO or Firecrawl keys were configured). Substitute `$HOMEPAGE_URL` with the URL the user pasted at T1:
+
+```bash
+cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
+import json
+from subscope.lib import enrich, store
+with store.connect() as conn:
+    result = enrich.warmup_for_onboarding('$HOMEPAGE_URL', conn)
+print(json.dumps(result))
+"
+```
+
+The output is informational only (showing which providers fired and what was cached). Do not surface it to the user unless both calls were attempted and both reported a fail-open `skipped_reason`, in which case mention once: "DataForSEO and Firecrawl could not reach their APIs. Cache will fill on the next successful onboarding."
+
 Run the first scan:
 
 ```bash
