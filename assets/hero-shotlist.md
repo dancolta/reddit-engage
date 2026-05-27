@@ -1,6 +1,6 @@
 # Hero GIF shotlist
 
-Replacement for `assets/hero.gif`. Old version archived at `assets/hero.v0.gif`.
+Replacement for `assets/hero.gif`.
 
 ## Brief
 
