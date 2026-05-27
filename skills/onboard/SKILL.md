@@ -22,10 +22,17 @@ First-run setup. Seven turns, plain questions, one confirmation, optional integr
 Print verbatim:
 
 ```
-Paste your homepage URL.
+SUBSCOPE ONBOARDING  ·  1 / 7
+─────────────────────────────
 
-Add a couple of case studies or blog posts if you have them, one per line.
-Sharper inference if you do.
+I'll use these URLs to seed your Reddit targeting profile.
+Paste the following:
+
+→  Homepage URL
+→  Case studies   (optional)
+→  Blog / pricing (optional)
+
+One per line.
 ```
 
 Wait for input. Accept 1 to N URLs. Warn if more than 8.
@@ -46,7 +53,13 @@ Do not show any status, recap, or summary. Move straight to T2.
 Print verbatim:
 
 ```
-What do you sell? One line is enough.
+SUBSCOPE ONBOARDING  ·  2 / 7
+─────────────────────────────
+
+What do you sell?
+
+→  One line is enough.
+→  Example: "Reddit lead-gen for B2B SaaS."
 ```
 
 Wait for input. Save to scratchpad. No echo, no confirmation. Move to T3.
@@ -56,9 +69,14 @@ Wait for input. Save to scratchpad. No echo, no confirmation. Move to T3.
 Print verbatim:
 
 ```
+SUBSCOPE ONBOARDING  ·  3 / 7
+─────────────────────────────
+
 Who buys it?
 
-A job title works. "Head of Ops at a SaaS startup" or just "RevOps Leads".
+→  A job title works.
+→  Example: "Head of Ops at a SaaS startup."
+→  Or just: "RevOps leads."
 ```
 
 Wait for input. Save to scratchpad. Move to T4.
@@ -68,9 +86,13 @@ Wait for input. Save to scratchpad. Move to T4.
 Print verbatim:
 
 ```
+SUBSCOPE ONBOARDING  ·  4 / 7
+─────────────────────────────
+
 What do they complain about right before they find you?
 
-A real customer quote is gold. Paraphrase is fine.
+→  A real customer quote is gold.
+→  Paraphrase is fine.
 ```
 
 Wait for input. Save to scratchpad.
@@ -80,15 +102,18 @@ Wait for input. Save to scratchpad.
 Build the card from WebFetch output + the three answers. Render exactly this shape:
 
 ```
-Scanning for:
+SUBSCOPE ONBOARDING  ·  5 / 7
+─────────────────────────────
 
-  You sell       <one-liner from T2>
-  Buyers         <titles from T3>
-  Pain pattern   <theme from T4>
-  Subreddits     <4-6 subs inferred from WebFetch + archetype map>
-  Competitors    <up to 6, inferred from WebFetch>
+Here's what I'm scanning for. Confirm or correct.
 
-Reply "go" or tell me what to fix.
+→  You sell       <one-liner from T2>
+→  Buyers         <titles from T3>
+→  Pain pattern   <theme from T4>
+→  Subreddits     <4-6 subs inferred from WebFetch + archetype map>
+→  Competitors    <up to 6, inferred from WebFetch>
+
+Reply "go" to confirm, or tell me what to fix.
 ```
 
 If the user replies with edits, apply silently and re-render the card. Do NOT re-render after a "go".
@@ -100,18 +125,20 @@ When the user says "go", proceed to T6.
 Print verbatim:
 
 ```
+SUBSCOPE ONBOARDING  ·  6 / 7
+─────────────────────────────
+
 Connect anything before the scan?
 
-  oauth        Reddit OAuth          10x rate limit, postmortem tracking
-  dataforseo   Competitor keywords + search intent
-  firecrawl    Deeper URL crawling
-  notion       Daily digest in a Notion database
-  slack        Digest to a channel
-  obsidian     Weekly pulse in your vault
+→  oauth        Reddit OAuth (10x rate, postmortem tracking)
+→  dataforseo   Competitor keywords + search intent
+→  firecrawl    Deeper URL crawling
+→  notion       Daily digest in a Notion database
+→  slack        Digest to a channel
+→  obsidian     Weekly pulse in your vault
 
 Reply with the ones you want, space-separated. Or "skip".
-
-Example:  oauth notion     or     skip
+Example: "oauth notion" or "skip".
 ```
 
 If user replies "skip", write a marker and jump to T7:
@@ -127,12 +154,20 @@ Otherwise parse the picks. For each picked integration, run its micro-prompt in 
 Print verbatim:
 
 ```
-Reddit OAuth setup.
+SUBSCOPE ONBOARDING  ·  6 / 7
+─────────────────────────────
+Reddit OAuth  (optional)
 
-Create a script app at https://www.reddit.com/prefs/apps
-(type: script, redirect URI: http://localhost:8080)
+Create a script app at:
+https://www.reddit.com/prefs/apps
 
-Paste here as: client_id client_secret username password
+→  Type: script
+→  Redirect URI: http://localhost:8080
+
+Paste here:
+client_id client_secret username password
+
+Or reply "skip".
 ```
 
 On paste, write atomically:
@@ -167,15 +202,23 @@ Probe first: check session for any `mcp__dataforseo__*` tool. If present, skip t
 Otherwise print verbatim:
 
 ```
-DataForSEO setup.
+SUBSCOPE ONBOARDING  ·  6 / 7
+─────────────────────────────
+DataForSEO  (optional)
 
-Get credentials at https://app.dataforseo.com/api-access
-(the API password is in the API Access tab, not your dashboard login)
+Get credentials at:
+https://app.dataforseo.com/api-access
 
-Paste here as: login api_password
+→  API password lives in the API Access tab.
+→  Not your dashboard login.
 
-For the full MCP toolset (optional):
-  claude mcp add dataforseo -e DATAFORSEO_USERNAME=<login> -e DATAFORSEO_PASSWORD=<pw> -- npx -y dataforseo-mcp-server
+Paste here:
+login api_password
+
+Full MCP toolset (optional):
+claude mcp add dataforseo -e DATAFORSEO_USERNAME=<login> -e DATAFORSEO_PASSWORD=<pw> -- npx -y dataforseo-mcp-server
+
+Or reply "skip".
 ```
 
 On paste:
@@ -211,11 +254,18 @@ Probe for `seo-firecrawl` skill or `FIRECRAWL_API_KEY` env var. If present, mark
 Otherwise print verbatim:
 
 ```
-Paste your Firecrawl API key (starts with fc-).
-Get one at https://www.firecrawl.dev/app/api-keys
+SUBSCOPE ONBOARDING  ·  6 / 7
+─────────────────────────────
+Firecrawl  (optional)
 
-For the full MCP (optional):
-  claude mcp add firecrawl -e FIRECRAWL_API_KEY=<key> -- npx -y firecrawl-mcp
+Paste your Firecrawl API key (starts with fc-).
+
+→  Get one at: https://www.firecrawl.dev/app/api-keys
+
+Full MCP (optional):
+claude mcp add firecrawl -e FIRECRAWL_API_KEY=<key> -- npx -y firecrawl-mcp
+
+Or reply "skip".
 ```
 
 On paste:
@@ -253,13 +303,16 @@ Probe for any `mcp__*notion*` tool. If present, skip the install step and jump t
 Otherwise print verbatim:
 
 ```
-Notion setup.
+SUBSCOPE ONBOARDING  ·  6 / 7
+─────────────────────────────
+Notion  (optional)
 
 Install the official MCP, then authorize in your browser:
-
-  claude mcp add --transport http notion https://mcp.notion.com/mcp
+claude mcp add --transport http notion https://mcp.notion.com/mcp
 
 Once OAuth completes, reply with the database name to write to.
+
+Or reply "skip".
 ```
 
 On reply with a database name, write the config:
@@ -278,7 +331,15 @@ The engine resolves the database ID at runtime via the MCP `search` tool. No man
 Print verbatim:
 
 ```
+SUBSCOPE ONBOARDING  ·  6 / 7
+─────────────────────────────
+Slack  (optional)
+
 Paste your Slack webhook URL.
+
+→  Must start with https://hooks.slack.com/
+
+Or reply "skip".
 ```
 
 SSRF guard rejects anything that isn't `https://hooks.slack.com/...`. On valid paste:
@@ -294,7 +355,13 @@ EOF
 Print verbatim:
 
 ```
+SUBSCOPE ONBOARDING  ·  6 / 7
+─────────────────────────────
+Obsidian  (optional)
+
 Paste your absolute Obsidian vault path.
+
+Or reply "skip".
 ```
 
 Verify the path exists:
@@ -351,11 +418,13 @@ Render the engine's `inline_table` in chat. If destinations include Notion/Slack
 After the scan output, print verbatim:
 
 ```
-Onboarding complete. Configs at ~/.config/subscope/.
+SUBSCOPE ONBOARDING  ·  7 / 7
+─────────────────────────────
+Done. Configs written to ~/.config/subscope/.
 
-  /subscope:run        fresh scan
-  /subscope:tune       sharpen the ranker after a few scans
-  /subscope:profile    refine a single section
+→  /subscope:run        Fresh scan
+→  /subscope:tune       Sharpen the ranker after a few scans
+→  /subscope:profile    Refine a single section
 ```
 
 ## Resumability
@@ -386,7 +455,7 @@ fi
 - **No exclamation marks.** Anywhere.
 - **No em dashes.** Anywhere. Use commas, periods, or restructure.
 - **No "welcome" / "let's get started" / "great" / "perfect".** Operational tone only.
-- **No confidence bars, no progress bars, no phase chrome.** The user sees plain English questions and one summary card.
+- **No confidence bars, no progress bars.** Step counter in the header (`N / 7`) is the only allowed pacing signal. The user sees titled prompts, bulleted hints, and one summary card.
 - **No 8-field confirmation form.** The three plain questions replace it.
 - **No status recap lines.** WebFetch runs silent. The user sees questions, not engine narration.
 - **Never re-render the T5 card after "go".** Once locked, move on.
