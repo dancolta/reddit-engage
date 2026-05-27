@@ -1,21 +1,19 @@
 ---
 name: onboard
-description: Mandatory first-run setup for subscope. One conversation, one input, one combined questionnaire, one scan. Paste 2-3 URLs (homepage + case studies or blog posts), confirm or refine the inferred targeting in a single combined card, choose Reddit access mode (skip OAuth or connect), pick destinations (Notion, Slack, Obsidian, or chat-only), and the first scan runs automatically. Optionally pulls deeper research via DataForSEO or Firecrawl when the user opts in. No fast path. Every install passes through this. Triggers on "onboard", "/subscope:onboard", "set up subscope", "first time setup", "configure subscope", "get started with subscope", "install subscope".
+description: Mandatory first-run setup for subscope. Paste 2-3 URLs (homepage + case studies or blog posts), confirm a 6-field targeting card with full source provenance, choose Reddit access mode (skip OAuth or connect), pick destinations (Notion, Slack, Obsidian, or chat-only), and the first scan runs automatically. If the URLs are thin (no testimonials, no named customers), the skill falls back to a 3-question kickoff before showing the card. Optionally pulls deeper research via DataForSEO or Firecrawl when the user opts in. Triggers on "onboard", "/subscope:onboard", "set up subscope", "first time setup", "configure subscope", "get started with subscope", "install subscope".
 allowed-tools: Bash, Read, Write, Edit, WebFetch
 ---
 
 # /subscope:onboard
 
-Mandatory first-run setup. One conversation, one combined questionnaire, one scan.
-
-You will not see a single output card until all the questions are answered. The plugin only works if your targeting is sharp, so the only path is the sharp one.
+First-run setup. URL-driven by default, with a short kickoff fallback when URLs don't carry enough signal.
 
 ## Operating principles
 
-1. **Infer aggressively from URLs.** Never ask what URLs can answer.
-2. **Gather everything before showing anything.** No intermediate review cards, no big inferred-targeting dumps mid-flow. The user sees ONE combined questionnaire when all inference + integration setup is complete.
-3. **Single-turn combined questionnaire.** All 8 lock fields pre-filled with confidence labels, rendered in one card. User edits inline or says "looks good" in one turn.
-4. **No shortcut, no fast path.** Every user passes through all 8 steps.
+1. **Infer from URLs when URLs can answer. Ask the user when they can't.** Customer names, verbatim pain quotes, buyer titles live on homepages when the user has rich social proof. When they don't, asking is faster and more accurate than guessing.
+2. **Every auto-filled field carries provenance.** No `[conf: high/med/low]` abstractions. Use action-oriented labels: `[verbatim from <source>]` for direct pulls, `[inferred from <signal>, edit if wrong]` for synthesized, `[needs your input]` for fields the URLs couldn't answer.
+3. **One card, six fields.** No 50-line wall. Candidate keywords + example pains are written silently to YAML and referenced by name only. The user reviews 6 things, not 12.
+4. **Conditional kickoff.** If WebFetch finds zero testimonials and zero named customers across all URLs, ask 3 short questions before showing the card. Otherwise skip straight to the card.
 5. **Never block on OAuth.** Public Reddit JSON is the default fallback. OAuth is an opt-in upgrade, asked once.
 6. **Optional integrations are user-gated and credential-verified.** Ask the user once. If MCP is missing, ask one concise credential prompt. Verify the credentials work before continuing.
 7. **Destinations always asked.** Notion, Slack, Obsidian are multi-select at onboard.
@@ -25,17 +23,28 @@ You will not see a single output card until all the questions are answered. The 
 
 ### Step 1: Greet + collect URLs
 
+**Render Step 1 exactly once per session.** Before printing, silently check for a draft:
+
+```bash
+[ -f ~/.config/subscope/.onboard-draft.json ] && echo "draft: present" || echo "draft: absent"
+```
+
+- If `draft: absent`, suppress all output from the check and proceed directly to the prompt below.
+- If `draft: present`, surface the resume question (see Resumability section) instead of the Step 1 prompt.
+
+If the user replies with something that isn't URL-shaped (e.g. "ready", "ok", "go"), do NOT re-emit Step 1. Acknowledge with one line: `"Paste the URLs when you have them. Homepage plus 2-3 case study or blog links."` Then wait.
+
 Print verbatim:
 
 ```
 Drop your homepage + 2-3 case study or blog URLs (newline or space separated).
 
-I'll come back with one combined questionnaire covering ICP, displaced tools,
-buyer titles, subreddits, keywords, and example pains. You confirm or refine
-in one reply. Then the first scan runs.
+I'll pull positioning, customer references, competitors, and pain language
+directly from the URLs. You'll see a 6-field card with source citations,
+edit anything wrong, then the first scan runs.
 ```
 
-Wait for input. Accept 1 to N URLs (no hard cap, but warn if more than 8).
+Wait for input. Accept 1 to N URLs (no hard cap, but warn if more than 8). These URLs serve double duty: inference sources AND seed entries for `blog-map.yml`. There is no separate "your own content URLs" question later.
 
 ### Step 2: Enrichment opt-in + credential setup
 
@@ -159,12 +168,20 @@ Then proceed silently to Step 3. Missing sources are non-fatal.
 
 Fire all available sources in parallel. Capture results into a scratchpad. Do NOT render any card to the user during this step. One-line status only if a source fails ("dataforseo: empty result, skipping").
 
-**Always run:** WebFetch each URL provided in Step 1. Extract:
-- H1 / sub-headline / positioning line
-- Linked case studies / pricing / customer logos
-- Visible competitor names ("alternative to X", "replace Y")
-- Pain language (problem statements, "before/after" phrasing)
-- Buyer titles quoted in case studies ("Head of Ops at...", "RevOps Lead at...")
+**Always run:** WebFetch each URL provided in Step 1. For each URL, capture the extraction into the scratchpad with explicit source attribution (URL + section where the signal was found). Extract:
+- H1 / sub-headline / positioning line → tag as `source: <url>#h1`
+- Named customer testimonials (look for "Founder, <Company>", "Head of <X>, <Company>", quoted statements) → tag as `source: <url>#testimonial-N` with index N
+- Verbatim customer quotes (anything in quote marks attributed to a named person) → tag as `source: <url>#quote-N`
+- Linked case studies / pricing / customer logos → tag as `source: <url>#case-N`
+- Visible competitor names ("alternative to X", "replace Y") → tag as `source: <url>#competitor-context`
+- Pain language (problem statements, "before/after" phrasing) → tag as `source: <url>#pain-N`
+- Buyer titles quoted in testimonials ("Head of Ops at...", "RevOps Lead at...") → tag as `source: <url>#title-N`
+
+**Testimonial-richness signal.** After all WebFetches complete, compute one boolean:
+
+- `urls_carry_social_proof = (named_customers_count >= 1) OR (verbatim_quotes_count >= 1)`
+
+This signal gates Step 3.5 (conditional kickoff). Save it in the scratchpad.
 
 **If DataForSEO is ready:** call these in parallel:
 - `mcp__dataforseo__dataforseo_labs_google_competitors_domain` on the homepage domain
@@ -175,62 +192,93 @@ Fire all available sources in parallel. Capture results into a scratchpad. Do NO
 
 **Warm-scan:** skip in Step 3. It runs (if OAuth is present) only after Step 6 OAuth selection. Reason: public Reddit JSON without OAuth rate-limits within seconds and contaminates the flow.
 
-For each inferred field, attach a **confidence score** (high / medium / low):
-- High: explicit, verbatim from URLs or DataForSEO output
-- Medium: inferred from adjacent signals (case study quotes, ranked keyword clusters)
-- Low: synthesized or guessed because URLs were sparse
+For each inferred field, attach a **provenance label** (action-oriented, not abstract confidence):
+
+- `[verbatim from <source>]`: the value appears verbatim in a URL or DataForSEO row. Always include the specific source citation (which URL, which testimonial index, which keyword cluster).
+- `[inferred from <signal>, edit if wrong]`: synthesized from adjacent signals (case-study language, ranked-keyword clusters, positioning phrases). Always name the signal.
+- `[needs your input]`: URLs and enrichment sources didn't produce a value. The field is blank and the user must fill it.
+
+Never use `[conf: high/med/low]`. Always use one of the three labels above.
 
 Save everything to `~/.config/subscope/.onboard-draft.json` for resumability.
 
-### Step 4: Single combined questionnaire (the only card)
+### Step 3.5: Conditional kickoff (only if URLs are thin)
 
-Render ONE card with the full inferred targeting plus all 8 lock fields pre-filled. User confirms or edits inline in ONE reply. Use this exact template:
+If `urls_carry_social_proof` is **false**, ask 3 short questions before showing the card. These cover the fields URLs couldn't fill. If `urls_carry_social_proof` is **true**, skip this step entirely and go straight to Step 4.
+
+When firing, print exactly this:
+
+```
+Your URLs are positioning-rich but light on customer references, so three quick
+questions before the card:
+
+1. Last 3 customers (name + title + company + what they replaced).
+   Type "skip" on any individual line you can't fill.
+2. One verbatim pain quote you've actually heard from a customer.
+   Type "no quote yet" if you don't have one. The scorer treats it as
+   absent rather than synthesizing one.
+3. Top 3 buyer titles (how they describe themselves on LinkedIn).
+   Comma-separated.
+```
+
+Capture the three answers. Merge into the scratchpad with provenance `[verbatim from kickoff Q<n>]`. Continue to Step 4.
+
+### Step 4: Targeting card (6 fields)
+
+Render ONE card with 6 fields. Each field shows its provenance label inline. The user confirms or edits in ONE reply. Use this exact template:
 
 ```
 ─── Your subscope targeting ───
 
-Confirm or edit each field below. Reply with edits inline (one per line,
-field name + new value) or type "looks good" to lock in everything.
+Confirm or edit each field. Reply with inline edits (one per line, field number
++ new value, e.g. "4: drop Pipedrive, add Outreach.io") or type "looks good"
+to lock in everything.
 
-1 / 8  what you sell                                     [conf: <h/m/l>]
-       <one-sentence positioning, derived from H1 + sub-headline>
+1 / 6  what you sell                              [verbatim from <homepage url>]
+       <one-sentence positioning, lifted from H1 + sub-headline>
 
-2 / 8  your last 3 customers                             [conf: <h/m/l>]
-       <title at company, what they replaced>
-       <title at company>
-       <title at company>
+2 / 6  your last 3 customers                      [verbatim from <homepage>#testimonials]
+       <Name>, <Title> at <Company>  (replaced <tool>)        ← testimonial #1
+       <Name>, <Title> at <Company>                           ← testimonial #2
+       <Name>, <Title> at <Company>                           ← testimonial #3
 
-3 / 8  the pain quote (load-bearing)                     [conf: low]
-       <paraphrased pain statement from URL content>
-       Paste a verbatim customer quote if you have one. Otherwise leave as-is.
+       Use [needs your input] with 3 placeholder lines if no testimonials were
+       found on URLs and the kickoff was skipped. Use [verbatim from kickoff Q1]
+       when the user supplied via Step 3.5 kickoff.
 
-4 / 8  where they vent                                   [conf: <h/m/l>]
-       <top 3 subreddits / venues>
+3 / 6  the pain quote (drives scorer)             [verbatim from <homepage>#testimonial-2]
+       "<exact quoted text>"
+       attributed to: <name>, <company>
 
-5 / 8  competitors / tools you displace                  [conf: <h/m/l>]
-       <up to 12, grouped by category>
+       Variants:
+         - [verbatim from kickoff Q2] when supplied via kickoff
+         - [no quote yet, scorer treats as absent] when the user typed "no
+           quote yet" in kickoff (this is explicit, not a hallucination fallback)
 
-6 / 8  how they describe themselves                      [conf: <h/m/l>]
-       <up to 4 buyer titles>
+4 / 6  competitors / tools you displace           [verbatim from <urls> + DataForSEO]
+       <up to 12 names, grouped by category if useful>
+       Each name annotated with source: <homepage|case-study-url|dfs-keyword>.
 
-7 / 8  subreddit tiers                                   [conf: <h/m/l>]
-       Tier 1 (daily):       <3-5 subs>
-       Tier 2 (opportunistic): <3-8 subs>
+5 / 6  buyer titles                               [verbatim from <homepage>#testimonials]
+       <up to 4 titles, one per line>
+       Use [verbatim from kickoff Q3] when supplied via kickoff.
 
-8 / 8  your own content URLs (optional)
-       <skip by default; paste 3-5 URLs if you want them in blog-map.yml>
+6 / 6  subreddits (tier 1 daily + tier 2 opportunistic)   [inferred from ICP + competitor signals, edit if wrong]
+       Tier 1: r/<sub>, r/<sub>, r/<sub>             (3-5 subs, daily scan)
+       Tier 2: r/<sub>, r/<sub>, r/<sub>, r/<sub>    (3-8 subs, opportunistic)
 
-Candidate keywords (auto-derived, you can override in /subscope:profile later):
-  Shared:   <5-9 phrases>
-  Operator: <5-10 phrases>
-  Builder:  <5-8 phrases>
+       Each sub gets a one-line reason in subreddits.yml. Watch-list subs
+       (r/Entrepreneur, r/startups, r/smallbusiness, r/marketing) are
+       auto-quarantined to tier 3 and not shown here.
 
-Example pains (synthesized from URL content):
-  1. <pain post 1>
-  2. <pain post 2>
-  3. <pain post 3>
+Wrote silently to ~/.config/subscope/:
+  keywords.yml      <N shared + N operator + N builder phrases>
+  example-pains.yml <5 synthesized pain-post titles for scorer few-shots>
+  brand-anchor.yml  <merged competitor + adjacent-SaaS list>
 
-─── Reply with edits like "5: drop Pipedrive, add Outreach.io" or "looks good" ───
+  Review or override with /subscope:profile <section> any time.
+
+─── Reply with edits or "looks good" ───
 ```
 
 Accept inline edits in any format. Apply edits silently. Show ONE small diff confirmation (only the changed fields, max 5 lines) before proceeding to Step 5. Do NOT re-render the full card.
@@ -417,7 +465,7 @@ Check for `~/.config/subscope/.onboard-draft.json` on invocation:
 - Present AND >24 hours old → delete and start fresh
 - Absent → start fresh
 
-The scratchpad records inference output + whether the combined questionnaire was answered. Resume lands at the unanswered step.
+The scratchpad records inference output + whether the targeting card was answered. Resume lands at the unanswered step.
 
 The scratchpad is cleared on successful Step 7 write.
 
@@ -437,11 +485,14 @@ fi
 - **No exclamation marks.** Anywhere.
 - **No em dashes.** Anywhere. Use commas, periods, or restructure.
 - **No "welcome" / "let's get started" / "great" / "perfect".** Operational tone only.
-- **No intermediate output cards.** The user sees ONE card in Step 4. Steps 1-3 are inputs and silent inference. Steps 5-6 are short questions, not cards. The combined questionnaire is the only big card before the final scan.
-- **Never render the full inferred targeting twice.** If the user edits a field, show ONLY the diff. Never re-print the full questionnaire.
-- **Never present a blank question.** Step 4 fields always pre-fill from inference. If inference is empty, say so explicitly and mark `confidence: low`.
-- **Never write configs without passing through Step 4.** The combined questionnaire is the mandatory gate.
-- **Never block on a missing optional integration.** If DataForSEO/Firecrawl creds fail twice, treat as missing and continue. Warm-scan is auto-skipped when OAuth is absent — never run it against public JSON during onboarding.
+- **No `[conf: high/med/low]` labels.** Use the three provenance labels: `[verbatim from <source>]`, `[inferred from <signal>, edit if wrong]`, `[needs your input]`. Abstract confidence scores tell the user nothing about what to do.
+- **No fabricated customer references.** If WebFetch found no testimonials and the kickoff didn't supply names, field 2 renders with `[needs your input]` and three placeholder lines. Never invent names, titles, or companies to fill the card.
+- **No synthesized pain quote when none exists.** If neither URLs nor kickoff supplied a verbatim quote, render field 3 as `[no quote yet, scorer treats as absent]`. The scorer's pain-quote weight is downgraded to zero in that branch.
+- **No intermediate output cards.** The user sees ONE card in Step 4. Steps 1-3 are inputs and silent inference. Step 3.5 (kickoff) is 3 short questions only when URLs are thin. Steps 5-6 are short questions, not cards.
+- **Never render the full targeting card twice.** If the user edits a field, show ONLY the diff. Never re-print the full card.
+- **Never write configs without passing through Step 4.** The card is the mandatory gate.
+- **Never re-emit Step 1.** If the user sends a non-URL message after Step 1, acknowledge with one line and wait. Re-printing Step 1 creates the double-prompt bug.
+- **Never block on a missing optional integration.** If DataForSEO/Firecrawl creds fail twice, treat as missing and continue. Warm-scan is auto-skipped when OAuth is absent. Never run it against public JSON during onboarding.
 
 ## What's NOT in this skill
 
