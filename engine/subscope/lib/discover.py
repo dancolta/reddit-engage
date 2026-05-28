@@ -36,9 +36,10 @@ import re
 import sys
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any
 
-from . import enrich, net, reddit, store
+from . import enrich, net, reddit, score, store
 
 
 # ─── Tunables (mirrored in config/weights.yml `discovery:` block) ──────
@@ -52,6 +53,37 @@ DISCOVERY_HARD_TIMEOUT_S = 30.0       # raised from 20 to absorb Phase B
 PHASE_B_TIMEOUT_S = 12.0              # hard cap on Phase B validation
 PHASE_B_FRESH_WINDOW_HOURS = 48       # Dan's hard requirement
 CONFIDENCE_THRESHOLD = 50             # subs below this are dropped from output
+
+# Per-thread relevance (v3.1): a fresh thread is software-buyer-intent only if
+# an intent token CO-OCCURS with a product/purchase noun (medium path) OR a
+# competitor brand is named (strong path). The product-noun whitelist is
+# deliberately DISJOINT from user vocabulary: a vocab token alone (e.g. the
+# word "podcast" for a podcast tool) must never qualify a thread, or
+# "looking for interviewees for my podcast" leaks through. User vocab keeps
+# its role only in sub-NAME ranking (rank_subs), not the per-thread gate.
+_PRODUCT_NOUNS = (
+    "tool", "tools", "software", "app", "apps", "platform", "system",
+    "systems", "solution", "solutions", "vendor", "vendors", "service",
+    "subscription", "subscriptions", "pricing", "price", "plan", "plans",
+    "saas", "crm", "erp", "ehr", "emr", "pms", "suite", "integration",
+    "integrations", "stack", "dashboard", "api", "license", "licence",
+    "seat", "seats", "per-seat", "billing", "invoice", "invoicing",
+    "workflow", "automation", "automations",
+)
+# Buyer-intent tokens (multi-word phrases matched first). Mirrors the prose set.
+_INTENT_TOKENS = (
+    "instead of", "moving from", "moving off", "looking for", "better than",
+    "any good", "anyone use", "anyone tried", "what do you use",
+    "experience with", "thoughts on", "alternatives", "alternative",
+    "switching", "switch", "replacing", "replacement", "replace", "versus",
+    "vs", "compare", "comparison", "recommendations", "recommendation",
+    "recommend", "suggestions", "cheaper", "migrate", "ditching", "ditched",
+    "ditch", "best",
+)
+# Narrow negation guard: these within 3 tokens BEFORE an intent token suppress it.
+_NEGATION_TOKENS = ("not", "no", "dont", "isnt", "stop", "avoid", "without")
+# Co-occurrence window (tokens) between an intent token and a product noun.
+_INTENT_NOUN_WINDOW = 10
 
 # Per-sub quality is capped at 3.0 (was 5.0). Quality is a tiebreaker, not a
 # dominator. Cross-query frequency is the real signal that a sub is a place
@@ -244,6 +276,116 @@ _QUERY_MAX_CHARS = 80
 def _log(msg: str) -> None:
     sys.stderr.write(f"[discover] {msg}\n")
     sys.stderr.flush()
+
+
+# ─── Per-thread software-buyer-intent classifier (v3.1) ────────────────
+
+
+def _tokenize(text: str) -> list[str]:
+    """Lowercase word tokens. Used for proximity math in the intent gate."""
+    return re.findall(r"[a-z0-9][a-z0-9\-]*", (text or "").lower())
+
+
+def _intent_positions(tokens: list[str]) -> list[int]:
+    """Indices where a buyer-intent token (or multi-word phrase) starts,
+    excluding hits negated by a preceding negation token within 3 tokens."""
+    joined = " ".join(tokens)
+    hits: list[int] = []
+    # Single-token intent words first (fast path via set membership)
+    single = {t for t in _INTENT_TOKENS if " " not in t}
+    for i, tok in enumerate(tokens):
+        if tok in single:
+            hits.append(i)
+    # Multi-word phrases: find phrase start index by scanning windows
+    multi = [t for t in _INTENT_TOKENS if " " in t]
+    for phrase in multi:
+        plen = len(phrase.split())
+        ptoks = phrase.split()
+        for i in range(len(tokens) - plen + 1):
+            if tokens[i:i + plen] == ptoks:
+                hits.append(i)
+    # Negation guard: drop any intent hit with a negation token within 3 before it
+    kept = []
+    for h in hits:
+        window_before = tokens[max(0, h - 3):h]
+        if any(n in window_before for n in _NEGATION_TOKENS):
+            continue
+        kept.append(h)
+    return sorted(set(kept))
+
+
+def _noun_positions(tokens: list[str]) -> list[int]:
+    return [i for i, t in enumerate(tokens) if t in _PRODUCT_NOUNS]
+
+
+def _competitor_brand_hit(title: str, body: str, comp_tokens: set[str]) -> bool:
+    """Word-boundary match of any competitor brand in title+body.
+
+    Single-word brands use \\b boundaries (so 'anchor' the brand does not match
+    'anchor' mid-sentence unless it's a standalone word). Multi-word / dotted
+    brands ('drake software', 'bill.com') use literal substring since they're
+    already specific."""
+    blob = (title + " " + body[:800]).lower()
+    for c in comp_tokens:
+        if not c:
+            continue
+        if " " in c or "." in c:
+            if c in blob:
+                return True
+        else:
+            if re.search(rf"\b{re.escape(c)}\b", blob):
+                return True
+    return False
+
+
+def software_buyer_intent(
+    title: str,
+    body: str,
+    comp_tokens: set[str],
+) -> tuple[bool, str | None, float]:
+    """Classify whether a fresh Reddit thread is a software buyer signal.
+
+    Returns (passed, path, weight):
+      - ("competitor", 1.0): names a competitor brand AND (has an intent token
+        OR a pain/question marker). Strong signal.
+      - ("noun", 0.6): an intent token co-occurs with a product noun within
+        _INTENT_NOUN_WINDOW tokens, in title or body. Medium signal.
+      - (False, None, 0.0): neither. The "looking for interviewees for my
+        podcast" class lands here (intent present, but no product noun nearby
+        and no competitor brand).
+
+    The product-noun whitelist is disjoint from user vocab on purpose: a topic
+    word alone never qualifies a thread.
+    """
+    title = title or ""
+    body = body or ""
+
+    # Strong path: competitor brand + (intent OR pain/question)
+    if comp_tokens and _competitor_brand_hit(title, body, comp_tokens):
+        t_tokens = _tokenize(title)
+        b_tokens = _tokenize(body[:800])
+        has_intent = bool(_intent_positions(t_tokens)) or bool(_intent_positions(b_tokens))
+        if has_intent or score.has_pain_markers(title, body) or score.has_question_intent(title, body):
+            return True, "competitor", 1.0
+        # bare brand + neutral (changelog/news) does NOT pass
+        return False, None, 0.0
+
+    # Medium path: intent token co-occurs with a product noun within window.
+    # Check title and body as SEPARATE spans (no cross-field pairing).
+    for field in (title, body[:800]):
+        toks = _tokenize(field)
+        intent_idx = _intent_positions(toks)
+        if not intent_idx:
+            continue
+        noun_idx = _noun_positions(toks)
+        if not noun_idx:
+            continue
+        for ii in intent_idx:
+            for ni in noun_idx:
+                if abs(ii - ni) <= _INTENT_NOUN_WINDOW:
+                    return True, "noun", 0.6
+
+    return False, None, 0.0
 
 
 # ─── 1. Query derivation ────────────────────────────────────────────────
@@ -737,9 +879,14 @@ def validate_sub_freshness(
         "fresh_post_count": 0,
         "fresh_buyer_intent_count": 0,
         "fresh_relevance_count": 0,
+        "weighted_relevance": 0.0,
+        "paths": {"competitor": 0, "noun": 0},
+        "relevance_path": None,
         "recent_thread_url": None,
         "recent_thread_title": None,
         "recent_thread_age_h": None,
+        "recent_thread_created_utc": None,
+        "recent_thread_iso": None,
         "passed": False,
         "timed_out": False,
         "error": None,
@@ -750,14 +897,14 @@ def validate_sub_freshness(
         result["error"] = "invalid_sub_name"
         return result
 
-    # Lowercased token sets for substring matching
-    vocab_tokens = {v.lower() for v in (user_vocab or set())}
+    # Competitor brand tokens. Add full name + first word (handles "Drake
+    # Software" -> "drake software" + "drake"). User vocab is intentionally
+    # NOT used in the per-thread gate (see software_buyer_intent docstring).
     comp_tokens = set()
     for c in (competitors or []):
         c_lower = (c or "").strip().lower()
         if not c_lower:
             continue
-        # Add full + first word (handles "Drake Software" → "drake software" + "drake")
         comp_tokens.add(c_lower)
         first = c_lower.split()[0]
         if len(first) >= 3:
@@ -788,12 +935,20 @@ def validate_sub_freshness(
 
     now = time.time()
     cutoff = now - window_hours * 3600
+    # Skew tolerance: a post dated more than this far in the future is bad data
+    # or a clock-skew artifact; never treat it as "fresh".
+    future_guard = now + 3600  # 1h grace for minor clock differences
 
     best_fresh: dict[str, Any] | None = None  # highest-relevance fresh thread
+    weighted_relevance = 0.0
+    paths_seen: dict[str, int] = {"competitor": 0, "noun": 0}
 
     for child in (raw.get("data") or {}).get("children", []):
         d = child.get("data") or {}
         created_utc = int(d.get("created_utc") or 0)
+        # Future-date guard (clock skew / bad data): skip, do not count fresh
+        if created_utc > future_guard:
+            continue
         if created_utc < cutoff:
             continue
         result["fresh_post_count"] += 1
@@ -801,29 +956,22 @@ def validate_sub_freshness(
         title = d.get("title", "") or ""
         body = d.get("selftext", "") or ""
 
-        has_intent = _has_buyer_intent(title, body)
-        if has_intent:
+        passed, path, weight = software_buyer_intent(title, body, comp_tokens)
+        if passed:
             result["fresh_buyer_intent_count"] += 1
-
-        # Relevance check: vocab token OR competitor mention in title or body
-        blob = (title + " " + body[:500]).lower()
-        relevant = False
-        if vocab_tokens:
-            for t in vocab_tokens:
-                if t in blob:
-                    relevant = True
-                    break
-        if not relevant and comp_tokens:
-            for c in comp_tokens:
-                if c in blob:
-                    relevant = True
-                    break
-
-        if has_intent and relevant:
             result["fresh_relevance_count"] += 1
-            # Track the most recent intent+relevant thread as evidence
+            weighted_relevance += weight
+            if path in paths_seen:
+                paths_seen[path] += 1
+            # Track the most recent qualifying thread as evidence. Prefer a
+            # stronger path; among equal paths prefer the most recent.
             age_h = (now - created_utc) / 3600.0
-            if best_fresh is None or age_h < best_fresh["age_h"]:
+            better = (
+                best_fresh is None
+                or (weight > best_fresh["weight"])
+                or (weight == best_fresh["weight"] and age_h < best_fresh["age_h"])
+            )
+            if better:
                 permalink = d.get("permalink", "")
                 if permalink and not permalink.startswith("http"):
                     permalink = f"https://reddit.com{permalink}"
@@ -831,14 +979,27 @@ def validate_sub_freshness(
                     "url": permalink,
                     "title": title[:120],
                     "age_h": age_h,
+                    "created_utc": created_utc,
+                    "path": path,
+                    "weight": weight,
                 }
 
     if best_fresh:
         result["recent_thread_url"] = best_fresh["url"]
         result["recent_thread_title"] = best_fresh["title"]
         result["recent_thread_age_h"] = round(best_fresh["age_h"], 1)
+        # Absolute UTC timestamp so any discrepancy is cross-checkable against
+        # what Reddit shows the user directly (defensive per Dan's feedback).
+        result["recent_thread_created_utc"] = best_fresh["created_utc"]
+        result["recent_thread_iso"] = datetime.fromtimestamp(
+            best_fresh["created_utc"], tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%M UTC")
+        result["relevance_path"] = best_fresh["path"]
 
-    result["passed"] = result["fresh_relevance_count"] >= 1
+    result["weighted_relevance"] = round(weighted_relevance, 3)
+    result["paths"] = paths_seen
+    # Pass requires at least one medium hit's worth of weighted relevance.
+    result["passed"] = weighted_relevance >= 0.6
     return result
 
 
@@ -847,32 +1008,32 @@ def compute_confidence(
     freq: int,
     freq_max: int,
     vocab_match: bool,
-    fresh_relevance_count: int,
+    weighted_relevance: float,
     fresh_buyer_intent_count: int,
     is_noise: bool,
 ) -> int:
     """Compute 0-100 confidence score from multiple signals.
 
-    Weighted sum of normalized components, clamped to [0, 100]. The 0.05
-    weight for not_noise is small because noise downrank already happens
-    elsewhere (NOISE_DOWNRANK_FACTOR multiplier on raw_score).
+    Weighted sum of normalized components, clamped to [0, 100].
 
     Components (all 0..1):
       freq_norm: cross-query confirmation, normalized to batch max freq
       vocab_match: name matches user vocabulary
-      fresh_relevance_norm: fresh intent+vocab posts (cap at 5)
-      buyer_intent_density: fresh intent posts / 25 (clamp 1)
+      relevance_norm: SUM of per-thread path weights (competitor=1.0,
+        noun=0.6), capped at 5. A sub where people name competitors saturates
+        faster (~3 hits) than a sub with only generic-noun matches (~5 hits).
+      buyer_intent_density: fresh qualifying posts / 25 (clamp 1)
       not_noise: 0 if denylisted, 1 otherwise
     """
     freq_norm = (freq / freq_max) if freq_max > 0 else 0.0
-    fresh_relevance_norm = min(fresh_relevance_count / 5.0, 1.0)
+    relevance_norm = min(weighted_relevance / 5.0, 1.0)
     buyer_intent_density = min(fresh_buyer_intent_count / 25.0, 1.0)
     not_noise = 0.0 if is_noise else 1.0
 
     weighted = (
         0.35 * freq_norm +
         0.20 * (1.0 if vocab_match else 0.0) +
-        0.25 * fresh_relevance_norm +
+        0.25 * relevance_norm +
         0.15 * buyer_intent_density +
         0.05 * not_noise
     )
@@ -1125,9 +1286,12 @@ def discover_subs_for_profile(
             cand["fresh_post_count"] = 0
             cand["fresh_buyer_intent_count"] = 0
             cand["fresh_relevance_count"] = 0
+            cand["weighted_relevance"] = 0.0
+            cand["relevance_path"] = None
             cand["recent_thread_url"] = None
             cand["recent_thread_title"] = None
             cand["recent_thread_age_h"] = None
+            cand["recent_thread_iso"] = None
             dropped.append({
                 "name": cand["name"],
                 "reason": "validation_unreachable",
@@ -1138,9 +1302,12 @@ def discover_subs_for_profile(
         cand["fresh_post_count"] = freshness["fresh_post_count"]
         cand["fresh_buyer_intent_count"] = freshness["fresh_buyer_intent_count"]
         cand["fresh_relevance_count"] = freshness["fresh_relevance_count"]
+        cand["weighted_relevance"] = freshness.get("weighted_relevance", 0.0)
+        cand["relevance_path"] = freshness.get("relevance_path")
         cand["recent_thread_url"] = freshness["recent_thread_url"]
         cand["recent_thread_title"] = freshness["recent_thread_title"]
         cand["recent_thread_age_h"] = freshness["recent_thread_age_h"]
+        cand["recent_thread_iso"] = freshness.get("recent_thread_iso")
         cand["freshness_unverified"] = False
 
         if not freshness["passed"]:
@@ -1157,7 +1324,7 @@ def discover_subs_for_profile(
             freq=freqs.get(sub_key, 1),
             freq_max=freq_max,
             vocab_match=vocab_match,
-            fresh_relevance_count=freshness["fresh_relevance_count"],
+            weighted_relevance=freshness.get("weighted_relevance", 0.0),
             fresh_buyer_intent_count=freshness["fresh_buyer_intent_count"],
             is_noise=cand.get("noise_downranked", False),
         )
