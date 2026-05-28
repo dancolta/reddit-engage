@@ -46,7 +46,17 @@ Kick off WebFetch on all provided URLs **in parallel and in the background**. Ex
 
 Save raw fetch output to `~/.config/subscope/.onboard-draft.json` as you go.
 
-Do not show any status, recap, or summary. Move straight to T2.
+**Background warmup.** As soon as the user pastes URLs, kick off the enrichment warmup in parallel with WebFetch so the DataForSEO competitor list + Firecrawl homepage scrape are cached by the time we reach T5 discovery. Silent no-op if DFS/Firecrawl keys are absent. Substitute `$HOMEPAGE_URL` with the first pasted URL:
+
+```bash
+cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "
+from subscope.lib import enrich, store
+with store.connect() as conn:
+    enrich.warmup_for_onboarding('$HOMEPAGE_URL', conn)
+" &
+```
+
+Do not block on this. Do not show any status, recap, or summary. Move straight to T2.
 
 ## Turn 2: what do you sell
 
@@ -97,9 +107,33 @@ What do they complain about right before they find you?
 
 Wait for input. Save to scratchpad.
 
+**Run live subreddit discovery before T5.** This calls the engine to find subs where the user's pain phrasing is actively discussed on Reddit. Replaces the old templatish archetype-map seed.
+
+Pipe the answers JSON via stdin so apostrophes / quotes in user input don't break shell quoting. Build the JSON in a temp variable (Claude assembles it from the scratchpad), then pipe it in:
+
+```bash
+cd "$CLAUDE_PLUGIN_ROOT" && python3 -c "
+import json
+print(json.dumps({
+    'what_offering': '''<T2_VALUE>''',
+    'who_to_reach':  '''<T3_VALUE>''',
+    'pain_quote':    '''<T4_VALUE>''',
+}))" | PYTHONPATH=engine python3 -m subscope.cli discover \
+  --homepage "$HOMEPAGE_URL" \
+  --answers-json -
+```
+
+Substitute `<T2_VALUE>`, `<T3_VALUE>`, `<T4_VALUE>` with the exact answers from the scratchpad. The triple-quoted strings handle embedded apostrophes safely; `--answers-json -` reads the piped JSON from stdin.
+
+The engine returns JSON with: `subs` (ranked list with `name`, `score`, `why`, `thread_count`), `needs_clarification` (bool), `clarifier_prompt` (string when clarification needed), `discovery_unreachable` (bool), `source_mix`.
+
+**If `needs_clarification` is true:** render T4.5 sub-turn with the engine's `clarifier_prompt` verbatim, wait for the user's reply, then re-run the same `discover` command with an added `--vertical "<user reply>"` flag. Use that second result for T5 regardless of clarification flag (we only ask once).
+
+**If `discovery_unreachable` is true:** the T5 card will show a one-line warning under the Subreddits row (see T5 card shape below).
+
 ## Turn 5: confirm the scan card
 
-Build the card from WebFetch output + the three answers. Render exactly this shape:
+Build the card from WebFetch output + the three answers + the discovery result. Render exactly this shape:
 
 ```
 SUBSCOPE ONBOARDING  ·  5 / 7
@@ -110,11 +144,15 @@ Here's what I'm scanning for. Confirm or correct.
 →  You sell       <one-liner from T2>
 →  Buyers         <titles from T3>
 →  Pain pattern   <theme from T4>
-→  Subreddits     <4-6 subs inferred from WebFetch + archetype map>
-→  Competitors    <up to 6, inferred from WebFetch>
+→  Subreddits     r/<sub>   (<thread_count> threads · "<top_query>")
+                  r/<sub>   (<thread_count> threads · "<top_query>")
+                  ... up to 8 entries from discover.subs
+→  Competitors    <up to 6, inferred from WebFetch + DFS cache>
 
 Reply "go" to confirm, or tell me what to fix.
 ```
+
+If `discovery_unreachable` is true, replace the Subreddits row with archetype-map output and append `(discovery thin, generic fallback)` to that row. If `discovery_unreachable` is false but the list is short (1-4 subs), still render what we have; do not pad with generic founder subs.
 
 If the user replies with edits, apply silently and re-render the card. Do NOT re-render after a "go".
 
@@ -358,7 +396,7 @@ profile_synth.clear_draft('.onboard-draft.json')
 
 Validate via `profile_synth.validate_synthesis(payload, weights_cfg)`. If validation fails, surface the failures and ask for a one-line correction.
 
-Warm the enrichment cache once (Phase A — silent no-op if no DataForSEO or Firecrawl keys were configured). Substitute `$HOMEPAGE_URL` with the URL the user pasted at T1:
+Warm the enrichment cache once more as insurance. The same warmup fired in background at T1, but if the user finished onboarding faster than the API calls, or if they configured DFS/Firecrawl for the first time at T6, this second call fills the gap. Cached payloads short-circuit, so cost stays zero when T1's warmup already populated everything. Substitute `$HOMEPAGE_URL` with the URL the user pasted at T1:
 
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -c "

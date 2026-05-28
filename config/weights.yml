@@ -95,6 +95,18 @@ cooling:
   pricing_rage_minutes: 0          # already auto-disabled in code; mirror here
   resurrect_minutes: 30            # evergreen, no urgency
 
+# === Live subreddit discovery (replaces archetype-map T5 seed) ===
+# Reference values for discover.py. Module reads its own defaults today;
+# this block exists for /tune-time future externalization (no behavior
+# change yet, the constants are mirrored here for visibility).
+discovery:
+  noise_downrank_factor: 0.5     # multiplier applied to noise-heavy subs (r/SaaS, r/Entrepreneur, etc.)
+  min_subs_threshold: 5          # below this → fire vertical-clarifier sub-turn
+  max_subs_returned: 8           # T5 card shows up to this many candidates
+  max_queries: 6                 # cap on derived search queries per onboarding
+  freshness_cutoff_days: 730     # drop threads older than 2 years
+  hard_timeout_seconds: 20       # total wall-clock budget for discovery pass
+
 # === Config-level ceilings (enforced by /profile synth + /tune back-prop) ===
 config_ceilings:
   brand_anchor_max: 20             # 12 sweet spot, 8 floor, 20 ceiling

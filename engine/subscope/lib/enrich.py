@@ -435,6 +435,57 @@ def dfs_ranked_keywords(
     )
 
 
+def dfs_serp_advanced(
+    query: str,
+    conn,
+    depth: int = 20,
+) -> dict[str, Any] | None:
+    """Google SERP advanced for `query`. Used by live subreddit discovery to
+    harvest `reddit.com/r/<sub>/comments/...` hits.
+
+    Returns {"query": str, "items": [{"url": str, "title": str,
+    "snippet": str}, ...]} or None on disabled / failure. Cached 7 days.
+    """
+    query = (query or "").strip()
+    if not query:
+        return None
+    key = cache_key("serp_advanced", query, depth)
+
+    def parse(resp: dict[str, Any]) -> dict[str, Any] | None:
+        items: list[dict[str, Any]] = []
+        for task in resp.get("tasks", []) or []:
+            if task.get("status_code") != 20000:
+                return None
+            for result in task.get("result") or []:
+                for item in result.get("items") or []:
+                    url = item.get("url") or ""
+                    if not url:
+                        continue
+                    items.append({
+                        "url": url,
+                        "title": item.get("title", "") or "",
+                        "snippet": item.get("description", "") or "",
+                    })
+        return {"query": query, "items": items}
+
+    return _dfs_call(
+        conn,
+        endpoint_path="serp/google/organic/live/advanced",
+        cache_endpoint="serp_advanced",
+        cache_key_str=key,
+        request_payload=[{
+            "keyword": query,
+            "location_code": 2840,
+            "language_code": "en",
+            "depth": depth,
+            "device": "desktop",
+            "se_domain": "google.com",
+        }],
+        pos_ttl=_POS_TTL_DFS_SHORT,
+        parse_items=parse,
+    )
+
+
 def fc_scrape(
     url: str,
     conn,

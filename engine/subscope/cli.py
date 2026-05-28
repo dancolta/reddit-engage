@@ -25,7 +25,7 @@ from typing import Any
 
 import yaml
 
-from .lib import author_vet, classify, enrich, reddit, score, slack, store
+from .lib import author_vet, classify, discover, enrich, reddit, score, slack, store
 
 
 def _resolve_config_dir() -> Path:
@@ -565,6 +565,14 @@ def main(argv: list[str] | None = None) -> None:
     ov = sub.add_parser("op-vet", help="Score a Reddit OP profile (utility, one-shot)")
     ov.add_argument("username", type=str)
 
+    dc = sub.add_parser("discover", help="Live subreddit discovery from interview answers")
+    dc.add_argument("--answers-json", type=str, required=True,
+                    help="JSON object with keys what_offering, who_to_reach, pain_quote")
+    dc.add_argument("--homepage", type=str, default="",
+                    help="User homepage URL (for cache lookups: Firecrawl scrape + DFS competitors)")
+    dc.add_argument("--vertical", type=str, default=None,
+                    help="Optional vertical clarifier value (set on Tier-A retry)")
+
     sub.add_parser("status", help="Print last-run status as JSON")
 
     blog = sub.add_parser("blog", help="Blog map operations").add_subparsers(dest="blogcmd", required=True)
@@ -586,6 +594,8 @@ def main(argv: list[str] | None = None) -> None:
         )
     elif args.cmd == "op-vet":
         cmd_op_vet(args.username)
+    elif args.cmd == "discover":
+        cmd_discover(args.answers_json, args.homepage, args.vertical)
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "blog" and args.blogcmd == "ingest":
@@ -610,6 +620,35 @@ def _emit_max_surfaces_warning(n: int) -> None:
         f"80% past position 10 (Nielsen Norman). Plan ~1 min per surface.\n"
     )
     sys.stderr.flush()
+
+
+def cmd_discover(answers_json: str, homepage: str, vertical: str | None) -> None:
+    """Live subreddit discovery for the /subscope-onboard T5 card.
+
+    Reads JSON answers from --answers-json. Two forms accepted:
+      (a) literal JSON string: --answers-json '{"what_offering": ...}'
+      (b) the literal token '-' or '/dev/stdin' to read from stdin instead.
+          This avoids shell-quote breakage when user input contains apostrophes
+          (e.g. T4 = "we're tired of saas pricing"). The skill orchestrator
+          should prefer stdin for any user-derived input.
+
+    Writes ranked sub list + clarifier signals as JSON to stdout.
+    """
+    if answers_json in ("-", "/dev/stdin"):
+        answers_json = sys.stdin.read()
+    try:
+        answers = json.loads(answers_json)
+        if not isinstance(answers, dict):
+            raise ValueError("answers must be a JSON object")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(json.dumps({"error": f"invalid --answers-json: {e}"}))
+        sys.exit(2)
+
+    with store.connect() as conn:
+        result = discover.discover_subs_for_profile(
+            answers, homepage or "", conn, vertical=vertical,
+        )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def cmd_op_vet(username: str) -> None:
