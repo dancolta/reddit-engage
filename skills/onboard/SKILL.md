@@ -109,7 +109,7 @@ Wait for input. Save to scratchpad.
 
 **Run live subreddit discovery before T5.** This calls the engine to find subs where the user's pain phrasing is actively discussed on Reddit. Replaces the old templatish archetype-map seed.
 
-Pipe the answers JSON via stdin so apostrophes / quotes in user input don't break shell quoting. Build the JSON in a temp variable (Claude assembles it from the scratchpad), then pipe it in:
+Pipe the answers JSON via stdin so apostrophes / quotes in user input don't break shell quoting. Pass any competitor brands you found in the WebFetch (T1) via `--competitors` as a comma-separated list. These are critical: they generate "replacing X" and "X alternative" queries which dramatically improve sub relevance for Reddit discovery.
 
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && python3 -c "
@@ -120,10 +120,15 @@ print(json.dumps({
     'pain_quote':    '''<T4_VALUE>''',
 }))" | PYTHONPATH=engine python3 -m subscope.cli discover \
   --homepage "$HOMEPAGE_URL" \
+  --competitors "<COMMA_SEPARATED_COMPETITOR_BRANDS>" \
   --answers-json -
 ```
 
-Substitute `<T2_VALUE>`, `<T3_VALUE>`, `<T4_VALUE>` with the exact answers from the scratchpad. The triple-quoted strings handle embedded apostrophes safely; `--answers-json -` reads the piped JSON from stdin.
+Substitute:
+- `<T2_VALUE>`, `<T3_VALUE>`, `<T4_VALUE>` with the exact answers from the scratchpad
+- `<COMMA_SEPARATED_COMPETITOR_BRANDS>` with whatever brands Claude extracted from the user's homepage/case-studies during T1 WebFetch (e.g. `"Zapier,n8n,Make,Bill.com,Apollo.io"`). If no brands were found, pass an empty string.
+
+The triple-quoted strings handle embedded apostrophes safely; `--answers-json -` reads the piped JSON from stdin.
 
 The engine returns JSON with: `subs` (ranked list with `name`, `score`, `why`, `thread_count`), `needs_clarification` (bool), `clarifier_prompt` (string when clarification needed), `discovery_unreachable` (bool), `source_mix`.
 
