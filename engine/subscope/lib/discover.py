@@ -51,7 +51,17 @@ PHASE_A_CANDIDATE_CAP = 12            # Phase A returns 12, Phase B trims to 8
 MAX_QUERIES = 6
 DISCOVERY_HARD_TIMEOUT_S = 30.0       # raised from 20 to absorb Phase B
 PHASE_B_TIMEOUT_S = 12.0              # hard cap on Phase B validation
-PHASE_B_FRESH_WINDOW_HOURS = 48       # Dan's hard requirement
+PHASE_B_FRESH_WINDOW_HOURS = 48       # daily-scan freshness window
+# Onboarding sub-DISCOVERY uses a wider window than the daily scan. Rationale
+# (backed by v3.1 QA on 10 niche-B2B businesses): at a strict 48h gate, half
+# the businesses had ZERO subs with a buyer-intent thread on the run day,
+# because niche-B2B switching conversations are weekly/monthly, not daily.
+# Discovery is choosing which subs to WATCH long-term; a sub with a real buyer
+# thread 4 days ago is a great sub to watch. The daily scan still uses 48h to
+# surface today's hot threads. Absolute timestamps are shown either way so the
+# user sees exactly how fresh each evidence thread is (no "ancient thread"
+# surprise, which was the original complaint).
+DISCOVERY_FRESH_WINDOW_HOURS = 168    # 7 days, for onboarding sub-discovery
 CONFIDENCE_THRESHOLD = 50             # subs below this are dropped from output
 
 # Per-thread relevance (v3.1): a fresh thread is software-buyer-intent only if
@@ -62,13 +72,16 @@ CONFIDENCE_THRESHOLD = 50             # subs below this are dropped from output
 # "looking for interviewees for my podcast" leaks through. User vocab keeps
 # its role only in sub-NAME ranking (rank_subs), not the per-thread gate.
 _PRODUCT_NOUNS = (
-    "tool", "tools", "software", "app", "apps", "platform", "system",
-    "systems", "solution", "solutions", "vendor", "vendors", "service",
-    "subscription", "subscriptions", "pricing", "price", "plan", "plans",
-    "saas", "crm", "erp", "ehr", "emr", "pms", "suite", "integration",
-    "integrations", "stack", "dashboard", "api", "license", "licence",
-    "seat", "seats", "per-seat", "billing", "invoice", "invoicing",
-    "workflow", "automation", "automations",
+    # Strong software-product nouns (rarely appear in non-software chatter)
+    "software", "saas", "crm", "erp", "ehr", "emr", "pms", "api",
+    "app", "apps", "platform", "dashboard", "integration", "integrations",
+    "tool", "tools", "vendor", "vendors", "suite",
+    "subscription", "subscriptions", "automation", "automations", "nocode",
+    # NOTE: deliberately EXCLUDED generic/domain-overlap nouns that leak on
+    # non-software threads: billing, invoice, price, pricing, plan, seat,
+    # service, system, license, workflow, stack, solution. ("Medical billing
+    # vs Coding" fired the noun path via 'billing' in v3.1 QA.) Competitor-brand
+    # mentions still catch buyers who name a tool without a generic noun.
 )
 # Buyer-intent tokens (multi-word phrases matched first). Mirrors the prose set.
 _INTENT_TOKENS = (
@@ -316,6 +329,41 @@ def _intent_positions(tokens: list[str]) -> list[int]:
 
 def _noun_positions(tokens: list[str]) -> list[int]:
     return [i for i, t in enumerate(tokens) if t in _PRODUCT_NOUNS]
+
+
+# Common English words that appear as the FIRST word of multi-word brand names
+# ("When I Work", "Open Dental", "Jane App"). Never promote these to standalone
+# brand-match tokens, or every "when"/"open"/"make" in a post triggers a hit.
+_COMMON_BRAND_FIRST_WORDS = {
+    "when", "work", "open", "jane", "make", "time", "best", "your", "cloud",
+    "smart", "field", "house", "quick", "money", "world", "store", "sales",
+    "team", "base", "home", "active", "monday", "better", "simple", "easy",
+    "good", "free", "pro", "the", "my", "go", "get",
+}
+
+
+def _build_competitor_tokens(competitors: list[str] | None) -> set[str]:
+    """Build the set of competitor match tokens.
+
+    - Full brand name always added (matched word-boundary for single words,
+      substring for dotted/multi-word names in _competitor_brand_hit).
+    - First word of a MULTI-word brand added ONLY if it is distinctive:
+      length >= 5 AND not a common English word. So "Drake Software" -> "drake"
+      (kept), but "When I Work" -> "when" is dropped (the full phrase
+      "when i work" still matches). This kills the v3.1 false positive where
+      "when" matched the competitor path on an unrelated r/managers thread.
+    """
+    tokens: set[str] = set()
+    for c in (competitors or []):
+        c_lower = (c or "").strip().lower()
+        if not c_lower:
+            continue
+        tokens.add(c_lower)
+        if " " in c_lower:
+            first = c_lower.split()[0]
+            if len(first) >= 5 and first not in _COMMON_BRAND_FIRST_WORDS:
+                tokens.add(first)
+    return tokens
 
 
 def _competitor_brand_hit(title: str, body: str, comp_tokens: set[str]) -> bool:
@@ -897,18 +945,7 @@ def validate_sub_freshness(
         result["error"] = "invalid_sub_name"
         return result
 
-    # Competitor brand tokens. Add full name + first word (handles "Drake
-    # Software" -> "drake software" + "drake"). User vocab is intentionally
-    # NOT used in the per-thread gate (see software_buyer_intent docstring).
-    comp_tokens = set()
-    for c in (competitors or []):
-        c_lower = (c or "").strip().lower()
-        if not c_lower:
-            continue
-        comp_tokens.add(c_lower)
-        first = c_lower.split()[0]
-        if len(first) >= 3:
-            comp_tokens.add(first)
+    comp_tokens = _build_competitor_tokens(competitors)
 
     url = f"https://old.reddit.com/r/{sub}/new.json?limit=25"
     try:
@@ -1127,6 +1164,7 @@ def discover_subs_for_profile(
     vertical: str | None = None,
     deadline: float | None = None,
     extra_competitors: list[str] | None = None,
+    fresh_window_hours: int = DISCOVERY_FRESH_WINDOW_HOURS,
 ) -> dict[str, Any]:
     """End-to-end discovery: derive → search (DFS + Reddit native) → rank → fallback.
 
@@ -1276,6 +1314,7 @@ def discover_subs_for_profile(
             cand["name"],
             user_vocab=user_vocab,
             competitors=phase_b_competitors,
+            window_hours=fresh_window_hours,
         )
 
         if freshness["timed_out"]:

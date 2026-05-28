@@ -820,6 +820,39 @@ def test_software_buyer_intent_anchor_word_boundary():
     assert passed is False
 
 
+def test_competitor_common_first_word_not_promoted():
+    """v3.1 QA bug: competitor 'When I Work' must NOT promote 'when' to a
+    standalone brand token (it matched every 'when' in unrelated threads)."""
+    toks = discover._build_competitor_tokens(["When I Work", "Homebase", "Deputy"])
+    assert "when" not in toks            # common first word dropped
+    assert "when i work" in toks         # full phrase kept
+    assert "homebase" in toks
+    # The exact false-positive thread must now REJECT
+    passed, path, _ = discover.software_buyer_intent(
+        "as managers what do you do when ur employees said I work to live", "",
+        toks)
+    assert passed is False
+
+
+def test_distinctive_first_word_still_promoted():
+    """'Drake Software' -> 'drake' is distinctive (len>=5, not common), kept."""
+    toks = discover._build_competitor_tokens(["Drake Software"])
+    assert "drake" in toks
+    passed, path, _ = discover.software_buyer_intent(
+        "switching from drake, recommendations?", "", toks)
+    assert passed is True
+    assert path == "competitor"
+
+
+def test_generic_billing_noun_does_not_leak():
+    """v3.1 QA bug: 'Medical billing vs Coding for Analytics' must REJECT.
+    'billing' was removed from the product-noun set (domain-overlap word)."""
+    passed, path, _ = discover.software_buyer_intent(
+        "Medical billing vs Coding for Analytics", "",
+        _comp_tokens(["ChiroTouch", "Jane App"]))
+    assert passed is False
+
+
 def test_future_dated_post_not_counted_fresh():
     """Clock-skew guard: a post dated in the future must not count as fresh."""
     future = int(time.time()) + 10 * 86400  # 10 days ahead
