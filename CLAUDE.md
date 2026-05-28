@@ -34,7 +34,8 @@ The engine is intentionally separable: you could pipe its JSON output to any orc
 │   │   │   ├── reddit.py         # public-JSON fetcher
 │   │   │   ├── classify.py       # OpenAI-compat bulk LLM grader
 │   │   │   ├── author_vet.py     # OP karma/age/audience pre-gate
-│   │   │   ├── archetype_map.py  # 6 archetypes for /onboard + /profile
+│   │   │   ├── discover.py       # live subreddit discovery for /onboard T5 (recall stage)
+│   │   │   ├── archetype_map.py  # 6 archetypes, fallback seed for /onboard + /profile
 │   │   │   ├── profile_synth.py  # 8-Q + 3-Q config synthesis
 │   │   │   ├── obsidian_sync.py  # weekly pulse digest builder
 │   │   │   ├── enrich.py         # DataForSEO + Firecrawl conditional consumers
@@ -110,7 +111,7 @@ pip install -e '.[dev]'
 python3 -m pytest engine/tests/
 ```
 
-205 tests, target <1s total runtime. New PRs must keep the suite green.
+274 tests, target <2s total runtime. New PRs must keep the suite green.
 
 End-to-end smoke (live Reddit fetch, no posting):
 
@@ -144,6 +145,7 @@ These are choices that look weird in code review but exist for a reason:
 - **The cap is a UX filter, not a safety limit.** `hard_ceiling=12` exists because attention drops 80% past position 10 (Nielsen Norman). Reddit's API allows ~100 QPM; we use ~30 req/day. Power users override via `--max-surfaces`.
 - **author_vet** runs BEFORE scoring, not after. Catches throwaway/karma-farmer OPs early so they never enter the scoring pool. Cached 7 days in SQLite (`vetted_authors` table).
 - **The 3-question `/onboard` + 8-question `/profile` BOTH route through `profile_synth.py`.** The shorter flow seeds an archetype and lets Claude refine in chat; the deeper flow runs the LLM synthesis prompt directly. Same validator, same YAML writer.
+- **Subreddit discovery is split: engine = recall, skill = precision (`discover.py` + `skills/onboard/SKILL.md`).** Onboarding T5 no longer seeds subs from the archetype map. The engine runs live discovery (DataForSEO SERP + Reddit search to find candidate subs, then a per-sub search-within-sub over a 7-day window to confirm each has a real buyer thread), and emits candidates with an absolute-timestamped evidence thread, a truthful `recent_thread_reason`, and a 0-100 confidence. The per-thread gate (`software_buyer_intent`) is deterministic and lexical, so it tops out ~50% precision: it cannot tell "Software Engineering vs Dentistry" (career) from "dental software vs Dentrix" (buyer). The precision layer is the SKILL.md relevance review, where the orchestrating Claude drops semantic false positives (career questions, self-promo, brand-name collisions like Clio-the-car). This split is intentional: the engine subprocess cannot rely on an LLM key (Claude Code injects `ANTHROPIC_API_KEY` into the session, not child processes), so the semantic judgment lives in the skill layer where an LLM is guaranteed present. `archetype_map.py` remains only as the thin/fallback seed when discovery is unreachable. Freshness window is 7 days for onboarding discovery vs 48h for the daily scan (`DISCOVERY_FRESH_WINDOW_HOURS` vs `PHASE_B_FRESH_WINDOW_HOURS`).
 
 ---
 
