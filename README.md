@@ -85,7 +85,7 @@ Seven turns, plain questions, one confirmation, optional integrations, first sca
 2. **What do you sell?** One line.
 3. **Who buys it?** A job title is enough.
 4. **What is the pain?** A real customer quote is gold. Paraphrase is fine.
-5. **Confirm the scan card.** Five fields merged from your three answers plus the URL fetch: what you sell, buyers, pain pattern, up to 8 candidate subreddits with why-lines like `r/microsaas (4 threads · "saas subscriptions too expensive")`, and up to 6 competitors. The subreddits come from live Reddit search against your pain phrasing plus your competitor brands, not from a generic founder template. If discovery returns thin or noisy results, the flow asks one extra question about your vertical and re-runs. Reply `go` to lock the card, or tell the flow what to fix and it re-renders.
+5. **Confirm the scan card.** What you sell, buyers, pain pattern, your competitor list, and the recommended subreddits. Each subreddit carries a confidence score, a one-line reason it was picked, and a clickable link to a real buyer thread posted in the last 7 days (see ["How subscope finds your subreddits"](#how-subscope-finds-your-subreddits) below). Reply `go` to lock the card, or tell the flow what to fix and it re-renders.
 6. **Connect integrations (optional).** One menu, multi-pick. DataForSEO, Firecrawl, Notion, Slack, Obsidian. Reply `skip` to skip the whole menu, or `skip` inside any sub-prompt to drop just that one. A failed paste re-asks once, then moves on. The scan still runs.
 7. **First scan runs.** If DataForSEO or Firecrawl keys were set up, the engine warms the enrichment cache against your homepage once. Then 5 to 12 threads land in chat with pattern badges, grouped by tier, with a plain-English summary of what was filtered before scoring (subreddit rules, author quality, content rules).
 
@@ -94,6 +94,32 @@ The flow writes config files to `~/.config/subscope/` (subreddits, keywords, bra
 Need to refine later? `/subscope-profile` is a per-section deep dive: `redo just the competitor anchor`, `rebuild pain language`, `swap a subreddit`. Not a full re-interview, just the section that's drifted.
 
 Once your profile is in place, each scan fetches new posts from your configured subs, filters throwaway accounts before scoring, and ranks what's left by signal strength: freshness, upvote velocity, comment velocity, keyword density, and which of 8 buying-intent patterns the post matches. Tier 1 surfaces every run. Tier 2 surfaces only when a standout appears.
+
+---
+
+## How subscope finds your subreddits
+
+When you onboard, subscope does not hand you a generic list of r/SaaS and r/Entrepreneur. It does not hand you a list of subreddits at all. It hands you a list of people asking for what you sell, with the receipts.
+
+Here is what happens during discovery:
+
+1. **Live search, not a template.** subscope searches Reddit in real time using your own pain phrasing and your competitors' brand names. The subreddits it recommends come from real conversations happening this week, not a founder-archetype lookup. Two people selling different things get different subreddits.
+
+2. **A real buyer thread, dated, on every result.** A subreddit only makes the list if it has a genuine buyer thread from the **last 7 days**. Each recommendation includes a direct link to that exact thread plus an absolute timestamp. A subreddit name is a guess. A live buyer thread is evidence.
+
+3. **Claude reviews every candidate.** A keyword pass finds candidates, then Claude (the AI running the plugin) reads each one and drops the false positives that keyword matching cannot catch: career questions ("Software Engineering vs Dentistry"), self-promoters announcing their own newsletter, and brand-name collisions (the law software "Clio" vs the Renault "Clio", the scheduling app "Homebase" vs the Eufy camera "Homebase"). You only see subreddits with a confirmed buyer.
+
+4. **A plain-English reason + a confidence score.** Each result tells you why it was picked, naming only signals that are actually in the thread, plus a 0-100 confidence so you know which to trust most. A result looks like this:
+
+   ```
+   [64] r/LawFirm   buyer post 2026-05-28 07:29 UTC
+        "Best tool for document parsing?"
+        Buyer post 14h ago. Someone asking about a "tool" with buying intent ("best").
+   ```
+
+**Verify it yourself.** Click the thread link on any recommendation. If it is not a real person shopping for what you sell, the tool failed. That is the bar we hold it to, and you can check it in one click.
+
+**Precision over volume, on purpose.** In a narrow B2B niche you might see one to three subreddits, or occasionally "no active buyer this week." That honest result beats padding the list with noise. subscope never auto-posts and never invents a match. You find the thread, you decide, you write the reply.
 
 ---
 
