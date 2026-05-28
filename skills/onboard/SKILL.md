@@ -130,15 +130,29 @@ Substitute:
 
 The triple-quoted strings handle embedded apostrophes safely; `--answers-json -` reads the piped JSON from stdin.
 
-The engine returns JSON with: `subs` (ranked list with `name`, `score`, `why`, `thread_count`), `needs_clarification` (bool), `clarifier_prompt` (string when clarification needed), `discovery_unreachable` (bool), `source_mix`.
+The engine returns JSON with these fields:
+- `subs`: ranked surviving subs (v3 schema below). Each entry has `name`, `confidence` (0-100), `fresh_post_count`, `fresh_buyer_intent_count`, `fresh_relevance_count`, `recent_thread_url`, `recent_thread_title`, `recent_thread_age_h`, `freshness_unverified`, `why`, `thread_count`, `sources`, `noise_downranked`
+- `dropped_subs`: list of subs that failed Phase B with reasons (`no_fresh_buyer_activity`, `low_confidence`, `validation_unreachable`)
+- `needs_clarification`: bool
+- `clarifier_reason`: `stale_only`, `thin_results`, `no_candidates`, or null
+- `clarifier_prompt`: string to render verbatim when clarification needed
+- `discovery_unreachable`: bool (both providers failed)
+- `phase_a_count`: number of candidates before Phase B validation
+- `phase_b_timed_out`: list of subs Phase B couldn't reach
 
-**If `needs_clarification` is true:** render T4.5 sub-turn with the engine's `clarifier_prompt` verbatim, wait for the user's reply, then re-run the same `discover` command with an added `--vertical "<user reply>"` flag. Use that second result for T5 regardless of clarification flag (we only ask once).
+**v3 freshness guarantee:** every sub in `subs` has at least one buyer-intent post in the LAST 48 HOURS. The `recent_thread_url` field is a clickable evidence link the user can verify.
 
-**If `discovery_unreachable` is true:** the T5 card will show a one-line warning under the Subreddits row (see T5 card shape below).
+**If `needs_clarification` is true:** render T4.5 sub-turn with the engine's `clarifier_prompt` verbatim. The clarifier varies by reason:
+- `stale_only`: Phase A found candidates but none had fresh activity. Offers to broaden the freshness window or refine vertical.
+- `thin_results` / `no_candidates`: Phase A didn't find enough relevant subs. Asks for the vertical.
+
+Wait for user reply. If they say "broaden", re-run discover with extra arg `--fresh-window-hours 168` (7 days). Otherwise re-run with `--vertical "<user reply>"`. Use the second result regardless of clarification status (we only ask once).
+
+**If `discovery_unreachable` is true:** the T5 card will show a one-line warning under the Subreddits row.
 
 ## Turn 5: confirm the scan card
 
-Build the card from WebFetch output + the three answers + the discovery result. Render exactly this shape:
+Build the card from WebFetch output + the three answers + the discovery result. Render exactly this shape (v3, with confidence chips + freshness evidence + batched dropped line):
 
 ```
 SUBSCOPE ONBOARDING  ·  5 / 7
@@ -146,18 +160,35 @@ SUBSCOPE ONBOARDING  ·  5 / 7
 
 Here's what I'm scanning for. Confirm or correct.
 
-→  You sell       <one-liner from T2>
-→  Buyers         <titles from T3>
-→  Pain pattern   <theme from T4>
-→  Subreddits     r/<sub>   (<thread_count> threads · "<top_query>")
-                  r/<sub>   (<thread_count> threads · "<top_query>")
-                  ... up to 8 entries from discover.subs
-→  Competitors    <up to 6, inferred from WebFetch + DFS cache>
+You sell       <one-liner from T2>
+Buyers         <titles from T3>
+Pain pattern   <theme from T4>
+
+Confidence:  ** 90+ trust   ++ 70-89 likely   ~~ 50-69 watch closely
+
+Subreddits (each verified active in last 48h)
+** [<conf>] r/<sub>   <fresh_buyer_intent_count> fresh / 48h  ·  "<recent_thread_title truncated to 50 chars>"
+** [<conf>] r/<sub>   <fresh_buyer_intent_count> fresh / 48h  ·  "..."
+++ [<conf>] r/<sub>   <fresh_buyer_intent_count> fresh / 48h  ·  "..."
+~~ [<conf>] r/<sub>   <fresh_buyer_intent_count> fresh / 48h  ·  "..."
+
+Dropped <N> subs (no buyer activity in 48h): r/<a>, r/<b>, r/<c>
+
+Competitors    <up to 6, inferred from WebFetch + DFS cache>
 
 Reply "go" to confirm, or tell me what to fix.
 ```
 
-If `discovery_unreachable` is true, replace the Subreddits row with archetype-map output and append `(discovery thin, generic fallback)` to that row. If `discovery_unreachable` is false but the list is short (1-4 subs), still render what we have; do not pad with generic founder subs.
+Rendering rules:
+- Band prefix is determined by `confidence`: `**` for 90-100, `++` for 70-89, `~~` for 50-69. Subs below 50 are NOT in `subs` (already dropped by engine).
+- `[<conf>]` is the integer confidence padded to 2 digits (e.g. `[94]`, `[76]`, `[ 8]`, never shown since <50 dropped, but format-pad).
+- `<fresh_buyer_intent_count>` comes from each sub's `fresh_buyer_intent_count` field.
+- `<recent_thread_title>` comes from each sub's `recent_thread_title` field, truncated to 50 chars with `...` suffix if longer.
+- "Dropped N subs" line: read `dropped_subs` from the engine, filter to `reason: "no_fresh_buyer_activity"`, list sub names comma-separated. Skip the entire line if no dropped subs.
+- If `discovery_unreachable` is true, replace the Subreddits block with the archetype-map output and append `(discovery thin, generic fallback)` to the first sub row.
+- If any sub has `freshness_unverified: true`, append `· freshness unverified` to that sub's row (Phase B couldn't reach Reddit for that sub).
+
+If the list is short (1-4 subs), still render what we have. Do not pad with generic founder subs.
 
 If the user replies with edits, apply silently and re-render the card. Do NOT re-render after a "go".
 
