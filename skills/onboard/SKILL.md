@@ -166,13 +166,13 @@ Pain pattern   <theme from T4>
 
 Confidence:  ** 90+ trust   ++ 70-89 likely   ~~ 50-69 watch closely
 
-Subreddits (each verified active in last 48h)
-** [<conf>] r/<sub>   <fresh_buyer_intent_count> fresh / 48h  ·  "<recent_thread_title truncated to 50 chars>"
-** [<conf>] r/<sub>   <fresh_buyer_intent_count> fresh / 48h  ·  "..."
-++ [<conf>] r/<sub>   <fresh_buyer_intent_count> fresh / 48h  ·  "..."
-~~ [<conf>] r/<sub>   <fresh_buyer_intent_count> fresh / 48h  ·  "..."
+Subreddits (each verified by a real buyer thread in the last 7 days)
+** [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "<recent_thread_title truncated to 50 chars>"
+** [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
+++ [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
+~~ [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
 
-Dropped <N> subs (no buyer activity in 48h): r/<a>, r/<b>, r/<c>
+Dropped <N> subs (no buyer activity in 7 days): r/<a>, r/<b>, r/<c>
 
 Competitors    <up to 6, inferred from WebFetch + DFS cache>
 
@@ -182,8 +182,9 @@ Reply "go" to confirm, or tell me what to fix.
 Rendering rules:
 - Band prefix is determined by `confidence`: `**` for 90-100, `++` for 70-89, `~~` for 50-69. Subs below 50 are NOT in `subs` (already dropped by engine).
 - `[<conf>]` is the integer confidence padded to 2 digits (e.g. `[94]`, `[76]`, `[ 8]`, never shown since <50 dropped, but format-pad).
-- `<fresh_buyer_intent_count>` comes from each sub's `fresh_buyer_intent_count` field.
+- `<recent_thread_iso>` is each sub's `recent_thread_iso` field, the absolute UTC timestamp of the evidence thread (e.g. `2026-05-28 07:29 UTC`). Show it verbatim so the user can cross-check against what Reddit displays. The `recent_thread_url` is the clickable evidence link.
 - `<recent_thread_title>` comes from each sub's `recent_thread_title` field, truncated to 50 chars with `...` suffix if longer.
+- Discovery validates buyer activity over a 7-day window (onboarding picks subs to watch long-term). The daily `/subscope-run` scan uses a tighter 48h window for hot threads. Every timestamp is absolute, so "fresh" is never ambiguous.
 - "Dropped N subs" line: read `dropped_subs` from the engine, filter to `reason: "no_fresh_buyer_activity"`, list sub names comma-separated. Skip the entire line if no dropped subs.
 - If `discovery_unreachable` is true, replace the Subreddits block with the archetype-map output and append `(discovery thin, generic fallback)` to the first sub row.
 - If any sub has `freshness_unverified: true`, append `· freshness unverified` to that sub's row (Phase B couldn't reach Reddit for that sub).

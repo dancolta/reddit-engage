@@ -853,6 +853,66 @@ def test_generic_billing_noun_does_not_leak():
     assert passed is False
 
 
+# ─── v3.2: reason-string truthfulness ──────────────────────────────────
+
+
+def test_build_reason_only_names_fired_signals():
+    """Hallucination tripwire: every brand/noun/token quoted in the reason
+    string must actually appear in the source thread (case-insensitive)."""
+    cases = [
+        ("Best tool for document parsing?", "", []),
+        ("Buzzsprout vs Acast vs Substack oh my", "", ["Buzzsprout", "Acast"]),
+        ("Has anyone monetized Substack through Reddit?", "", ["Substack"]),
+        ("Fed up with Drake Software pricing", "", ["Drake Software"]),
+        ("Anyone switching CRM platforms this year?", "", []),
+        ("Moving off Acast, suggestions?", "", ["Acast"]),
+    ]
+    for title, body, comps in cases:
+        m = discover.software_buyer_intent(title, body, _comp_tokens(comps))
+        reason = discover.build_reason(m, age_h=24.0)
+        if not m.passed:
+            assert reason is None
+            continue
+        assert reason is not None
+        blob = (title + " " + body).lower()
+        # Any quoted token in the reason must be a real substring of the thread
+        import re as _re
+        for quoted in _re.findall(r'"([^"]+)"', reason):
+            assert quoted.lower() in blob, (
+                f"reason quoted {quoted!r} not in thread {title!r}: {reason!r}")
+        # Named competitor (if any) must be real
+        if m.competitor:
+            assert m.competitor.lower() in blob
+        # No em dashes in user-facing reason
+        assert "—" not in reason
+
+
+def test_build_reason_none_when_not_passed():
+    m = discover.software_buyer_intent(
+        "Looking for interviewees for my podcast", "", _comp_tokens([]))
+    assert m.passed is False
+    assert discover.build_reason(m, age_h=10.0) is None
+
+
+def test_build_reason_competitor_question_no_fake_intent():
+    """Competitor + question marker must NOT fabricate an intent token."""
+    m = discover.software_buyer_intent(
+        "Has anyone monetized Substack through Reddit?", "", _comp_tokens(["Substack"]))
+    assert m.passed is True
+    assert m.path == "competitor"
+    assert m.marker == "question"
+    assert m.intent_token is None
+    reason = discover.build_reason(m, age_h=24.0)
+    assert "buying question" in reason
+
+
+def test_buyer_intent_match_tuple_unpacks():
+    """Backward-compat: BuyerIntentMatch unpacks to (passed, path, weight)."""
+    m = discover.software_buyer_intent("Best tool for parsing", "", _comp_tokens([]))
+    passed, path, weight = m
+    assert passed is True and path == "noun" and weight == 0.6
+
+
 def test_future_dated_post_not_counted_fresh():
     """Clock-skew guard: a post dated in the future must not count as fresh."""
     future = int(time.time()) + 10 * 86400  # 10 days ahead

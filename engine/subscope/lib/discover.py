@@ -36,6 +36,7 @@ import re
 import sys
 import time
 import urllib.parse
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -50,7 +51,7 @@ MAX_SUBS_RETURNED = 8                 # final cap after Phase B
 PHASE_A_CANDIDATE_CAP = 12            # Phase A returns 12, Phase B trims to 8
 MAX_QUERIES = 6
 DISCOVERY_HARD_TIMEOUT_S = 30.0       # raised from 20 to absorb Phase B
-PHASE_B_TIMEOUT_S = 12.0              # hard cap on Phase B validation
+PHASE_B_TIMEOUT_S = 22.0              # hard cap on Phase B validation (search-within-sub is slightly heavier than scan)
 PHASE_B_FRESH_WINDOW_HOURS = 48       # daily-scan freshness window
 # Onboarding sub-DISCOVERY uses a wider window than the daily scan. Rationale
 # (backed by v3.1 QA on 10 niche-B2B businesses): at a strict 48h gate, half
@@ -299,32 +300,38 @@ def _tokenize(text: str) -> list[str]:
     return re.findall(r"[a-z0-9][a-z0-9\-]*", (text or "").lower())
 
 
-def _intent_positions(tokens: list[str]) -> list[int]:
-    """Indices where a buyer-intent token (or multi-word phrase) starts,
-    excluding hits negated by a preceding negation token within 3 tokens."""
-    joined = " ".join(tokens)
-    hits: list[int] = []
-    # Single-token intent words first (fast path via set membership)
+def _intent_hits(tokens: list[str]) -> list[tuple[int, str]]:
+    """List of (start_index, matched_phrase) for buyer-intent tokens / phrases,
+    excluding hits negated by a preceding negation token within 3 tokens.
+
+    Returns the verbatim matched phrase (single token or multi-word) so the
+    reason string can quote exactly what fired (truthfulness contract)."""
+    hits: list[tuple[int, str]] = []
     single = {t for t in _INTENT_TOKENS if " " not in t}
     for i, tok in enumerate(tokens):
         if tok in single:
-            hits.append(i)
-    # Multi-word phrases: find phrase start index by scanning windows
+            hits.append((i, tok))
     multi = [t for t in _INTENT_TOKENS if " " in t]
     for phrase in multi:
-        plen = len(phrase.split())
         ptoks = phrase.split()
+        plen = len(ptoks)
         for i in range(len(tokens) - plen + 1):
             if tokens[i:i + plen] == ptoks:
-                hits.append(i)
-    # Negation guard: drop any intent hit with a negation token within 3 before it
+                hits.append((i, phrase))
+    # Negation guard: drop hits with a negation token within 3 before the start
     kept = []
-    for h in hits:
-        window_before = tokens[max(0, h - 3):h]
+    for idx, phrase in hits:
+        window_before = tokens[max(0, idx - 3):idx]
         if any(n in window_before for n in _NEGATION_TOKENS):
             continue
-        kept.append(h)
-    return sorted(set(kept))
+        kept.append((idx, phrase))
+    # Stable sort by index
+    return sorted(set(kept), key=lambda x: x[0])
+
+
+def _intent_positions(tokens: list[str]) -> list[int]:
+    """Backward-compatible index-only view of _intent_hits."""
+    return [i for i, _ in _intent_hits(tokens)]
 
 
 def _noun_positions(tokens: list[str]) -> list[int]:
@@ -386,54 +393,145 @@ def _competitor_brand_hit(title: str, body: str, comp_tokens: set[str]) -> bool:
     return False
 
 
+@dataclass
+class BuyerIntentMatch:
+    """Result of the per-thread software-buyer-intent classifier.
+
+    Tuple-unpackable as (passed, path, weight) for backward compatibility with
+    existing call sites, while carrying the matched-token detail needed to
+    build a 100%-truthful reason string.
+    """
+    passed: bool
+    path: str | None          # "competitor" | "noun" | None
+    weight: float             # 1.0 | 0.6 | 0.0
+    competitor: str | None = None   # exact brand token matched, e.g. "buzzsprout"
+    noun: str | None = None         # exact product noun matched, e.g. "tool"
+    intent_token: str | None = None  # exact intent token/phrase, e.g. "vs"
+    marker: str | None = None        # "pain" | "question" (competitor path w/o intent)
+
+    def __iter__(self):
+        # Allow `passed, path, weight = software_buyer_intent(...)`
+        yield self.passed
+        yield self.path
+        yield self.weight
+
+
+def _matched_competitor(title: str, body: str, comp_tokens: set[str]) -> str | None:
+    """Return the exact competitor token that matched, or None."""
+    blob = (title + " " + body[:800]).lower()
+    for c in comp_tokens:
+        if not c:
+            continue
+        if " " in c or "." in c:
+            if c in blob:
+                return c
+        else:
+            if re.search(rf"\b{re.escape(c)}\b", blob):
+                return c
+    return None
+
+
 def software_buyer_intent(
     title: str,
     body: str,
     comp_tokens: set[str],
-) -> tuple[bool, str | None, float]:
+) -> "BuyerIntentMatch":
     """Classify whether a fresh Reddit thread is a software buyer signal.
 
-    Returns (passed, path, weight):
-      - ("competitor", 1.0): names a competitor brand AND (has an intent token
-        OR a pain/question marker). Strong signal.
-      - ("noun", 0.6): an intent token co-occurs with a product noun within
+    Returns a BuyerIntentMatch (tuple-unpacks to passed, path, weight):
+      - competitor (weight 1.0): names a competitor brand AND (has an intent
+        token OR a pain/question marker). Strong signal.
+      - noun (weight 0.6): an intent token co-occurs with a product noun within
         _INTENT_NOUN_WINDOW tokens, in title or body. Medium signal.
-      - (False, None, 0.0): neither. The "looking for interviewees for my
-        podcast" class lands here (intent present, but no product noun nearby
-        and no competitor brand).
+      - neither (False, weight 0.0): the "looking for interviewees for my
+        podcast" class lands here.
 
     The product-noun whitelist is disjoint from user vocab on purpose: a topic
-    word alone never qualifies a thread.
+    word alone never qualifies a thread. The matched tokens are captured so the
+    reason string can quote exactly what fired.
     """
     title = title or ""
     body = body or ""
 
     # Strong path: competitor brand + (intent OR pain/question)
-    if comp_tokens and _competitor_brand_hit(title, body, comp_tokens):
-        t_tokens = _tokenize(title)
-        b_tokens = _tokenize(body[:800])
-        has_intent = bool(_intent_positions(t_tokens)) or bool(_intent_positions(b_tokens))
-        if has_intent or score.has_pain_markers(title, body) or score.has_question_intent(title, body):
-            return True, "competitor", 1.0
+    brand = _matched_competitor(title, body, comp_tokens) if comp_tokens else None
+    if brand:
+        t_hits = _intent_hits(_tokenize(title))
+        b_hits = _intent_hits(_tokenize(body[:800]))
+        intent_phrase = (t_hits[0][1] if t_hits else (b_hits[0][1] if b_hits else None))
+        if intent_phrase:
+            return BuyerIntentMatch(True, "competitor", 1.0,
+                                    competitor=brand, intent_token=intent_phrase)
+        if score.has_pain_markers(title, body):
+            return BuyerIntentMatch(True, "competitor", 1.0,
+                                    competitor=brand, marker="pain")
+        if score.has_question_intent(title, body):
+            return BuyerIntentMatch(True, "competitor", 1.0,
+                                    competitor=brand, marker="question")
         # bare brand + neutral (changelog/news) does NOT pass
-        return False, None, 0.0
+        return BuyerIntentMatch(False, None, 0.0, competitor=brand)
 
     # Medium path: intent token co-occurs with a product noun within window.
     # Check title and body as SEPARATE spans (no cross-field pairing).
     for field in (title, body[:800]):
         toks = _tokenize(field)
-        intent_idx = _intent_positions(toks)
-        if not intent_idx:
+        i_hits = _intent_hits(toks)
+        if not i_hits:
             continue
         noun_idx = _noun_positions(toks)
         if not noun_idx:
             continue
-        for ii in intent_idx:
+        for ii, phrase in i_hits:
             for ni in noun_idx:
                 if abs(ii - ni) <= _INTENT_NOUN_WINDOW:
-                    return True, "noun", 0.6
+                    return BuyerIntentMatch(True, "noun", 0.6,
+                                            noun=toks[ni], intent_token=phrase)
 
-    return False, None, 0.0
+    return BuyerIntentMatch(False, None, 0.0)
+
+
+def build_reason(match: "BuyerIntentMatch", age_h: float | None) -> str | None:
+    """Assemble a truthful, plain-English reason string from a passing match.
+
+    Only names signals that actually fired (every quoted substring was captured
+    from the thread by the matcher). Returns None for a non-passing match.
+    No em dashes (user-facing).
+    """
+    if not match.passed:
+        return None
+
+    # Freshness gloss
+    if age_h is None:
+        fresh = "Recent buyer post."
+    elif age_h < 1:
+        fresh = "Buyer post under 1h ago."
+    elif age_h < 48:
+        fresh = f"Buyer post {round(age_h)}h ago."
+    else:
+        fresh = f"Buyer post {round(age_h / 24)}d ago."
+
+    if match.path == "competitor":
+        brand = (match.competitor or "a competitor").strip()
+        brand_disp = brand if brand else "a competitor"
+        if match.intent_token:
+            clause = (f'Someone weighing {brand_disp} against alternatives '
+                      f'("{match.intent_token}").')
+        elif match.marker == "pain":
+            clause = (f"Someone naming {brand_disp} with a complaint about "
+                      f"their current tool.")
+        elif match.marker == "question":
+            clause = f"Someone discussing {brand_disp} with a buying question."
+        else:
+            clause = f"Someone discussing {brand_disp}."
+        return f"{fresh} {clause}"
+
+    if match.path == "noun":
+        noun = match.noun or "a tool"
+        tok = match.intent_token or "shopping language"
+        return (f'{fresh} Someone asking about a "{noun}" with buying intent '
+                f'("{tok}").')
+
+    return fresh
 
 
 # ─── 1. Query derivation ────────────────────────────────────────────────
@@ -895,6 +993,80 @@ def rank_subs(threads: list[dict[str, Any]],
 
 # ─── 4. Phase B validation + confidence scoring ────────────────────────
 
+# Search-within-sub net. Must cover EVERYTHING the software_buyer_intent gate
+# can pass: intent verbs (for the noun path's intent side) AND product nouns
+# (so noun-led threads like "Best tool for document parsing" surface) AND
+# "best"/"cheaper" shopping words. Every returned thread STILL runs through the
+# gate, so this widens the candidate POOL without loosening precision.
+_SEARCH_INTENT_TERMS = (
+    'alternative', 'alternatives', 'recommendations', 'vs', 'switching',
+    '"looking for"', 'replace', 'best', 'cheaper', 'migrate',
+    'software', 'tool', 'platform', 'crm', 'app',
+)
+
+
+def _sub_search_query(comp_tokens: set[str]) -> str:
+    """Build the search-within-sub query: generic buyer terms OR up to 2
+    competitor brands. Multi-word brands quoted for exact-phrase match."""
+    parts = list(_SEARCH_INTENT_TERMS)
+    added = 0
+    for c in sorted(comp_tokens, key=len, reverse=True):
+        if added >= 2:
+            break
+        # prefer full multi-word/dotted brand names (most specific)
+        if " " in c or "." in c:
+            parts.append(f'"{c}"')
+            added += 1
+    return " OR ".join(parts)
+
+
+def _fetch_candidate_posts(sub: str, comp_tokens: set[str],
+                           window_hours: int) -> tuple[list[dict], bool]:
+    """Fetch candidate posts for Phase B. Search-within-sub FIRST (finds buyer
+    threads anywhere in the window, not just the 25 newest), /new.json fallback
+    on empty/error. Dedup by post id. Returns (posts, reachable)."""
+    posts: dict[str, dict] = {}
+    reachable = False
+
+    # Map window to Reddit's t= filter (week covers the 7-day discovery window)
+    t_filter = "week" if window_hours <= 168 else "month"
+
+    # Primary: search within the sub for buyer-intent terms
+    q = urllib.parse.quote(_sub_search_query(comp_tokens))
+    search_url = (f"https://old.reddit.com/r/{sub}/search.json?q={q}"
+                  f"&restrict_sr=1&sort=new&t={t_filter}&limit=25")
+    try:
+        raw = reddit.fetch_json(search_url, timeout=10)
+        if raw is not None:
+            reachable = True
+            for child in (raw.get("data") or {}).get("children", []):
+                d = child.get("data") or {}
+                pid = d.get("id") or d.get("name") or d.get("permalink")
+                if pid:
+                    posts[pid] = d
+    except Exception:
+        pass
+
+    # Fallback: /new.json (only if search returned nothing)
+    if not posts:
+        new_url = f"https://old.reddit.com/r/{sub}/new.json?limit=25"
+        try:
+            raw = reddit.fetch_json(new_url, timeout=8)
+            if raw is None:
+                raw = reddit.fetch_json(
+                    f"https://www.reddit.com/r/{sub}/new.json?limit=25", timeout=8)
+            if raw is not None:
+                reachable = True
+                for child in (raw.get("data") or {}).get("children", []):
+                    d = child.get("data") or {}
+                    pid = d.get("id") or d.get("name") or d.get("permalink")
+                    if pid:
+                        posts[pid] = d
+        except Exception:
+            pass
+
+    return list(posts.values()), reachable
+
 
 def validate_sub_freshness(
     sub_name: str,
@@ -935,6 +1107,7 @@ def validate_sub_freshness(
         "recent_thread_age_h": None,
         "recent_thread_created_utc": None,
         "recent_thread_iso": None,
+        "recent_thread_reason": None,
         "passed": False,
         "timed_out": False,
         "error": None,
@@ -947,25 +1120,8 @@ def validate_sub_freshness(
 
     comp_tokens = _build_competitor_tokens(competitors)
 
-    url = f"https://old.reddit.com/r/{sub}/new.json?limit=25"
-    try:
-        raw = reddit.fetch_json(url, timeout=8)
-    except Exception as e:
-        result["error"] = type(e).__name__
-        result["timed_out"] = True
-        return result
-
-    if raw is None:
-        # Fallback to www if old.reddit.com refused
-        url2 = f"https://www.reddit.com/r/{sub}/new.json?limit=25"
-        try:
-            raw = reddit.fetch_json(url2, timeout=8)
-        except Exception as e:
-            result["error"] = type(e).__name__
-            result["timed_out"] = True
-            return result
-
-    if raw is None:
+    posts, reachable = _fetch_candidate_posts(sub, comp_tokens, window_hours)
+    if not reachable:
         result["error"] = "fetch_failed"
         result["timed_out"] = True
         return result
@@ -980,8 +1136,7 @@ def validate_sub_freshness(
     weighted_relevance = 0.0
     paths_seen: dict[str, int] = {"competitor": 0, "noun": 0}
 
-    for child in (raw.get("data") or {}).get("children", []):
-        d = child.get("data") or {}
+    for d in posts:
         created_utc = int(d.get("created_utc") or 0)
         # Future-date guard (clock skew / bad data): skip, do not count fresh
         if created_utc > future_guard:
@@ -993,20 +1148,20 @@ def validate_sub_freshness(
         title = d.get("title", "") or ""
         body = d.get("selftext", "") or ""
 
-        passed, path, weight = software_buyer_intent(title, body, comp_tokens)
-        if passed:
+        match = software_buyer_intent(title, body, comp_tokens)
+        if match.passed:
             result["fresh_buyer_intent_count"] += 1
             result["fresh_relevance_count"] += 1
-            weighted_relevance += weight
-            if path in paths_seen:
-                paths_seen[path] += 1
+            weighted_relevance += match.weight
+            if match.path in paths_seen:
+                paths_seen[match.path] += 1
             # Track the most recent qualifying thread as evidence. Prefer a
             # stronger path; among equal paths prefer the most recent.
             age_h = (now - created_utc) / 3600.0
             better = (
                 best_fresh is None
-                or (weight > best_fresh["weight"])
-                or (weight == best_fresh["weight"] and age_h < best_fresh["age_h"])
+                or (match.weight > best_fresh["weight"])
+                or (match.weight == best_fresh["weight"] and age_h < best_fresh["age_h"])
             )
             if better:
                 permalink = d.get("permalink", "")
@@ -1017,8 +1172,9 @@ def validate_sub_freshness(
                     "title": title[:120],
                     "age_h": age_h,
                     "created_utc": created_utc,
-                    "path": path,
-                    "weight": weight,
+                    "path": match.path,
+                    "weight": match.weight,
+                    "match": match,
                 }
 
     if best_fresh:
@@ -1032,6 +1188,9 @@ def validate_sub_freshness(
             best_fresh["created_utc"], tz=timezone.utc
         ).strftime("%Y-%m-%d %H:%M UTC")
         result["relevance_path"] = best_fresh["path"]
+        # Truthful, plain-English reason for WHY this thread was chosen.
+        result["recent_thread_reason"] = build_reason(
+            best_fresh["match"], best_fresh["age_h"])
 
     result["weighted_relevance"] = round(weighted_relevance, 3)
     result["paths"] = paths_seen
@@ -1276,7 +1435,8 @@ def discover_subs_for_profile(
     # Budget Phase B against PHASE_B_TIMEOUT_S. Each sub takes ~0.5-1s.
     phase_b_start = time.time()
     phase_b_deadline = phase_b_start + PHASE_B_TIMEOUT_S
-    _log(f"Phase B: validating {phase_a_count} candidate subs (48h gate)")
+    _log(f"Phase B: validating {phase_a_count} candidate subs "
+         f"({fresh_window_hours}h freshness gate)")
 
     # Pull competitor list back out of the queries for relevance check
     # (the discover_subs_for_profile signature already merged extra + DFS comps above)
@@ -1347,6 +1507,7 @@ def discover_subs_for_profile(
         cand["recent_thread_title"] = freshness["recent_thread_title"]
         cand["recent_thread_age_h"] = freshness["recent_thread_age_h"]
         cand["recent_thread_iso"] = freshness.get("recent_thread_iso")
+        cand["recent_thread_reason"] = freshness.get("recent_thread_reason")
         cand["freshness_unverified"] = False
 
         if not freshness["passed"]:
