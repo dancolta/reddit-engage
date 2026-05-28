@@ -131,16 +131,19 @@ Substitute:
 The triple-quoted strings handle embedded apostrophes safely; `--answers-json -` reads the piped JSON from stdin.
 
 The engine returns JSON with these fields:
-- `subs`: ranked surviving subs (v3 schema below). Each entry has `name`, `confidence` (0-100), `fresh_post_count`, `fresh_buyer_intent_count`, `fresh_relevance_count`, `recent_thread_url`, `recent_thread_title`, `recent_thread_age_h`, `freshness_unverified`, `why`, `thread_count`, `sources`, `noise_downranked`
-- `dropped_subs`: list of subs that failed Phase B with reasons (`no_fresh_buyer_activity`, `low_confidence`, `validation_unreachable`)
-- `needs_clarification`: bool
-- `clarifier_reason`: `stale_only`, `thin_results`, `no_candidates`, or null
-- `clarifier_prompt`: string to render verbatim when clarification needed
-- `discovery_unreachable`: bool (both providers failed)
-- `phase_a_count`: number of candidates before Phase B validation
-- `phase_b_timed_out`: list of subs Phase B couldn't reach
+- `subs`: ranked candidate subs (recall stage). Each entry has `name`, `confidence` (0-100), `relevance_path` ("competitor"/"noun"), `recent_thread_url`, `recent_thread_title`, `recent_thread_iso` (absolute UTC timestamp), `recent_thread_reason` (plain-English why-chosen line), `recent_thread_age_h`, `freshness_unverified`, `why`, `thread_count`, `sources`, `noise_downranked`
+- `dropped_subs`: subs that failed Phase B (reasons: `no_fresh_buyer_activity`, `below_floor`, `validation_unreachable`)
+- `needs_clarification`, `clarifier_reason` (`stale_only`/`thin_results`/`no_candidates`), `clarifier_prompt`, `discovery_unreachable`, `phase_a_count`, `phase_b_timed_out`
 
-**v3 freshness guarantee:** every sub in `subs` has at least one buyer-intent post in the LAST 48 HOURS. The `recent_thread_url` field is a clickable evidence link the user can verify.
+**Freshness guarantee:** every sub in `subs` has a buyer-intent thread in the last 7 days, with an absolute timestamp + clickable link the user can verify.
+
+**MANDATORY relevance review (this is the precision step, do not skip).** The engine is the recall stage: it surfaces every sub with a fresh thread that passed the deterministic buyer-intent gate. The gate is lexical, so it cannot tell a real software buyer from a same-shaped non-buyer. Before rendering the T5 card, review each candidate sub's `recent_thread_reason` + `recent_thread_title` (open `recent_thread_url` if unsure) and DROP any where the evidence thread is not a genuine prospect for THIS user's product. Apply these rules:
+
+- KEEP: someone comparing or shopping tools ("Buzzsprout vs Acast", "best tool for X", "alternative to Clio"), someone venting about a named competitor's price/UX, someone explicitly asking which software to buy.
+- DROP: career / "should I switch professions" questions (e.g. "Software Engineering vs Dentistry" for a dental-software seller, "Medical billing vs Coding for analytics"), self-promotion ("just published my new Substack"), generic life/work venting that merely contains a product word, news/changelog reposts about a competitor with no buyer signal, threads where the matched word means something unrelated to the product (e.g. "Clio" the car, "Anchor" the boat).
+- When in doubt, open the `recent_thread_url` and read it. A surfaced sub must have evidence a real buyer would recognize. Drop silently; do not show dropped candidates to the user.
+
+After the review, you have the final sub list. If the review leaves fewer than 3 subs, treat it like a thin result (offer the clarifier / broaden). Never pad with generic founder subs.
 
 **If `needs_clarification` is true:** render T4.5 sub-turn with the engine's `clarifier_prompt` verbatim. The clarifier varies by reason:
 - `stale_only`: Phase A found candidates but none had fresh activity. Offers to broaden the freshness window or refine vertical.

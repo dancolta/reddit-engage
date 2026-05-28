@@ -415,10 +415,12 @@ def test_e2e_dan_case_returns_subs_and_no_clarification():
     # Queries used must be reported
     assert len(result["queries_used"]) >= 3
     assert result["source_mix"]["reddit_native"] > 0
-    # v3: every surfaced sub gets a confidence + recent_thread_url
+    # v3.2: every surfaced sub gets a confidence + recent_thread_url. Engine is
+    # the recall stage; it surfaces gate-passers above the low floor (precision
+    # comes from the skill-layer relevance review).
     for s in result["subs"]:
         assert "confidence" in s and isinstance(s["confidence"], int)
-        assert s["confidence"] >= discover.CONFIDENCE_THRESHOLD
+        assert s["confidence"] >= discover.CONFIDENCE_FLOOR
         assert "recent_thread_url" in s
 
 
@@ -698,35 +700,45 @@ def test_e2e_stale_only_clarifier_fires():
     assert all(d["reason"] == "no_fresh_buyer_activity" for d in result["dropped_subs"])
 
 
-def test_e2e_phase_b_drops_low_confidence():
-    """Even with Phase B pass, sub below CONFIDENCE_THRESHOLD gets dropped."""
+def test_e2e_recall_surfaces_gate_passer_with_low_confidence():
+    """v3.2: a thin-but-real gate-passer (single thread, no vocab match) still
+    SURFACES as a low-confidence candidate. The engine is the recall stage;
+    precision is the skill-layer review's job. Only confidence < FLOOR drops."""
     c = _conn()
-    answers = {"what_offering": "x", "who_to_reach": "y", "pain_quote": "alternative to z"}
+    answers = {
+        "what_offering": "dispatch software for HVAC shops",
+        "who_to_reach": "HVAC shop owners",
+        "pain_quote": "Housecall Pro is too expensive, looking for a cheaper dispatch tool",
+    }
 
     def fake_search(url, timeout=15):
-        return _reddit_search_response(("randomsub", 5, 1, 30))
+        # Returns WhichCRM for every query so it gets cross-query confirmation
+        return _reddit_search_response(("WhichCRM", 5, 1, 30))
 
     def thin_phase_b(sub_name, user_vocab, competitors, **kw):
-        # Passes freshness but very thin signal -> low confidence
         return {
             "fresh_post_count": 1, "fresh_buyer_intent_count": 1,
             "fresh_relevance_count": 1, "weighted_relevance": 0.6,
             "relevance_path": "noun",
             "recent_thread_url": f"https://reddit.com/r/{sub_name}/x/",
-            "recent_thread_title": "ok", "recent_thread_age_h": 40.0,
+            "recent_thread_title": "best crm tool?", "recent_thread_age_h": 40.0,
             "recent_thread_iso": "2026-05-27 00:00 UTC",
+            "recent_thread_reason": 'Buyer post 2d ago. Someone asking about a "crm" with buying intent ("best").',
             "passed": True, "timed_out": False, "error": None,
         }
 
     with patch.object(reddit, "fetch_json", side_effect=fake_search):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False, "firecrawl": False}):
             with patch.object(discover, "validate_sub_freshness", side_effect=thin_phase_b):
-                result = discover.discover_subs_for_profile(answers, "", c)
+                result = discover.discover_subs_for_profile(
+                    answers, "", c, extra_competitors=["Housecall Pro", "Jobber"])
 
-    # With only 1 fresh thread, no vocab match, low freq, confidence should be <50
-    low_conf_drops = [d for d in result["dropped_subs"] if d.get("reason") == "low_confidence"]
-    # Either the sub was low-confidence-dropped, or never made it through Phase A
-    assert result["subs"] == [] or all(s["confidence"] >= 50 for s in result["subs"])
+    # The gate-passer surfaces (recall), carrying its reason, even at low conf.
+    surfaced = {s["name"].lower() for s in result["subs"]}
+    assert "whichcrm" in surfaced
+    only = next(s for s in result["subs"] if s["name"].lower() == "whichcrm")
+    assert only["confidence"] >= discover.CONFIDENCE_FLOOR
+    assert only.get("recent_thread_reason")
 
 
 # ─── v3.1: software_buyer_intent classifier matrix (architect's 15 cases) ──

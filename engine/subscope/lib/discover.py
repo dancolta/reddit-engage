@@ -63,7 +63,15 @@ PHASE_B_FRESH_WINDOW_HOURS = 48       # daily-scan freshness window
 # user sees exactly how fresh each evidence thread is (no "ancient thread"
 # surprise, which was the original complaint).
 DISCOVERY_FRESH_WINDOW_HOURS = 168    # 7 days, for onboarding sub-discovery
-CONFIDENCE_THRESHOLD = 50             # subs below this are dropped from output
+# Engine surface floor. The engine is the RECALL stage: it surfaces every sub
+# with a fresh thread that passed the deterministic buyer-intent gate, so a
+# genuinely on-topic sub like r/WhichCRM (confidence in the 30s) is NOT dropped
+# just for being single-thread. Final PRECISION comes from the skill-layer
+# relevance review (the orchestrating Claude reads each evidence thread and
+# drops semantic false positives the regex gate cannot catch, e.g. a
+# "Software Engineering vs Dentistry" career question). The confidence band is
+# shown to the user as a quality signal, not used as a hard cutoff.
+CONFIDENCE_FLOOR = 20                 # drop only the very weakest gate-passers
 
 # Per-thread relevance (v3.1): a fresh thread is software-buyer-intent only if
 # an intent token CO-OCCURS with a product/purchase noun (medium path) OR a
@@ -1530,10 +1538,10 @@ def discover_subs_for_profile(
         )
         cand["confidence"] = confidence
 
-        if confidence < CONFIDENCE_THRESHOLD:
+        if confidence < CONFIDENCE_FLOOR:
             dropped.append({
                 "name": cand["name"],
-                "reason": "low_confidence",
+                "reason": "below_floor",
                 "confidence": confidence,
             })
             continue
