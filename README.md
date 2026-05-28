@@ -85,11 +85,11 @@ Seven turns, plain questions, one confirmation, optional integrations, first sca
 2. **What do you sell?** One line.
 3. **Who buys it?** A job title is enough.
 4. **What is the pain?** A real customer quote is gold. Paraphrase is fine.
-5. **Confirm the scan card.** Five fields merged from your three answers plus the URL fetch: what you sell, buyers, pain pattern, 4-6 candidate subreddits, up to 6 competitors. Reply `go` to lock it, or tell the flow what to fix and the card re-renders.
+5. **Confirm the scan card.** Five fields merged from your three answers plus the URL fetch: what you sell, buyers, pain pattern, up to 8 candidate subreddits with why-lines like `r/microsaas (4 threads · "saas subscriptions too expensive")`, and up to 6 competitors. The subreddits come from live Reddit search against your pain phrasing plus your competitor brands, not from a generic founder template. If discovery returns thin or noisy results, the flow asks one extra question about your vertical and re-runs. Reply `go` to lock the card, or tell the flow what to fix and it re-renders.
 6. **Connect integrations (optional).** One menu, multi-pick. DataForSEO, Firecrawl, Notion, Slack, Obsidian. Reply `skip` to skip the whole menu, or `skip` inside any sub-prompt to drop just that one. A failed paste re-asks once, then moves on. The scan still runs.
 7. **First scan runs.** If DataForSEO or Firecrawl keys were set up, the engine warms the enrichment cache against your homepage once. Then 5 to 12 threads land in chat with pattern badges, grouped by tier, with a plain-English summary of what was filtered before scoring (subreddit rules, author quality, content rules).
 
-The flow writes config files to `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains, plus one file per connected integration). Every future scan reads them. The product differentiator: the profile is built specifically for you from your URLs, archetype map, and answers, not pulled from a generic SaaS-founder template.
+The flow writes config files to `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains, plus one file per connected integration). Every future scan reads them. The product differentiator: the profile is built specifically for you from your URLs, your competitor brands, and live Reddit threads matching your actual pain phrasing, not pulled from a generic SaaS-founder template.
 
 Need to refine later? `/subscope-profile` is a per-section deep dive: `redo just the competitor anchor`, `rebuild pain language`, `swap a subreddit`. Not a full re-interview, just the section that's drifted.
 
