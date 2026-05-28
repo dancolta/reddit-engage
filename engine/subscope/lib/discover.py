@@ -36,19 +36,76 @@ import re
 import sys
 import time
 import urllib.parse
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
-from . import enrich, net, reddit, store
+from . import enrich, net, reddit, score, store
 
 
 # ─── Tunables (mirrored in config/weights.yml `discovery:` block) ──────
 
 NOISE_DOWNRANK_FACTOR = 0.5
-MIN_SUBS_THRESHOLD = 5
-MAX_SUBS_RETURNED = 8
+MIN_SUBS_THRESHOLD = 3                # v3: lower threshold, quality over quantity
+MAX_SUBS_RETURNED = 8                 # final cap after Phase B
+PHASE_A_CANDIDATE_CAP = 12            # Phase A returns 12, Phase B trims to 8
 MAX_QUERIES = 6
-FRESHNESS_CUTOFF_DAYS = 730
-DISCOVERY_HARD_TIMEOUT_S = 20.0
+DISCOVERY_HARD_TIMEOUT_S = 30.0       # raised from 20 to absorb Phase B
+PHASE_B_TIMEOUT_S = 22.0              # hard cap on Phase B validation (search-within-sub is slightly heavier than scan)
+PHASE_B_FRESH_WINDOW_HOURS = 48       # daily-scan freshness window
+# Onboarding sub-DISCOVERY uses a wider window than the daily scan. Rationale
+# (backed by v3.1 QA on 10 niche-B2B businesses): at a strict 48h gate, half
+# the businesses had ZERO subs with a buyer-intent thread on the run day,
+# because niche-B2B switching conversations are weekly/monthly, not daily.
+# Discovery is choosing which subs to WATCH long-term; a sub with a real buyer
+# thread 4 days ago is a great sub to watch. The daily scan still uses 48h to
+# surface today's hot threads. Absolute timestamps are shown either way so the
+# user sees exactly how fresh each evidence thread is (no "ancient thread"
+# surprise, which was the original complaint).
+DISCOVERY_FRESH_WINDOW_HOURS = 168    # 7 days, for onboarding sub-discovery
+# Engine surface floor. The engine is the RECALL stage: it surfaces every sub
+# with a fresh thread that passed the deterministic buyer-intent gate, so a
+# genuinely on-topic sub like r/WhichCRM (confidence in the 30s) is NOT dropped
+# just for being single-thread. Final PRECISION comes from the skill-layer
+# relevance review (the orchestrating Claude reads each evidence thread and
+# drops semantic false positives the regex gate cannot catch, e.g. a
+# "Software Engineering vs Dentistry" career question). The confidence band is
+# shown to the user as a quality signal, not used as a hard cutoff.
+CONFIDENCE_FLOOR = 20                 # drop only the very weakest gate-passers
+
+# Per-thread relevance (v3.1): a fresh thread is software-buyer-intent only if
+# an intent token CO-OCCURS with a product/purchase noun (medium path) OR a
+# competitor brand is named (strong path). The product-noun whitelist is
+# deliberately DISJOINT from user vocabulary: a vocab token alone (e.g. the
+# word "podcast" for a podcast tool) must never qualify a thread, or
+# "looking for interviewees for my podcast" leaks through. User vocab keeps
+# its role only in sub-NAME ranking (rank_subs), not the per-thread gate.
+_PRODUCT_NOUNS = (
+    # Strong software-product nouns (rarely appear in non-software chatter)
+    "software", "saas", "crm", "erp", "ehr", "emr", "pms", "api",
+    "app", "apps", "platform", "dashboard", "integration", "integrations",
+    "tool", "tools", "vendor", "vendors", "suite",
+    "subscription", "subscriptions", "automation", "automations", "nocode",
+    # NOTE: deliberately EXCLUDED generic/domain-overlap nouns that leak on
+    # non-software threads: billing, invoice, price, pricing, plan, seat,
+    # service, system, license, workflow, stack, solution. ("Medical billing
+    # vs Coding" fired the noun path via 'billing' in v3.1 QA.) Competitor-brand
+    # mentions still catch buyers who name a tool without a generic noun.
+)
+# Buyer-intent tokens (multi-word phrases matched first). Mirrors the prose set.
+_INTENT_TOKENS = (
+    "instead of", "moving from", "moving off", "looking for", "better than",
+    "any good", "anyone use", "anyone tried", "what do you use",
+    "experience with", "thoughts on", "alternatives", "alternative",
+    "switching", "switch", "replacing", "replacement", "replace", "versus",
+    "vs", "compare", "comparison", "recommendations", "recommendation",
+    "recommend", "suggestions", "cheaper", "migrate", "ditching", "ditched",
+    "ditch", "best",
+)
+# Narrow negation guard: these within 3 tokens BEFORE an intent token suppress it.
+_NEGATION_TOKENS = ("not", "no", "dont", "isnt", "stop", "avoid", "without")
+# Co-occurrence window (tokens) between an intent token and a product noun.
+_INTENT_NOUN_WINDOW = 10
 
 # Per-sub quality is capped at 3.0 (was 5.0). Quality is a tiebreaker, not a
 # dominator. Cross-query frequency is the real signal that a sub is a place
@@ -57,10 +114,15 @@ QUALITY_CEILING = 3.0
 
 # Hard gate: a sub MUST have at least this many threads matched across all
 # queries to make the output. Single-thread matches are almost always
-# coincidental lexical overlap (r/PleX matching "saas subscriptions" because
-# someone said "my Plex subscription is too expensive"). Real buyer subs
-# show up multiple times when the user's pain is genuinely discussed there.
+# coincidental lexical overlap.
 MIN_THREAD_COUNT = 2
+
+# v3: freshness cutoff is now Phase B's job, not Phase A's. Phase A intentionally
+# accepts older threads (they tell us WHERE the conversation lives historically).
+# Phase B validates that the sub has ACTIVE buyer-intent activity in the last 48h.
+# The 730-day Phase A cutoff is kept loose so Phase A finds candidates; Phase B
+# enforces the real freshness gate.
+FRESHNESS_CUTOFF_DAYS = 730
 
 # Vocabulary-overlap bonus: when the sub name shares a token with the user's
 # own answers (T2/T3/T4 lowercase, stopwords stripped, ≥4 chars), the sub
@@ -182,12 +244,21 @@ def _is_operator_sub(sub_key: str, vocab: set[str] | None = None) -> bool:
     return _sub_matches_user_vocab(sub_key, fallback)
 
 
-def _has_buyer_intent(title: str) -> bool:
-    """True if the thread title looks like the OP is shopping / comparing /
-    switching, not just venting. Empty title is treated as no-intent."""
-    if not title:
+def _has_buyer_intent(title: str, body: str = "") -> bool:
+    """True if the thread title or body looks like the OP is shopping /
+    comparing / switching, not just venting.
+
+    Body is scanned in addition to title because fresh-post discovery (Phase B)
+    often surfaces threads where the intent token is in the body, not the title
+    (e.g. title 'Anyone here?' + body 'looking for alternative to X'). Empty
+    title AND body is treated as no-intent.
+    """
+    if not title and not body:
         return False
-    return bool(_BUYER_INTENT_RE.search(title))
+    blob = title or ""
+    if body:
+        blob = blob + " " + body[:500]
+    return bool(_BUYER_INTENT_RE.search(blob))
 
 # Reddit sub-name rule: alphanumerics + underscore, 2-21 chars.
 _SUBNAME_RE = re.compile(r"^[A-Za-z0-9_]{2,21}$")
@@ -227,6 +298,248 @@ _QUERY_MAX_CHARS = 80
 def _log(msg: str) -> None:
     sys.stderr.write(f"[discover] {msg}\n")
     sys.stderr.flush()
+
+
+# ─── Per-thread software-buyer-intent classifier (v3.1) ────────────────
+
+
+def _tokenize(text: str) -> list[str]:
+    """Lowercase word tokens. Used for proximity math in the intent gate."""
+    return re.findall(r"[a-z0-9][a-z0-9\-]*", (text or "").lower())
+
+
+def _intent_hits(tokens: list[str]) -> list[tuple[int, str]]:
+    """List of (start_index, matched_phrase) for buyer-intent tokens / phrases,
+    excluding hits negated by a preceding negation token within 3 tokens.
+
+    Returns the verbatim matched phrase (single token or multi-word) so the
+    reason string can quote exactly what fired (truthfulness contract)."""
+    hits: list[tuple[int, str]] = []
+    single = {t for t in _INTENT_TOKENS if " " not in t}
+    for i, tok in enumerate(tokens):
+        if tok in single:
+            hits.append((i, tok))
+    multi = [t for t in _INTENT_TOKENS if " " in t]
+    for phrase in multi:
+        ptoks = phrase.split()
+        plen = len(ptoks)
+        for i in range(len(tokens) - plen + 1):
+            if tokens[i:i + plen] == ptoks:
+                hits.append((i, phrase))
+    # Negation guard: drop hits with a negation token within 3 before the start
+    kept = []
+    for idx, phrase in hits:
+        window_before = tokens[max(0, idx - 3):idx]
+        if any(n in window_before for n in _NEGATION_TOKENS):
+            continue
+        kept.append((idx, phrase))
+    # Stable sort by index
+    return sorted(set(kept), key=lambda x: x[0])
+
+
+def _intent_positions(tokens: list[str]) -> list[int]:
+    """Backward-compatible index-only view of _intent_hits."""
+    return [i for i, _ in _intent_hits(tokens)]
+
+
+def _noun_positions(tokens: list[str]) -> list[int]:
+    return [i for i, t in enumerate(tokens) if t in _PRODUCT_NOUNS]
+
+
+# Common English words that appear as the FIRST word of multi-word brand names
+# ("When I Work", "Open Dental", "Jane App"). Never promote these to standalone
+# brand-match tokens, or every "when"/"open"/"make" in a post triggers a hit.
+_COMMON_BRAND_FIRST_WORDS = {
+    "when", "work", "open", "jane", "make", "time", "best", "your", "cloud",
+    "smart", "field", "house", "quick", "money", "world", "store", "sales",
+    "team", "base", "home", "active", "monday", "better", "simple", "easy",
+    "good", "free", "pro", "the", "my", "go", "get",
+}
+
+
+def _build_competitor_tokens(competitors: list[str] | None) -> set[str]:
+    """Build the set of competitor match tokens.
+
+    - Full brand name always added (matched word-boundary for single words,
+      substring for dotted/multi-word names in _competitor_brand_hit).
+    - First word of a MULTI-word brand added ONLY if it is distinctive:
+      length >= 5 AND not a common English word. So "Drake Software" -> "drake"
+      (kept), but "When I Work" -> "when" is dropped (the full phrase
+      "when i work" still matches). This kills the v3.1 false positive where
+      "when" matched the competitor path on an unrelated r/managers thread.
+    """
+    tokens: set[str] = set()
+    for c in (competitors or []):
+        c_lower = (c or "").strip().lower()
+        if not c_lower:
+            continue
+        tokens.add(c_lower)
+        if " " in c_lower:
+            first = c_lower.split()[0]
+            if len(first) >= 5 and first not in _COMMON_BRAND_FIRST_WORDS:
+                tokens.add(first)
+    return tokens
+
+
+def _competitor_brand_hit(title: str, body: str, comp_tokens: set[str]) -> bool:
+    """Word-boundary match of any competitor brand in title+body.
+
+    Single-word brands use \\b boundaries (so 'anchor' the brand does not match
+    'anchor' mid-sentence unless it's a standalone word). Multi-word / dotted
+    brands ('drake software', 'bill.com') use literal substring since they're
+    already specific."""
+    blob = (title + " " + body[:800]).lower()
+    for c in comp_tokens:
+        if not c:
+            continue
+        if " " in c or "." in c:
+            if c in blob:
+                return True
+        else:
+            if re.search(rf"\b{re.escape(c)}\b", blob):
+                return True
+    return False
+
+
+@dataclass
+class BuyerIntentMatch:
+    """Result of the per-thread software-buyer-intent classifier.
+
+    Tuple-unpackable as (passed, path, weight) for backward compatibility with
+    existing call sites, while carrying the matched-token detail needed to
+    build a 100%-truthful reason string.
+    """
+    passed: bool
+    path: str | None          # "competitor" | "noun" | None
+    weight: float             # 1.0 | 0.6 | 0.0
+    competitor: str | None = None   # exact brand token matched, e.g. "buzzsprout"
+    noun: str | None = None         # exact product noun matched, e.g. "tool"
+    intent_token: str | None = None  # exact intent token/phrase, e.g. "vs"
+    marker: str | None = None        # "pain" | "question" (competitor path w/o intent)
+
+    def __iter__(self):
+        # Allow `passed, path, weight = software_buyer_intent(...)`
+        yield self.passed
+        yield self.path
+        yield self.weight
+
+
+def _matched_competitor(title: str, body: str, comp_tokens: set[str]) -> str | None:
+    """Return the exact competitor token that matched, or None."""
+    blob = (title + " " + body[:800]).lower()
+    for c in comp_tokens:
+        if not c:
+            continue
+        if " " in c or "." in c:
+            if c in blob:
+                return c
+        else:
+            if re.search(rf"\b{re.escape(c)}\b", blob):
+                return c
+    return None
+
+
+def software_buyer_intent(
+    title: str,
+    body: str,
+    comp_tokens: set[str],
+) -> "BuyerIntentMatch":
+    """Classify whether a fresh Reddit thread is a software buyer signal.
+
+    Returns a BuyerIntentMatch (tuple-unpacks to passed, path, weight):
+      - competitor (weight 1.0): names a competitor brand AND (has an intent
+        token OR a pain/question marker). Strong signal.
+      - noun (weight 0.6): an intent token co-occurs with a product noun within
+        _INTENT_NOUN_WINDOW tokens, in title or body. Medium signal.
+      - neither (False, weight 0.0): the "looking for interviewees for my
+        podcast" class lands here.
+
+    The product-noun whitelist is disjoint from user vocab on purpose: a topic
+    word alone never qualifies a thread. The matched tokens are captured so the
+    reason string can quote exactly what fired.
+    """
+    title = title or ""
+    body = body or ""
+
+    # Strong path: competitor brand + (intent OR pain/question)
+    brand = _matched_competitor(title, body, comp_tokens) if comp_tokens else None
+    if brand:
+        t_hits = _intent_hits(_tokenize(title))
+        b_hits = _intent_hits(_tokenize(body[:800]))
+        intent_phrase = (t_hits[0][1] if t_hits else (b_hits[0][1] if b_hits else None))
+        if intent_phrase:
+            return BuyerIntentMatch(True, "competitor", 1.0,
+                                    competitor=brand, intent_token=intent_phrase)
+        if score.has_pain_markers(title, body):
+            return BuyerIntentMatch(True, "competitor", 1.0,
+                                    competitor=brand, marker="pain")
+        if score.has_question_intent(title, body):
+            return BuyerIntentMatch(True, "competitor", 1.0,
+                                    competitor=brand, marker="question")
+        # bare brand + neutral (changelog/news) does NOT pass
+        return BuyerIntentMatch(False, None, 0.0, competitor=brand)
+
+    # Medium path: intent token co-occurs with a product noun within window.
+    # Check title and body as SEPARATE spans (no cross-field pairing).
+    for field in (title, body[:800]):
+        toks = _tokenize(field)
+        i_hits = _intent_hits(toks)
+        if not i_hits:
+            continue
+        noun_idx = _noun_positions(toks)
+        if not noun_idx:
+            continue
+        for ii, phrase in i_hits:
+            for ni in noun_idx:
+                if abs(ii - ni) <= _INTENT_NOUN_WINDOW:
+                    return BuyerIntentMatch(True, "noun", 0.6,
+                                            noun=toks[ni], intent_token=phrase)
+
+    return BuyerIntentMatch(False, None, 0.0)
+
+
+def build_reason(match: "BuyerIntentMatch", age_h: float | None) -> str | None:
+    """Assemble a truthful, plain-English reason string from a passing match.
+
+    Only names signals that actually fired (every quoted substring was captured
+    from the thread by the matcher). Returns None for a non-passing match.
+    No em dashes (user-facing).
+    """
+    if not match.passed:
+        return None
+
+    # Freshness gloss
+    if age_h is None:
+        fresh = "Recent buyer post."
+    elif age_h < 1:
+        fresh = "Buyer post under 1h ago."
+    elif age_h < 48:
+        fresh = f"Buyer post {round(age_h)}h ago."
+    else:
+        fresh = f"Buyer post {round(age_h / 24)}d ago."
+
+    if match.path == "competitor":
+        brand = (match.competitor or "a competitor").strip()
+        brand_disp = brand if brand else "a competitor"
+        if match.intent_token:
+            clause = (f'Someone weighing {brand_disp} against alternatives '
+                      f'("{match.intent_token}").')
+        elif match.marker == "pain":
+            clause = (f"Someone naming {brand_disp} with a complaint about "
+                      f"their current tool.")
+        elif match.marker == "question":
+            clause = f"Someone discussing {brand_disp} with a buying question."
+        else:
+            clause = f"Someone discussing {brand_disp}."
+        return f"{fresh} {clause}"
+
+    if match.path == "noun":
+        noun = match.noun or "a tool"
+        tok = match.intent_token or "shopping language"
+        return (f'{fresh} Someone asking about a "{noun}" with buying intent '
+                f'("{tok}").')
+
+    return fresh
 
 
 # ─── 1. Query derivation ────────────────────────────────────────────────
@@ -682,10 +995,262 @@ def rank_subs(threads: list[dict[str, Any]],
         })
 
     ranked.sort(key=lambda x: x["score"], reverse=True)
-    return ranked[:MAX_SUBS_RETURNED]
+    # v3: return up to PHASE_A_CANDIDATE_CAP (12); Phase B validates + final-trims to 8
+    return ranked[:PHASE_A_CANDIDATE_CAP]
 
 
-# ─── 4. Fallback + end-to-end entry point ──────────────────────────────
+# ─── 4. Phase B validation + confidence scoring ────────────────────────
+
+# Search-within-sub net. Must cover EVERYTHING the software_buyer_intent gate
+# can pass: intent verbs (for the noun path's intent side) AND product nouns
+# (so noun-led threads like "Best tool for document parsing" surface) AND
+# "best"/"cheaper" shopping words. Every returned thread STILL runs through the
+# gate, so this widens the candidate POOL without loosening precision.
+_SEARCH_INTENT_TERMS = (
+    'alternative', 'alternatives', 'recommendations', 'vs', 'switching',
+    '"looking for"', 'replace', 'best', 'cheaper', 'migrate',
+    'software', 'tool', 'platform', 'crm', 'app',
+)
+
+
+def _sub_search_query(comp_tokens: set[str]) -> str:
+    """Build the search-within-sub query: generic buyer terms OR up to 2
+    competitor brands. Multi-word brands quoted for exact-phrase match."""
+    parts = list(_SEARCH_INTENT_TERMS)
+    added = 0
+    for c in sorted(comp_tokens, key=len, reverse=True):
+        if added >= 2:
+            break
+        # prefer full multi-word/dotted brand names (most specific)
+        if " " in c or "." in c:
+            parts.append(f'"{c}"')
+            added += 1
+    return " OR ".join(parts)
+
+
+def _fetch_candidate_posts(sub: str, comp_tokens: set[str],
+                           window_hours: int) -> tuple[list[dict], bool]:
+    """Fetch candidate posts for Phase B. Search-within-sub FIRST (finds buyer
+    threads anywhere in the window, not just the 25 newest), /new.json fallback
+    on empty/error. Dedup by post id. Returns (posts, reachable)."""
+    posts: dict[str, dict] = {}
+    reachable = False
+
+    # Map window to Reddit's t= filter (week covers the 7-day discovery window)
+    t_filter = "week" if window_hours <= 168 else "month"
+
+    # Primary: search within the sub for buyer-intent terms
+    q = urllib.parse.quote(_sub_search_query(comp_tokens))
+    search_url = (f"https://old.reddit.com/r/{sub}/search.json?q={q}"
+                  f"&restrict_sr=1&sort=new&t={t_filter}&limit=25")
+    try:
+        raw = reddit.fetch_json(search_url, timeout=10)
+        if raw is not None:
+            reachable = True
+            for child in (raw.get("data") or {}).get("children", []):
+                d = child.get("data") or {}
+                pid = d.get("id") or d.get("name") or d.get("permalink")
+                if pid:
+                    posts[pid] = d
+    except Exception:
+        pass
+
+    # Fallback: /new.json (only if search returned nothing)
+    if not posts:
+        new_url = f"https://old.reddit.com/r/{sub}/new.json?limit=25"
+        try:
+            raw = reddit.fetch_json(new_url, timeout=8)
+            if raw is None:
+                raw = reddit.fetch_json(
+                    f"https://www.reddit.com/r/{sub}/new.json?limit=25", timeout=8)
+            if raw is not None:
+                reachable = True
+                for child in (raw.get("data") or {}).get("children", []):
+                    d = child.get("data") or {}
+                    pid = d.get("id") or d.get("name") or d.get("permalink")
+                    if pid:
+                        posts[pid] = d
+        except Exception:
+            pass
+
+    return list(posts.values()), reachable
+
+
+def validate_sub_freshness(
+    sub_name: str,
+    user_vocab: set[str],
+    competitors: list[str],
+    *,
+    window_hours: int = PHASE_B_FRESH_WINDOW_HOURS,
+) -> dict[str, Any]:
+    """Phase B: fetch /r/<sub>/new.json (top 25) and check for fresh buyer activity.
+
+    A sub PASSES validation if at least one post in the last `window_hours` has
+    a buyer-intent token AND mentions a vocab token (from user T2/T3/T4) OR a
+    competitor brand name. This proves the sub has an ACTIVE buyer conversation
+    right now, not a historical one.
+
+    Returns:
+        {
+          "fresh_post_count": int,            # posts in window
+          "fresh_buyer_intent_count": int,    # with intent token
+          "fresh_relevance_count": int,       # intent + vocab/competitor match
+          "recent_thread_url": str | None,    # best fresh thread to evidence
+          "recent_thread_title": str | None,
+          "recent_thread_age_h": float | None,
+          "passed": bool,                     # fresh_relevance_count >= 1
+          "timed_out": bool,                  # Reddit unreachable or slow
+          "error": str | None,
+        }
+    """
+    result = {
+        "fresh_post_count": 0,
+        "fresh_buyer_intent_count": 0,
+        "fresh_relevance_count": 0,
+        "weighted_relevance": 0.0,
+        "paths": {"competitor": 0, "noun": 0},
+        "relevance_path": None,
+        "recent_thread_url": None,
+        "recent_thread_title": None,
+        "recent_thread_age_h": None,
+        "recent_thread_created_utc": None,
+        "recent_thread_iso": None,
+        "recent_thread_reason": None,
+        "passed": False,
+        "timed_out": False,
+        "error": None,
+    }
+
+    sub = (sub_name or "").strip().lower()
+    if not sub or not _SUBNAME_RE.match(sub):
+        result["error"] = "invalid_sub_name"
+        return result
+
+    comp_tokens = _build_competitor_tokens(competitors)
+
+    posts, reachable = _fetch_candidate_posts(sub, comp_tokens, window_hours)
+    if not reachable:
+        result["error"] = "fetch_failed"
+        result["timed_out"] = True
+        return result
+
+    now = time.time()
+    cutoff = now - window_hours * 3600
+    # Skew tolerance: a post dated more than this far in the future is bad data
+    # or a clock-skew artifact; never treat it as "fresh".
+    future_guard = now + 3600  # 1h grace for minor clock differences
+
+    best_fresh: dict[str, Any] | None = None  # highest-relevance fresh thread
+    weighted_relevance = 0.0
+    paths_seen: dict[str, int] = {"competitor": 0, "noun": 0}
+
+    for d in posts:
+        created_utc = int(d.get("created_utc") or 0)
+        # Future-date guard (clock skew / bad data): skip, do not count fresh
+        if created_utc > future_guard:
+            continue
+        if created_utc < cutoff:
+            continue
+        result["fresh_post_count"] += 1
+
+        title = d.get("title", "") or ""
+        body = d.get("selftext", "") or ""
+
+        match = software_buyer_intent(title, body, comp_tokens)
+        if match.passed:
+            result["fresh_buyer_intent_count"] += 1
+            result["fresh_relevance_count"] += 1
+            weighted_relevance += match.weight
+            if match.path in paths_seen:
+                paths_seen[match.path] += 1
+            # Track the most recent qualifying thread as evidence. Prefer a
+            # stronger path; among equal paths prefer the most recent.
+            age_h = (now - created_utc) / 3600.0
+            better = (
+                best_fresh is None
+                or (match.weight > best_fresh["weight"])
+                or (match.weight == best_fresh["weight"] and age_h < best_fresh["age_h"])
+            )
+            if better:
+                permalink = d.get("permalink", "")
+                if permalink and not permalink.startswith("http"):
+                    permalink = f"https://reddit.com{permalink}"
+                best_fresh = {
+                    "url": permalink,
+                    "title": title[:120],
+                    "age_h": age_h,
+                    "created_utc": created_utc,
+                    "path": match.path,
+                    "weight": match.weight,
+                    "match": match,
+                }
+
+    if best_fresh:
+        result["recent_thread_url"] = best_fresh["url"]
+        result["recent_thread_title"] = best_fresh["title"]
+        result["recent_thread_age_h"] = round(best_fresh["age_h"], 1)
+        # Absolute UTC timestamp so any discrepancy is cross-checkable against
+        # what Reddit shows the user directly (defensive per Dan's feedback).
+        result["recent_thread_created_utc"] = best_fresh["created_utc"]
+        result["recent_thread_iso"] = datetime.fromtimestamp(
+            best_fresh["created_utc"], tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%M UTC")
+        result["relevance_path"] = best_fresh["path"]
+        # Truthful, plain-English reason for WHY this thread was chosen.
+        result["recent_thread_reason"] = build_reason(
+            best_fresh["match"], best_fresh["age_h"])
+
+    result["weighted_relevance"] = round(weighted_relevance, 3)
+    result["paths"] = paths_seen
+    # Pass requires at least one medium hit's worth of weighted relevance.
+    result["passed"] = weighted_relevance >= 0.6
+    return result
+
+
+def compute_confidence(
+    *,
+    freq: int,
+    freq_max: int,
+    vocab_match: bool,
+    weighted_relevance: float,
+    fresh_buyer_intent_count: int,
+    is_noise: bool,
+) -> int:
+    """Compute 0-100 confidence score from multiple signals.
+
+    Weighted sum of normalized components, clamped to [0, 100].
+
+    Components (all 0..1):
+      freq_norm: cross-query confirmation, normalized to batch max freq
+      vocab_match: name matches user vocabulary
+      relevance_norm: SUM of per-thread path weights (competitor=1.0,
+        noun=0.6), capped at 5. A sub where people name competitors saturates
+        faster (~3 hits) than a sub with only generic-noun matches (~5 hits).
+      buyer_intent_density: fresh qualifying posts / 25 (clamp 1)
+      not_noise: 0 if denylisted, 1 otherwise
+    """
+    freq_norm = (freq / freq_max) if freq_max > 0 else 0.0
+    relevance_norm = min(weighted_relevance / 5.0, 1.0)
+    buyer_intent_density = min(fresh_buyer_intent_count / 25.0, 1.0)
+    not_noise = 0.0 if is_noise else 1.0
+
+    weighted = (
+        0.35 * freq_norm +
+        0.20 * (1.0 if vocab_match else 0.0) +
+        0.25 * relevance_norm +
+        0.15 * buyer_intent_density +
+        0.05 * not_noise
+    )
+    # Noise multiplier: subs on the denylist get their confidence halved.
+    # This is on top of the additive 0.05 not_noise component so noise subs
+    # don't dominate even when their other signals are strong (e.g. r/SaaS
+    # has vocab match + high freq for SaaS-related users).
+    noise_mult = 0.5 if is_noise else 1.0
+    score = round(100 * weighted * noise_mult)
+    return max(0, min(100, score))
+
+
+# ─── 5. Fallback + end-to-end entry point ──────────────────────────────
 
 
 def _gather_inputs(homepage_url: str, conn) -> tuple[str, list[str]]:
@@ -745,6 +1310,19 @@ def _vertical_clarifier_prompt() -> str:
     )
 
 
+def _stale_only_clarifier_prompt() -> str:
+    """Fires when Phase A found candidates but Phase B killed them all on
+    freshness (no buyer activity in 48h). Different question from vertical
+    clarifier: the issue isn't 'who are your buyers', it's 'where do they
+    talk RIGHT NOW'."""
+    return (
+        "Found communities where this conversation has happened historically,\n"
+        "but no active buyer signal in the last 48 hours.\n\n"
+        "→  Broaden to last 7 days? Reply 'broaden'.\n"
+        "→  Or tell me one more specific vertical / pain phrasing to refine."
+    )
+
+
 def discover_subs_for_profile(
     answers: dict[str, str],
     homepage_url: str,
@@ -753,6 +1331,7 @@ def discover_subs_for_profile(
     vertical: str | None = None,
     deadline: float | None = None,
     extra_competitors: list[str] | None = None,
+    fresh_window_hours: int = DISCOVERY_FRESH_WINDOW_HOURS,
 ) -> dict[str, Any]:
     """End-to-end discovery: derive → search (DFS + Reddit native) → rank → fallback.
 
@@ -836,14 +1415,8 @@ def discover_subs_for_profile(
                 _log(f"dfs search error for '{q}': {type(e).__name__}")
 
     user_vocab = _build_user_vocabulary(answers)
-    ranked = rank_subs(threads, user_vocab=user_vocab)
-
-    # All non-noise subs surviving?
-    non_noise_count = sum(1 for r in ranked if not r["noise_downranked"])
-    needs_clarification = (
-        len(ranked) < MIN_SUBS_THRESHOLD
-        or non_noise_count < 3
-    ) and vertical is None  # don't ask twice
+    phase_a_candidates = rank_subs(threads, user_vocab=user_vocab)
+    phase_a_count = len(phase_a_candidates)
 
     discovery_unreachable = (
         not any_provider_responded
@@ -851,11 +1424,166 @@ def discover_subs_for_profile(
         and source_mix["dfs"] == 0
     )
 
+    # Phase A produced nothing, escalate to vertical clarifier (or report unreachable)
+    if not phase_a_candidates:
+        return {
+            "subs": [],
+            "dropped_subs": [],
+            "queries_used": queries,
+            "needs_clarification": vertical is None,
+            "clarifier_prompt": _vertical_clarifier_prompt() if vertical is None else None,
+            "clarifier_reason": "no_candidates" if vertical is None else None,
+            "discovery_unreachable": discovery_unreachable,
+            "source_mix": source_mix,
+            "phase_a_count": 0,
+            "phase_b_skipped": True,
+        }
+
+    # ─── Phase B: per-candidate freshness + relevance validation ───────────
+    # Budget Phase B against PHASE_B_TIMEOUT_S. Each sub takes ~0.5-1s.
+    phase_b_start = time.time()
+    phase_b_deadline = phase_b_start + PHASE_B_TIMEOUT_S
+    _log(f"Phase B: validating {phase_a_count} candidate subs "
+         f"({fresh_window_hours}h freshness gate)")
+
+    # Pull competitor list back out of the queries for relevance check
+    # (the discover_subs_for_profile signature already merged extra + DFS comps above)
+    phase_b_competitors = competitors
+
+    survived: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    timed_out_subs: list[str] = []
+
+    # Determine batch-level normalization base for confidence (max freq seen)
+    freq_max = max((c.get("thread_count", 0) for c in phase_a_candidates), default=1) or 1
+    # Actually use freq (distinct query count) not thread_count
+    candidate_freqs = []
+    # We need freq per candidate but rank_subs didn't expose it; recompute from threads
+    # Build a quick freq lookup from the original threads bucket
+    sub_to_queries: dict[str, set[str]] = {}
+    for t in threads:
+        s = (t.get("sub") or "").strip().lower()
+        if s:
+            sub_to_queries.setdefault(s, set()).add(t.get("source_query", ""))
+    freqs = {s: len(qs) for s, qs in sub_to_queries.items()}
+    freq_max = max(freqs.values(), default=1) or 1
+
+    for cand in phase_a_candidates:
+        if time.time() > phase_b_deadline:
+            _log(f"Phase B timeout after {len(survived)+len(dropped)} subs validated")
+            # Remaining unvalidated candidates fall through with freshness_unverified flag
+            # We don't drop them blindly, let caller decide. For now they get a low
+            # confidence + freshness_unverified=True.
+            timed_out_subs.append(cand["name"])
+            continue
+
+        sub_key = cand["name"].lower()
+        freshness = validate_sub_freshness(
+            cand["name"],
+            user_vocab=user_vocab,
+            competitors=phase_b_competitors,
+            window_hours=fresh_window_hours,
+        )
+
+        if freshness["timed_out"]:
+            timed_out_subs.append(cand["name"])
+            # Mark as unverified, keep with low confidence rather than drop
+            cand["confidence"] = 0
+            cand["freshness_unverified"] = True
+            cand["fresh_post_count"] = 0
+            cand["fresh_buyer_intent_count"] = 0
+            cand["fresh_relevance_count"] = 0
+            cand["weighted_relevance"] = 0.0
+            cand["relevance_path"] = None
+            cand["recent_thread_url"] = None
+            cand["recent_thread_title"] = None
+            cand["recent_thread_age_h"] = None
+            cand["recent_thread_iso"] = None
+            dropped.append({
+                "name": cand["name"],
+                "reason": "validation_unreachable",
+            })
+            continue
+
+        # Attach freshness data
+        cand["fresh_post_count"] = freshness["fresh_post_count"]
+        cand["fresh_buyer_intent_count"] = freshness["fresh_buyer_intent_count"]
+        cand["fresh_relevance_count"] = freshness["fresh_relevance_count"]
+        cand["weighted_relevance"] = freshness.get("weighted_relevance", 0.0)
+        cand["relevance_path"] = freshness.get("relevance_path")
+        cand["recent_thread_url"] = freshness["recent_thread_url"]
+        cand["recent_thread_title"] = freshness["recent_thread_title"]
+        cand["recent_thread_age_h"] = freshness["recent_thread_age_h"]
+        cand["recent_thread_iso"] = freshness.get("recent_thread_iso")
+        cand["recent_thread_reason"] = freshness.get("recent_thread_reason")
+        cand["freshness_unverified"] = False
+
+        if not freshness["passed"]:
+            dropped.append({
+                "name": cand["name"],
+                "reason": "no_fresh_buyer_activity",
+                "fresh_post_count": freshness["fresh_post_count"],
+            })
+            continue
+
+        # Compute confidence
+        vocab_match = _sub_matches_user_vocab(sub_key, user_vocab)
+        confidence = compute_confidence(
+            freq=freqs.get(sub_key, 1),
+            freq_max=freq_max,
+            vocab_match=vocab_match,
+            weighted_relevance=freshness.get("weighted_relevance", 0.0),
+            fresh_buyer_intent_count=freshness["fresh_buyer_intent_count"],
+            is_noise=cand.get("noise_downranked", False),
+        )
+        cand["confidence"] = confidence
+
+        if confidence < CONFIDENCE_FLOOR:
+            dropped.append({
+                "name": cand["name"],
+                "reason": "below_floor",
+                "confidence": confidence,
+            })
+            continue
+
+        survived.append(cand)
+
+    # Sort survived by confidence desc, then by raw score desc (tiebreaker)
+    survived.sort(key=lambda x: (-x["confidence"], -x.get("score", 0)))
+    final_subs = survived[:MAX_SUBS_RETURNED]
+
+    # Clarifier logic v3:
+    # - stale_only: Phase A found ≥3 candidates but Phase B killed them all on freshness
+    # - vertical: Phase A found <3 candidates (already handled above)
+    # - low confidence: enough subs but all below threshold
+    needs_clarification = False
+    clarifier_reason: str | None = None
+    clarifier_prompt: str | None = None
+
+    if len(final_subs) < MIN_SUBS_THRESHOLD and vertical is None:
+        # Did Phase A succeed but Phase B kill on freshness?
+        freshness_drops = sum(
+            1 for d in dropped if d.get("reason") == "no_fresh_buyer_activity"
+        )
+        if freshness_drops >= 2 and phase_a_count >= 3:
+            needs_clarification = True
+            clarifier_reason = "stale_only"
+            clarifier_prompt = _stale_only_clarifier_prompt()
+        else:
+            needs_clarification = True
+            clarifier_reason = "thin_results"
+            clarifier_prompt = _vertical_clarifier_prompt()
+
     return {
-        "subs": ranked,
+        "subs": final_subs,
+        "dropped_subs": dropped,
         "queries_used": queries,
         "needs_clarification": needs_clarification,
-        "clarifier_prompt": _vertical_clarifier_prompt() if needs_clarification else None,
+        "clarifier_prompt": clarifier_prompt,
+        "clarifier_reason": clarifier_reason,
         "discovery_unreachable": discovery_unreachable,
         "source_mix": source_mix,
+        "phase_a_count": phase_a_count,
+        "phase_b_timed_out": timed_out_subs,
+        "phase_b_skipped": False,
     }

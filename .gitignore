@@ -17,11 +17,14 @@ voice-profile.md
 
 # BMAD + board ephemerals (private dev workflow; not for public repo)
 # CLAUDE.md is PUBLIC (contributor guidance); _bmad/ + .claude/* below is private
+# CLAUDE.local.md is the private overlay loaded by Claude Code alongside CLAUDE.md
+CLAUDE.local.md
 .claude/session-tasks.log
 .claude/bypass.log
 .claude/settings.json
 .claude/hooks/
 .claude/skills/
+.claude/commands/
 _bmad/
 _bmad-output/
 .bmad-board/

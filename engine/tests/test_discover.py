@@ -385,12 +385,28 @@ def test_e2e_dan_case_returns_subs_and_no_clarification():
             ("smallbusinessIT", 15, 3, 90),
         )
 
+    # v3: also mock Phase B validation. Pass for all non-noise subs so the
+    # e2e flow can verify Phase A + ranking still works. Phase B is tested
+    # separately below.
+    def fake_phase_b(sub_name, user_vocab, competitors, **kw):
+        return {
+            "fresh_post_count": 5, "fresh_buyer_intent_count": 3,
+            "fresh_relevance_count": 2, "weighted_relevance": 2.0,
+            "relevance_path": "competitor",
+            "recent_thread_url": f"https://reddit.com/r/{sub_name}/comments/x/",
+            "recent_thread_title": f"alternative to {sub_name}",
+            "recent_thread_age_h": 12.0, "recent_thread_iso": "2026-05-28 10:00 UTC",
+            "passed": True, "timed_out": False,
+            "error": None,
+        }
+
     with patch.object(reddit, "fetch_json", side_effect=fake_fetch_json):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False,
                                                                     "firecrawl": False}):
-            result = discover.discover_subs_for_profile(
-                answers, "https://nodesparks.com", c,
-            )
+            with patch.object(discover, "validate_sub_freshness", side_effect=fake_phase_b):
+                result = discover.discover_subs_for_profile(
+                    answers, "https://nodesparks.com", c,
+                )
 
     assert result["needs_clarification"] is False
     assert len(result["subs"]) >= discover.MIN_SUBS_THRESHOLD
@@ -399,6 +415,13 @@ def test_e2e_dan_case_returns_subs_and_no_clarification():
     # Queries used must be reported
     assert len(result["queries_used"]) >= 3
     assert result["source_mix"]["reddit_native"] > 0
+    # v3.2: every surfaced sub gets a confidence + recent_thread_url. Engine is
+    # the recall stage; it surfaces gate-passers above the low floor (precision
+    # comes from the skill-layer relevance review).
+    for s in result["subs"]:
+        assert "confidence" in s and isinstance(s["confidence"], int)
+        assert s["confidence"] >= discover.CONFIDENCE_FLOOR
+        assert "recent_thread_url" in s
 
 
 def test_e2e_thin_results_trigger_clarification():
@@ -470,6 +493,465 @@ def test_normalize_query_word_boundary_trim():
     assert len(out) <= 80
     # Must end on a word boundary, not mid-word
     assert not out.endswith(" ")
+
+
+# ─── v3: Phase B validation tests ─────────────────────────────────────
+
+
+def _new_json_response(*posts) -> dict:
+    """Build a /r/<sub>/new.json shaped response from
+    (title, body, age_hours) tuples."""
+    children = []
+    for title, body, age_h in posts:
+        children.append({"data": {
+            "title": title,
+            "selftext": body,
+            "created_utc": int(time.time() - age_h * 3600),
+            "permalink": f"/r/foo/comments/abc/{title[:20].replace(' ', '_')}/",
+        }})
+    return {"data": {"children": children}}
+
+
+def test_phase_b_pass_when_fresh_intent_and_relevance():
+    """Sub passes when at least one post in 48h has buyer-intent + vocab/competitor match."""
+    resp = _new_json_response(
+        ("Looking for alternative to Salesforce", "any recommendations?", 12.0),
+        ("Just venting about prices", "ugh", 5.0),  # no intent
+        ("Old thread", "switching from X", 240.0),  # too old (>48h)
+    )
+    with patch.object(reddit, "fetch_json", return_value=resp):
+        result = discover.validate_sub_freshness(
+            "salesforce", user_vocab={"salesforce", "automation"},
+            competitors=["Salesforce", "HubSpot"],
+        )
+    assert result["passed"] is True
+    assert result["fresh_buyer_intent_count"] == 1  # only the alternative post
+    assert result["fresh_relevance_count"] == 1
+    assert result["recent_thread_age_h"] is not None
+    assert result["recent_thread_age_h"] < 48
+
+
+def test_phase_b_fail_when_no_fresh_posts():
+    """All posts older than 48h = fail."""
+    resp = _new_json_response(
+        ("Looking for alternative to Salesforce", "switching", 100.0),
+        ("Cheaper option needed", "help", 200.0),
+    )
+    with patch.object(reddit, "fetch_json", return_value=resp):
+        result = discover.validate_sub_freshness(
+            "salesforce", user_vocab={"salesforce"}, competitors=["Salesforce"],
+        )
+    assert result["passed"] is False
+    assert result["fresh_post_count"] == 0
+
+
+def test_phase_b_fail_when_no_buyer_intent():
+    """Fresh posts but none have buyer-intent tokens."""
+    resp = _new_json_response(
+        ("Just saying hi", "first post here", 5.0),
+        ("Random thought", "thinking about salesforce stuff", 10.0),
+    )
+    with patch.object(reddit, "fetch_json", return_value=resp):
+        result = discover.validate_sub_freshness(
+            "salesforce", user_vocab={"salesforce"}, competitors=["Salesforce"],
+        )
+    assert result["passed"] is False
+    assert result["fresh_relevance_count"] == 0
+
+
+def test_phase_b_fail_when_no_relevance():
+    """Fresh + intent but no vocab or competitor match = fail (noise)."""
+    resp = _new_json_response(
+        ("Looking for alternative cosmetics", "want to switch brands", 5.0),
+    )
+    with patch.object(reddit, "fetch_json", return_value=resp):
+        result = discover.validate_sub_freshness(
+            "salesforce", user_vocab={"crm", "salesforce"},
+            competitors=["Salesforce"],
+        )
+    # v3.1: "alternative cosmetics" has intent ('alternative','switch') but no
+    # product noun nearby and no competitor brand -> must NOT pass. This is the
+    # exact false-positive class the noun-cooccurrence gate kills.
+    assert result["passed"] is False
+    assert result["fresh_relevance_count"] == 0
+
+
+def test_phase_b_timed_out_when_fetch_returns_none():
+    with patch.object(reddit, "fetch_json", return_value=None):
+        result = discover.validate_sub_freshness(
+            "foo", user_vocab={"x"}, competitors=[],
+        )
+    assert result["timed_out"] is True
+    assert result["passed"] is False
+
+
+def test_phase_b_rejects_invalid_sub_name():
+    result = discover.validate_sub_freshness(
+        "not-valid-sub-name-too-long-and-has-dashes",
+        user_vocab=set(), competitors=[],
+    )
+    assert result["error"] == "invalid_sub_name"
+
+
+def test_phase_b_competitor_first_word_match():
+    """'Drake Software' competitor should match a post mentioning just 'drake'."""
+    resp = _new_json_response(
+        ("Switching from drake", "looking for cheaper option", 5.0),
+    )
+    with patch.object(reddit, "fetch_json", return_value=resp):
+        result = discover.validate_sub_freshness(
+            "accounting", user_vocab={"accounting"},
+            competitors=["Drake Software"],
+        )
+    assert result["passed"] is True
+
+
+# ─── v3: Confidence formula tests ──────────────────────────────────────
+
+
+def test_confidence_full_signal_high():
+    score = discover.compute_confidence(
+        freq=4, freq_max=4, vocab_match=True,
+        weighted_relevance=5.0, fresh_buyer_intent_count=15,
+        is_noise=False,
+    )
+    assert score >= 90
+
+
+def test_confidence_minimum_signal_low():
+    score = discover.compute_confidence(
+        freq=1, freq_max=4, vocab_match=False,
+        weighted_relevance=0.6, fresh_buyer_intent_count=1,
+        is_noise=False,
+    )
+    assert score < 50  # below threshold, will be dropped
+
+
+def test_confidence_noise_penalty():
+    """Same inputs, noise vs clean — clean should score higher."""
+    clean = discover.compute_confidence(
+        freq=2, freq_max=4, vocab_match=True,
+        weighted_relevance=1.2, fresh_buyer_intent_count=5,
+        is_noise=False,
+    )
+    noisy = discover.compute_confidence(
+        freq=2, freq_max=4, vocab_match=True,
+        weighted_relevance=1.2, fresh_buyer_intent_count=5,
+        is_noise=True,
+    )
+    assert clean > noisy
+
+
+def test_confidence_clamped_to_0_100():
+    # Boundary cases
+    assert 0 <= discover.compute_confidence(
+        freq=0, freq_max=0, vocab_match=False,
+        weighted_relevance=0.0, fresh_buyer_intent_count=0,
+        is_noise=True,
+    ) <= 100
+
+
+# ─── v3: stale-only clarifier test ─────────────────────────────────────
+
+
+def test_e2e_stale_only_clarifier_fires():
+    """Phase A finds ≥3 candidates, Phase B kills them all on freshness.
+    Should trigger the stale_only clarifier (not vertical)."""
+    c = _conn()
+    answers = {
+        "what_offering": "automation tools",
+        "who_to_reach": "founders",
+        "pain_quote": "alternative to Zapier",
+    }
+
+    def fake_search(url, timeout=15):
+        # Search returns matching threads
+        return _reddit_search_response(
+            ("automation", 50, 10, 30),
+            ("nocode", 40, 8, 45),
+            ("zapier", 30, 5, 60),
+        )
+
+    # All Phase B calls fail freshness check
+    def stale_phase_b(sub_name, user_vocab, competitors, **kw):
+        return {
+            "fresh_post_count": 0, "fresh_buyer_intent_count": 0,
+            "fresh_relevance_count": 0, "weighted_relevance": 0.0,
+            "relevance_path": None, "recent_thread_url": None,
+            "recent_thread_title": None, "recent_thread_age_h": None,
+            "recent_thread_iso": None,
+            "passed": False, "timed_out": False, "error": None,
+        }
+
+    with patch.object(reddit, "fetch_json", side_effect=fake_search):
+        with patch.object(enrich, "detect_providers", return_value={"dataforseo": False, "firecrawl": False}):
+            with patch.object(discover, "validate_sub_freshness", side_effect=stale_phase_b):
+                result = discover.discover_subs_for_profile(
+                    answers, "https://example.com", c,
+                    extra_competitors=["Zapier"],
+                )
+
+    assert result["needs_clarification"] is True
+    assert result["clarifier_reason"] == "stale_only"
+    assert "broaden" in result["clarifier_prompt"].lower()
+    assert result["subs"] == []
+    # All Phase A candidates went into dropped_subs with the freshness reason
+    assert len(result["dropped_subs"]) >= 2
+    assert all(d["reason"] == "no_fresh_buyer_activity" for d in result["dropped_subs"])
+
+
+def test_e2e_recall_surfaces_gate_passer_with_low_confidence():
+    """v3.2: a thin-but-real gate-passer (single thread, no vocab match) still
+    SURFACES as a low-confidence candidate. The engine is the recall stage;
+    precision is the skill-layer review's job. Only confidence < FLOOR drops."""
+    c = _conn()
+    answers = {
+        "what_offering": "dispatch software for HVAC shops",
+        "who_to_reach": "HVAC shop owners",
+        "pain_quote": "Housecall Pro is too expensive, looking for a cheaper dispatch tool",
+    }
+
+    def fake_search(url, timeout=15):
+        # Returns WhichCRM for every query so it gets cross-query confirmation
+        return _reddit_search_response(("WhichCRM", 5, 1, 30))
+
+    def thin_phase_b(sub_name, user_vocab, competitors, **kw):
+        return {
+            "fresh_post_count": 1, "fresh_buyer_intent_count": 1,
+            "fresh_relevance_count": 1, "weighted_relevance": 0.6,
+            "relevance_path": "noun",
+            "recent_thread_url": f"https://reddit.com/r/{sub_name}/x/",
+            "recent_thread_title": "best crm tool?", "recent_thread_age_h": 40.0,
+            "recent_thread_iso": "2026-05-27 00:00 UTC",
+            "recent_thread_reason": 'Buyer post 2d ago. Someone asking about a "crm" with buying intent ("best").',
+            "passed": True, "timed_out": False, "error": None,
+        }
+
+    with patch.object(reddit, "fetch_json", side_effect=fake_search):
+        with patch.object(enrich, "detect_providers", return_value={"dataforseo": False, "firecrawl": False}):
+            with patch.object(discover, "validate_sub_freshness", side_effect=thin_phase_b):
+                result = discover.discover_subs_for_profile(
+                    answers, "", c, extra_competitors=["Housecall Pro", "Jobber"])
+
+    # The gate-passer surfaces (recall), carrying its reason, even at low conf.
+    surfaced = {s["name"].lower() for s in result["subs"]}
+    assert "whichcrm" in surfaced
+    only = next(s for s in result["subs"] if s["name"].lower() == "whichcrm")
+    assert only["confidence"] >= discover.CONFIDENCE_FLOOR
+    assert only.get("recent_thread_reason")
+
+
+# ─── v3.1: software_buyer_intent classifier matrix (architect's 15 cases) ──
+# (title, body, competitors, expected_pass, expected_path)
+# This is the regression guard for the "looking for interviewees for my
+# podcast" false-positive class that shipped in v3.
+
+_BUYER_INTENT_MATRIX = [
+    # Dental software
+    ("Cheaper alternative to Dentrix? quotes are insane", "",
+     ["Dentrix"], True, "competitor"),
+    ("Best PMS for a 3-chair practice, Open Dental vs Curve", "",
+     ["Open Dental", "Curve"], True, "competitor"),
+    ("My PMS is wrecking me this cycle, send chocolate", "",
+     ["Dentrix"], False, None),
+    # Podcast hosting (THE false-positive class)
+    ("Looking for interviewees for my podcast", "",
+     ["Libsyn"], False, None),
+    ("Moving off Libsyn, their pricing doubled. recommendations?", "",
+     ["Libsyn"], True, "competitor"),
+    ("Anchor killed my back catalog, anyone else hate the new dashboard?", "",
+     ["Anchor"], True, "competitor"),
+    # Shopify subscriptions
+    ("Recharge alternative? their billing keeps double-charging", "",
+     ["Recharge"], True, "competitor"),
+    ("Best coffee for my morning routine before I batch orders", "",
+     ["Recharge"], False, None),
+    ("Looking for a subscription app that does dunning well", "",
+     ["Recharge"], True, "noun"),
+    # Legal practice management
+    ("Switching from Clio, what software handles trust accounting?", "",
+     ["Clio"], True, "competitor"),
+    ("Clio released v4 today", "",
+     ["Clio"], False, None),
+    # Restaurant scheduling
+    ("Any tool to replace spreadsheet shift swaps? scheduling chaos", "",
+     ["Homebase"], True, "noun"),
+    # HVAC dispatch (negation)
+    ("NOT looking for software, just venting about dispatch days", "",
+     ["ServiceTitan"], False, None),
+    ("ServiceTitan is too expensive, cheaper dispatch platform?", "",
+     ["ServiceTitan"], True, "competitor"),
+    # K8s observability
+    ("Datadog bill hit $40k, migrate to cheaper stack?", "",
+     ["Datadog"], True, "competitor"),
+]
+
+
+def _comp_tokens(competitors):
+    s = set()
+    for c in competitors:
+        cl = c.strip().lower()
+        s.add(cl)
+        first = cl.split()[0]
+        if len(first) >= 3:
+            s.add(first)
+    return s
+
+
+def test_software_buyer_intent_matrix():
+    """The architect's 15-case matrix. Asserts BOTH verdict and path so a
+    regression that gets the right verdict via the wrong route is caught."""
+    failures = []
+    for title, body, competitors, exp_pass, exp_path in _BUYER_INTENT_MATRIX:
+        passed, path, weight = discover.software_buyer_intent(
+            title, body, _comp_tokens(competitors))
+        if passed != exp_pass or (exp_pass and path != exp_path):
+            failures.append(
+                f"  {title[:50]!r}: got (pass={passed}, path={path}), "
+                f"expected (pass={exp_pass}, path={exp_path})")
+    assert not failures, "matrix failures:\n" + "\n".join(failures)
+
+
+def test_software_buyer_intent_negation_survives_real_buyer():
+    """'can't find a good alternative' is a REAL buyer (negation guard must
+    not over-trigger). 'can' is not in negation set; 'find' is not intent."""
+    passed, path, _ = discover.software_buyer_intent(
+        "can't find a good alternative tool for invoicing", "",
+        _comp_tokens([]))
+    assert passed is True
+    assert path == "noun"
+
+
+def test_software_buyer_intent_anchor_word_boundary():
+    """'anchor' as a common word (not the brand) must not trigger competitor
+    path when the brand isn't actually named as a standalone token."""
+    # "anchored" should NOT match brand "anchor" (word-boundary)
+    passed, path, _ = discover.software_buyer_intent(
+        "my boat is anchored offshore", "looking for nice views",
+        _comp_tokens(["Anchor"]))
+    assert passed is False
+
+
+def test_competitor_common_first_word_not_promoted():
+    """v3.1 QA bug: competitor 'When I Work' must NOT promote 'when' to a
+    standalone brand token (it matched every 'when' in unrelated threads)."""
+    toks = discover._build_competitor_tokens(["When I Work", "Homebase", "Deputy"])
+    assert "when" not in toks            # common first word dropped
+    assert "when i work" in toks         # full phrase kept
+    assert "homebase" in toks
+    # The exact false-positive thread must now REJECT
+    passed, path, _ = discover.software_buyer_intent(
+        "as managers what do you do when ur employees said I work to live", "",
+        toks)
+    assert passed is False
+
+
+def test_distinctive_first_word_still_promoted():
+    """'Drake Software' -> 'drake' is distinctive (len>=5, not common), kept."""
+    toks = discover._build_competitor_tokens(["Drake Software"])
+    assert "drake" in toks
+    passed, path, _ = discover.software_buyer_intent(
+        "switching from drake, recommendations?", "", toks)
+    assert passed is True
+    assert path == "competitor"
+
+
+def test_generic_billing_noun_does_not_leak():
+    """v3.1 QA bug: 'Medical billing vs Coding for Analytics' must REJECT.
+    'billing' was removed from the product-noun set (domain-overlap word)."""
+    passed, path, _ = discover.software_buyer_intent(
+        "Medical billing vs Coding for Analytics", "",
+        _comp_tokens(["ChiroTouch", "Jane App"]))
+    assert passed is False
+
+
+# ─── v3.2: reason-string truthfulness ──────────────────────────────────
+
+
+def test_build_reason_only_names_fired_signals():
+    """Hallucination tripwire: every brand/noun/token quoted in the reason
+    string must actually appear in the source thread (case-insensitive)."""
+    cases = [
+        ("Best tool for document parsing?", "", []),
+        ("Buzzsprout vs Acast vs Substack oh my", "", ["Buzzsprout", "Acast"]),
+        ("Has anyone monetized Substack through Reddit?", "", ["Substack"]),
+        ("Fed up with Drake Software pricing", "", ["Drake Software"]),
+        ("Anyone switching CRM platforms this year?", "", []),
+        ("Moving off Acast, suggestions?", "", ["Acast"]),
+    ]
+    for title, body, comps in cases:
+        m = discover.software_buyer_intent(title, body, _comp_tokens(comps))
+        reason = discover.build_reason(m, age_h=24.0)
+        if not m.passed:
+            assert reason is None
+            continue
+        assert reason is not None
+        blob = (title + " " + body).lower()
+        # Any quoted token in the reason must be a real substring of the thread
+        import re as _re
+        for quoted in _re.findall(r'"([^"]+)"', reason):
+            assert quoted.lower() in blob, (
+                f"reason quoted {quoted!r} not in thread {title!r}: {reason!r}")
+        # Named competitor (if any) must be real
+        if m.competitor:
+            assert m.competitor.lower() in blob
+        # No em dashes in user-facing reason
+        assert "—" not in reason
+
+
+def test_build_reason_none_when_not_passed():
+    m = discover.software_buyer_intent(
+        "Looking for interviewees for my podcast", "", _comp_tokens([]))
+    assert m.passed is False
+    assert discover.build_reason(m, age_h=10.0) is None
+
+
+def test_build_reason_competitor_question_no_fake_intent():
+    """Competitor + question marker must NOT fabricate an intent token."""
+    m = discover.software_buyer_intent(
+        "Has anyone monetized Substack through Reddit?", "", _comp_tokens(["Substack"]))
+    assert m.passed is True
+    assert m.path == "competitor"
+    assert m.marker == "question"
+    assert m.intent_token is None
+    reason = discover.build_reason(m, age_h=24.0)
+    assert "buying question" in reason
+
+
+def test_buyer_intent_match_tuple_unpacks():
+    """Backward-compat: BuyerIntentMatch unpacks to (passed, path, weight)."""
+    m = discover.software_buyer_intent("Best tool for parsing", "", _comp_tokens([]))
+    passed, path, weight = m
+    assert passed is True and path == "noun" and weight == 0.6
+
+
+def test_future_dated_post_not_counted_fresh():
+    """Clock-skew guard: a post dated in the future must not count as fresh."""
+    future = int(time.time()) + 10 * 86400  # 10 days ahead
+    resp = {"data": {"children": [
+        {"data": {"subreddit": "test", "title": "alternative to Clio tool?",
+                  "selftext": "switching", "created_utc": future,
+                  "permalink": "/r/test/comments/x/"}},
+    ]}}
+    with patch.object(reddit, "fetch_json", return_value=resp):
+        result = discover.validate_sub_freshness(
+            "LawFirm", user_vocab=set(), competitors=["Clio"])
+    assert result["fresh_post_count"] == 0
+    assert result["passed"] is False
+
+
+def test_evidence_has_absolute_timestamp():
+    """Every surfaced evidence thread must carry an absolute UTC timestamp."""
+    resp = _new_json_response(
+        ("Switching from Clio, need software for trust accounting", "", 6.0),
+    )
+    with patch.object(reddit, "fetch_json", return_value=resp):
+        result = discover.validate_sub_freshness(
+            "LawFirm", user_vocab=set(), competitors=["Clio"])
+    assert result["passed"] is True
+    assert result["recent_thread_iso"] is not None
+    assert "UTC" in result["recent_thread_iso"]
+    assert result["recent_thread_created_utc"] is not None
 
 
 if __name__ == "__main__":

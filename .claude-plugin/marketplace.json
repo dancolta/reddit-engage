@@ -1,0 +1,23 @@
+{
+  "name": "subscope-local",
+  "id": "subscope-local",
+  "owner": {
+    "name": "dancolta"
+  },
+  "metadata": {
+    "description": "Local dev marketplace for subscope plugin",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "subscope",
+      "source": "./",
+      "description": "Reddit buyer-intent scanner. 8 patterns, 12 surfaces/day, runs locally in Claude Code.",
+      "version": "0.2.0",
+      "author": {
+        "name": "Dan Colta"
+      },
+      "category": "workflow"
+    }
+  ]
+}

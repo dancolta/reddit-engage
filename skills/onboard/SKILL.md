@@ -130,15 +130,32 @@ Substitute:
 
 The triple-quoted strings handle embedded apostrophes safely; `--answers-json -` reads the piped JSON from stdin.
 
-The engine returns JSON with: `subs` (ranked list with `name`, `score`, `why`, `thread_count`), `needs_clarification` (bool), `clarifier_prompt` (string when clarification needed), `discovery_unreachable` (bool), `source_mix`.
+The engine returns JSON with these fields:
+- `subs`: ranked candidate subs (recall stage). Each entry has `name`, `confidence` (0-100), `relevance_path` ("competitor"/"noun"), `recent_thread_url`, `recent_thread_title`, `recent_thread_iso` (absolute UTC timestamp), `recent_thread_reason` (plain-English why-chosen line), `recent_thread_age_h`, `freshness_unverified`, `why`, `thread_count`, `sources`, `noise_downranked`
+- `dropped_subs`: subs that failed Phase B (reasons: `no_fresh_buyer_activity`, `below_floor`, `validation_unreachable`)
+- `needs_clarification`, `clarifier_reason` (`stale_only`/`thin_results`/`no_candidates`), `clarifier_prompt`, `discovery_unreachable`, `phase_a_count`, `phase_b_timed_out`
 
-**If `needs_clarification` is true:** render T4.5 sub-turn with the engine's `clarifier_prompt` verbatim, wait for the user's reply, then re-run the same `discover` command with an added `--vertical "<user reply>"` flag. Use that second result for T5 regardless of clarification flag (we only ask once).
+**Freshness guarantee:** every sub in `subs` has a buyer-intent thread in the last 7 days, with an absolute timestamp + clickable link the user can verify.
 
-**If `discovery_unreachable` is true:** the T5 card will show a one-line warning under the Subreddits row (see T5 card shape below).
+**MANDATORY relevance review (this is the precision step, do not skip).** The engine is the recall stage: it surfaces every sub with a fresh thread that passed the deterministic buyer-intent gate. The gate is lexical, so it cannot tell a real software buyer from a same-shaped non-buyer. Before rendering the T5 card, review each candidate sub's `recent_thread_reason` + `recent_thread_title` (open `recent_thread_url` if unsure) and DROP any where the evidence thread is not a genuine prospect for THIS user's product. Apply these rules:
+
+- KEEP: someone comparing or shopping tools ("Buzzsprout vs Acast", "best tool for X", "alternative to Clio"), someone venting about a named competitor's price/UX, someone explicitly asking which software to buy.
+- DROP: career / "should I switch professions" questions (e.g. "Software Engineering vs Dentistry" for a dental-software seller, "Medical billing vs Coding for analytics"), self-promotion ("just published my new Substack"), generic life/work venting that merely contains a product word, news/changelog reposts about a competitor with no buyer signal, threads where the matched word means something unrelated to the product (e.g. "Clio" the car, "Anchor" the boat).
+- When in doubt, open the `recent_thread_url` and read it. A surfaced sub must have evidence a real buyer would recognize. Drop silently; do not show dropped candidates to the user.
+
+After the review, you have the final sub list. If the review leaves fewer than 3 subs, treat it like a thin result (offer the clarifier / broaden). Never pad with generic founder subs.
+
+**If `needs_clarification` is true:** render T4.5 sub-turn with the engine's `clarifier_prompt` verbatim. The clarifier varies by reason:
+- `stale_only`: Phase A found candidates but none had fresh activity. Offers to broaden the freshness window or refine vertical.
+- `thin_results` / `no_candidates`: Phase A didn't find enough relevant subs. Asks for the vertical.
+
+Wait for user reply. If they say "broaden", re-run discover with extra arg `--fresh-window-hours 168` (7 days). Otherwise re-run with `--vertical "<user reply>"`. Use the second result regardless of clarification status (we only ask once).
+
+**If `discovery_unreachable` is true:** the T5 card will show a one-line warning under the Subreddits row.
 
 ## Turn 5: confirm the scan card
 
-Build the card from WebFetch output + the three answers + the discovery result. Render exactly this shape:
+Build the card from WebFetch output + the three answers + the discovery result. Render exactly this shape (v3, with confidence chips + freshness evidence + batched dropped line):
 
 ```
 SUBSCOPE ONBOARDING  ·  5 / 7
@@ -146,18 +163,36 @@ SUBSCOPE ONBOARDING  ·  5 / 7
 
 Here's what I'm scanning for. Confirm or correct.
 
-→  You sell       <one-liner from T2>
-→  Buyers         <titles from T3>
-→  Pain pattern   <theme from T4>
-→  Subreddits     r/<sub>   (<thread_count> threads · "<top_query>")
-                  r/<sub>   (<thread_count> threads · "<top_query>")
-                  ... up to 8 entries from discover.subs
-→  Competitors    <up to 6, inferred from WebFetch + DFS cache>
+You sell       <one-liner from T2>
+Buyers         <titles from T3>
+Pain pattern   <theme from T4>
+
+Confidence:  ** 90+ trust   ++ 70-89 likely   ~~ 50-69 watch closely
+
+Subreddits (each verified by a real buyer thread in the last 7 days)
+** [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "<recent_thread_title truncated to 50 chars>"
+** [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
+++ [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
+~~ [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
+
+Dropped <N> subs (no buyer activity in 7 days): r/<a>, r/<b>, r/<c>
+
+Competitors    <up to 6, inferred from WebFetch + DFS cache>
 
 Reply "go" to confirm, or tell me what to fix.
 ```
 
-If `discovery_unreachable` is true, replace the Subreddits row with archetype-map output and append `(discovery thin, generic fallback)` to that row. If `discovery_unreachable` is false but the list is short (1-4 subs), still render what we have; do not pad with generic founder subs.
+Rendering rules:
+- Band prefix is determined by `confidence`: `**` for 90-100, `++` for 70-89, `~~` for 50-69. Subs below 50 are NOT in `subs` (already dropped by engine).
+- `[<conf>]` is the integer confidence padded to 2 digits (e.g. `[94]`, `[76]`, `[ 8]`, never shown since <50 dropped, but format-pad).
+- `<recent_thread_iso>` is each sub's `recent_thread_iso` field, the absolute UTC timestamp of the evidence thread (e.g. `2026-05-28 07:29 UTC`). Show it verbatim so the user can cross-check against what Reddit displays. The `recent_thread_url` is the clickable evidence link.
+- `<recent_thread_title>` comes from each sub's `recent_thread_title` field, truncated to 50 chars with `...` suffix if longer.
+- Discovery validates buyer activity over a 7-day window (onboarding picks subs to watch long-term). The daily `/subscope-run` scan uses a tighter 48h window for hot threads. Every timestamp is absolute, so "fresh" is never ambiguous.
+- "Dropped N subs" line: read `dropped_subs` from the engine, filter to `reason: "no_fresh_buyer_activity"`, list sub names comma-separated. Skip the entire line if no dropped subs.
+- If `discovery_unreachable` is true, replace the Subreddits block with the archetype-map output and append `(discovery thin, generic fallback)` to the first sub row.
+- If any sub has `freshness_unverified: true`, append `· freshness unverified` to that sub's row (Phase B couldn't reach Reddit for that sub).
+
+If the list is short (1-4 subs), still render what we have. Do not pad with generic founder subs.
 
 If the user replies with edits, apply silently and re-render the card. Do NOT re-render after a "go".
 
