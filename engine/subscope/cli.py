@@ -567,11 +567,16 @@ def main(argv: list[str] | None = None) -> None:
 
     dc = sub.add_parser("discover", help="Live subreddit discovery from interview answers")
     dc.add_argument("--answers-json", type=str, required=True,
-                    help="JSON object with keys what_offering, who_to_reach, pain_quote")
+                    help="JSON object with keys what_offering, who_to_reach, pain_quote. "
+                         "Pass '-' or '/dev/stdin' to read from stdin (avoids shell quoting issues).")
     dc.add_argument("--homepage", type=str, default="",
                     help="User homepage URL (for cache lookups: Firecrawl scrape + DFS competitors)")
     dc.add_argument("--vertical", type=str, default=None,
                     help="Optional vertical clarifier value (set on Tier-A retry)")
+    dc.add_argument("--competitors", type=str, default="",
+                    help="Comma-separated competitor brands or domains. Used by the "
+                         "engine to generate 'replacing X' and 'X alternative' queries. "
+                         "Pass these from the skill when Claude found them via WebFetch.")
 
     sub.add_parser("status", help="Print last-run status as JSON")
 
@@ -595,7 +600,8 @@ def main(argv: list[str] | None = None) -> None:
     elif args.cmd == "op-vet":
         cmd_op_vet(args.username)
     elif args.cmd == "discover":
-        cmd_discover(args.answers_json, args.homepage, args.vertical)
+        cmd_discover(args.answers_json, args.homepage, args.vertical,
+                     args.competitors)
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "blog" and args.blogcmd == "ingest":
@@ -622,7 +628,8 @@ def _emit_max_surfaces_warning(n: int) -> None:
     sys.stderr.flush()
 
 
-def cmd_discover(answers_json: str, homepage: str, vertical: str | None) -> None:
+def cmd_discover(answers_json: str, homepage: str, vertical: str | None,
+                 competitors_csv: str = "") -> None:
     """Live subreddit discovery for the /subscope-onboard T5 card.
 
     Reads JSON answers from --answers-json. Two forms accepted:
@@ -644,9 +651,15 @@ def cmd_discover(answers_json: str, homepage: str, vertical: str | None) -> None
         print(json.dumps({"error": f"invalid --answers-json: {e}"}))
         sys.exit(2)
 
+    # Comma-separated competitors from skill (independent of DFS cache).
+    # Strip + dedup; empty strings filtered out.
+    extra_competitors = [c.strip() for c in (competitors_csv or "").split(",")
+                         if c.strip()]
+
     with store.connect() as conn:
         result = discover.discover_subs_for_profile(
             answers, homepage or "", conn, vertical=vertical,
+            extra_competitors=extra_competitors or None,
         )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

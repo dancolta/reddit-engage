@@ -50,10 +50,44 @@ MAX_QUERIES = 6
 FRESHNESS_CUTOFF_DAYS = 730
 DISCOVERY_HARD_TIMEOUT_S = 20.0
 
-# Per-sub quality is capped so a single viral thread can't drown out the
-# multi-query frequency signal. 5.0 corresponds to log1p(148) ≈ 5.0, which is
-# "a sub with median ~150 upvotes per matched thread caps the quality bonus."
-QUALITY_CEILING = 5.0
+# Per-sub quality is capped at 3.0 (was 5.0). Quality is a tiebreaker, not a
+# dominator. Cross-query frequency is the real signal that a sub is a place
+# people discuss the buyer's problem, not a single viral thread.
+QUALITY_CEILING = 3.0
+
+# Hard gate: a sub MUST have at least this many threads matched across all
+# queries to make the output. Single-thread matches are almost always
+# coincidental lexical overlap (r/PleX matching "saas subscriptions" because
+# someone said "my Plex subscription is too expensive"). Real buyer subs
+# show up multiple times when the user's pain is genuinely discussed there.
+MIN_THREAD_COUNT = 2
+
+# Vocabulary-overlap bonus: when the sub name shares a token with the user's
+# own answers (T2/T3/T4 lowercase, stopwords stripped, ≥4 chars), the sub
+# gets a score boost. This is fully data-driven: an accounting SaaS seller
+# gets r/Accounting bonused but NOT r/ecommerce, while a Shopify app seller
+# gets r/ecommerce bonused but NOT r/Accounting. Replaces the brittle static
+# operator-token list (which had no awareness of who the buyer actually is).
+USER_VOCAB_BONUS = 2.5
+
+# Generic vocabulary stopwords stripped from token overlap.
+# Conservative list: ONLY true linguistic stopwords + the most generic
+# nouns. Domain-meaningful words like "saas", "alternatives", "expensive"
+# stay in vocabulary so that when a user explicitly writes them, subs with
+# those tokens in their names (r/microsaas, r/B2BSaaS) get vocab match.
+_VOCAB_STOPWORDS = {
+    # function words
+    "the", "and", "for", "with", "that", "this", "have", "from", "your",
+    "you", "our", "their", "they", "are", "was", "were", "been", "being",
+    "any", "all", "some", "more", "most", "much", "many", "few", "such",
+    "very", "just", "only", "also", "into", "onto", "out", "off",
+    "good", "bad", "new", "old", "big", "small", "high", "low",
+    # extremely generic nouns/verbs
+    "want", "wants", "need", "needs", "like", "likes", "use", "uses",
+    "make", "makes", "made", "get", "gets", "got",
+    "thing", "things", "stuff", "people", "team", "teams",
+    "company", "companies", "service", "services",
+}
 
 # Subreddit names that overlap the user's likely intent but are noise-heavy.
 # Downrank 50%, do not drop. Three sub-groups:
@@ -74,6 +108,12 @@ NOISE_DOWNRANK_SUBS = {
     "mildlyinfuriating", "middleclasshq", "antiwork", "layoffs",
     "politics", "news", "worldnews", "askreddit", "showerthoughts",
     "rant", "venting", "complaints",
+    # (d) drama / relationship / meta repost subs that lexically match
+    # any phrase containing "expensive", "switching", "alternative" in
+    # personal-life contexts (caught in accounting-persona smoke)
+    "aitah", "amitheasshole", "amioverreacting", "relationships",
+    "relationship_advice", "bestofredditorupdates", "tifu",
+    "twoxchromosomes", "askmen", "askwomen", "futurology",
 }
 
 # Buyer-intent signal: a thread is dropped from discovery if its title contains
@@ -95,6 +135,51 @@ _BUYER_INTENT_RE = re.compile(
     r"\b(" + "|".join(re.escape(t) for t in BUYER_INTENT_TOKENS) + r")\b",
     re.IGNORECASE,
 )
+
+
+def _build_user_vocabulary(answers: dict[str, str]) -> set[str]:
+    """Extract the user's domain vocabulary from T2/T3/T4.
+
+    Returns lowercase tokens ≥4 chars, stripped of generic stopwords. This
+    becomes the "is this sub topically related to what the user sells"
+    signal for the ranking bonus.
+    """
+    blob = " ".join([
+        answers.get("what_offering", "") or "",
+        answers.get("who_to_reach", "") or "",
+        answers.get("pain_quote", "") or "",
+    ]).lower()
+    tokens = re.findall(r"[a-z][a-z\-]{3,}", blob)
+    return {t for t in tokens if t not in _VOCAB_STOPWORDS}
+
+
+def _sub_matches_user_vocab(sub_key: str, vocab: set[str]) -> bool:
+    """True if any vocabulary token appears as a substring of the sub name.
+
+    Substring match (not word-boundary) because sub names compress tokens:
+    'aiautomations' contains 'automation', 'salesops' contains 'sales'.
+    """
+    if not sub_key or not vocab:
+        return False
+    s = sub_key.lower()
+    return any(tok in s for tok in vocab)
+
+
+# Legacy alias kept for tests / external callers; semantics now require
+# vocabulary context.
+def _is_operator_sub(sub_key: str, vocab: set[str] | None = None) -> bool:
+    """Compatibility shim. Pass `vocab` for the new vocabulary-aware check.
+
+    When vocab is None, falls back to a conservative built-in list of
+    business/operator tokens so old callers don't crash, but the new ranking
+    pipeline always supplies a vocab set.
+    """
+    if vocab is not None:
+        return _sub_matches_user_vocab(sub_key, vocab)
+    # Conservative legacy fallback (only used by tests and ad-hoc inspection)
+    fallback = {"ops", "founder", "owner", "agency", "accounting",
+                "automation", "nocode", "sales", "marketing"}
+    return _sub_matches_user_vocab(sub_key, fallback)
 
 
 def _has_buyer_intent(title: str) -> bool:
@@ -148,9 +233,17 @@ def _log(msg: str) -> None:
 
 
 def _normalize_query(s: str) -> str:
-    """Lowercase, strip, collapse whitespace, trim to 80 chars at word boundary."""
+    """Lowercase, strip, collapse whitespace, trim to 80 chars at word boundary.
+
+    Only strips matched outer quote pairs (so a fully quoted competitor query
+    `"drake software"` becomes `drake software`) but preserves internal quotes
+    needed for Reddit's exact-phrase search (`replacing "drake software"`
+    survives intact).
+    """
     s = re.sub(r"\s+", " ", (s or "").strip().lower())
-    s = s.strip("\"'`")
+    # Only strip if BOTH ends are the same quote char (matched pair)
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'`":
+        s = s[1:-1].strip()
     for prefix in _T4_LEADING_PREFIXES:
         if s.startswith(prefix):
             s = s[len(prefix):]
@@ -186,12 +279,28 @@ def _add_query(out: list[str], token_sets: list[set[str]], candidate: str) -> bo
     return True
 
 
+_BUYER_NOUN_PRIORITY = (
+    "founder", "founders", "operator", "operators", "owner", "owners",
+    "ceo", "cto", "coo", "cfo", "manager", "managers", "director",
+    "principal", "head", "lead", "leader", "leaders", "freelancer",
+    "agency", "agencies", "consultant", "consultants",
+)
+
+
 def _extract_buyer_noun(t3: str) -> str | None:
-    """Head noun from T3, last meaningful word before 'at' or final word."""
+    """Head noun from T3. Prefers known buyer-role tokens when present
+    anywhere in the answer (founder, operator, owner, ceo, etc.), falls back
+    to the first noun-before-preposition pattern, then the last non-stopword
+    alphabetic token."""
     if not t3:
         return None
     s = t3.lower().strip()
-    # "founders at a SaaS startup" → "founders"
+    # Priority pass: known buyer-role tokens anywhere in T3
+    for role in _BUYER_NOUN_PRIORITY:
+        if re.search(rf"\b{role}\b", s):
+            # Drop trailing 's' for singular form (founders -> founder still works)
+            return role
+    # Fallback: "founders at a SaaS startup" → "founders"
     m = re.match(r"^([\w\-]+)\s+(?:at|of|in)\s+", s)
     if m:
         cand = m.group(1)
@@ -249,9 +358,15 @@ def derive_queries(
     out: list[str] = []
     token_sets: list[set[str]] = []
 
-    # Rule 1: verbatim T4 pain (always included if ≥ 8 chars)
+    # Rule 1: T4 pain, truncated at first major punctuation. The full T4 can
+    # be 200+ chars (Claude synthesizes a paragraph after the URL fetch); a
+    # short cleaned phrase searches better than a comma-spliced paragraph.
     if len(t4) >= 8:
-        _add_query(out, token_sets, t4)
+        t4_first = re.split(r"[.,;:!?]|\s+\(", t4, maxsplit=1)[0].strip()
+        if len(t4_first) >= 8:
+            _add_query(out, token_sets, t4_first)
+        elif t4:
+            _add_query(out, token_sets, t4)
 
     # Rule 2: pain + buyer-noun
     if t4 and len(out) < MAX_QUERIES:
@@ -266,7 +381,12 @@ def derive_queries(
             buyer = _extract_buyer_noun(t3) or ""
             _add_query(out, token_sets, f"{v_norm} {buyer} {t4}".strip())
 
-    # Rule 3: replacing-competitor (up to 2 competitors)
+    # Rule 3: replacing-competitor (up to 2 competitors).
+    # Multi-word names get wrapped in quotes so Reddit treats them as exact
+    # phrases. Without quotes, "Drake Software" matches gaming subs that
+    # mention "Drake" (the rapper). With quotes, only threads with the literal
+    # two-word phrase match. Single-word names (n8n, Salesforce, Zapier)
+    # skip the wrap since they're already unambiguous.
     used_competitors = 0
     for c in competitors:
         if used_competitors >= 2 or len(out) >= MAX_QUERIES:
@@ -276,10 +396,12 @@ def derive_queries(
             continue
         # Drop TLD for cleaner phrasing: "instantly.ai" -> "instantly"
         c_clean = c.split(".")[0] if "." in c else c
-        if _add_query(out, token_sets, f"replacing {c_clean}"):
+        # Quote-wrap if multi-word for Reddit's exact-phrase search
+        c_phrase = f'"{c_clean}"' if " " in c_clean else c_clean
+        if _add_query(out, token_sets, f"replacing {c_phrase}"):
             used_competitors += 1
         if used_competitors < 2 and len(out) < MAX_QUERIES:
-            _add_query(out, token_sets, f"{c_clean} alternative")
+            _add_query(out, token_sets, f"{c_phrase} alternative")
 
     # Rule 4: price-rage variant (conditional on T4 matching the trigger)
     if t4 and _PRICE_RAGE_RE.search(t4) and len(out) < MAX_QUERIES:
@@ -299,7 +421,50 @@ def derive_queries(
         if homepage_pain:
             _add_query(out, token_sets, homepage_pain)
 
+    # Rule 7: T4 noun-phrase extraction. Pulls 2-3 word phrases that aren't
+    # stopwords (e.g. "GTM tool stack", "per-seat pricing", "cold email infra")
+    # and appends " alternatives" so Reddit's index matches buying intent.
+    if t4 and len(out) < MAX_QUERIES:
+        for phrase in _extract_noun_phrases(t4):
+            if len(out) >= MAX_QUERIES:
+                break
+            _add_query(out, token_sets, f"{phrase} alternatives")
+
     return out
+
+
+def _extract_noun_phrases(text: str) -> list[str]:
+    """Pull 2-3 word noun phrases from T4 / T2 free text.
+
+    Heuristic: split on punctuation, then on each chunk pull groups of
+    consecutive alphabetic tokens (each > 2 chars, none in stopwords) of
+    length 2-3. Returns deduped phrases in order of appearance.
+
+    Example input: "SaaS price hikes, per-seat tax compounding as team grows,
+    expensive GTM tool stacks (outreach, scrapers, enrichment)"
+    Example output: ["saas price hikes", "per-seat tax compounding",
+    "gtm tool stacks"]
+    """
+    if not text:
+        return []
+    chunks = re.split(r"[.,;:!?()\[\]]|\s+(?:and|or|with|of|the|for|as|in|at)\s+",
+                      text.lower())
+    out: list[str] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        tokens = re.findall(r"[a-z][a-z\-]{2,}", chunk)
+        # Walk windows of 2-3 consecutive non-stopword tokens
+        for size in (3, 2):
+            for i in range(len(tokens) - size + 1):
+                window = tokens[i:i + size]
+                if all(w not in _BUYER_STOPWORDS and len(w) > 2 for w in window):
+                    phrase = " ".join(window)
+                    if phrase not in seen and len(phrase) >= 8:
+                        seen.add(phrase)
+                        out.append(phrase)
+        if len(out) >= 4:
+            break
+    return out[:4]
 
 
 # ─── 2. Search execution ───────────────────────────────────────────────
@@ -412,11 +577,22 @@ def search_dfs(query: str, conn) -> list[dict[str, Any]]:
 # ─── 3. Subreddit harvesting + ranking ─────────────────────────────────
 
 
-def rank_subs(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def rank_subs(threads: list[dict[str, Any]],
+              user_vocab: set[str] | None = None) -> list[dict[str, Any]]:
     """Aggregate threads per subreddit, score, sort desc by final_score.
 
-    Returns list of {name, score, why, thread_count, sources, top_thread_query}
+    Args:
+        threads: harvested threads from search_reddit + search_dfs.
+        user_vocab: optional set of lowercase tokens from T2/T3/T4. When
+            provided, subs whose names contain any of these tokens get the
+            USER_VOCAB_BONUS. This is the "topically related to what the user
+            sells" signal that prevents an accounting SaaS from ranking
+            r/ecommerce alongside r/Accounting.
+
+    Returns list of {name, score, why, thread_count, sources, noise_downranked}
     sorted high-to-low. Threads older than FRESHNESS_CUTOFF_DAYS are dropped.
+    Single-thread subs (< MIN_THREAD_COUNT) are dropped to kill coincidental
+    lexical matches.
     """
     now = int(time.time())
     cutoff = now - FRESHNESS_CUTOFF_DAYS * 86400
@@ -442,13 +618,24 @@ def rank_subs(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for key, b in buckets.items():
         ts = b["threads"]
         n = len(ts)
-        if n == 0:
+        # Hard gate 1: drop single-thread coincidental matches.
+        if n < MIN_THREAD_COUNT:
             continue
         freq = len(b["queries"])
+        # Hard gate 2: drop subs that don't pass relevance signal. A sub is
+        # considered relevant if EITHER (a) its name shares a token with the
+        # user's domain vocabulary (T2/T3/T4 keywords), OR (b) it appears in
+        # the results of 2+ distinct queries (cross-query confirmation).
+        # Subs that only match ONE generic query and don't share vocabulary
+        # are almost always lexical noise (r/Helldivers, r/ecommerce on an
+        # accounting query, etc).
+        vocab_match = (user_vocab is not None
+                       and _sub_matches_user_vocab(key, user_vocab))
+        if not vocab_match and freq < 2:
+            continue
         # quality: average of log1p(upvotes) + log1p(comments) per thread,
-        # capped at QUALITY_CEILING so a single viral thread can't crush
-        # the frequency signal (discovery values "many threads across queries"
-        # more than "one viral thread").
+        # capped at QUALITY_CEILING. Capping is critical because a single
+        # viral thread can crush the cross-query frequency signal otherwise.
         quality_sum = sum(
             math.log1p(max(0, t.get("score") or 0)) +
             math.log1p(max(0, t.get("num_comments") or 0))
@@ -461,7 +648,18 @@ def rank_subs(threads: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for t in ts
         )
         recency = recency_sum / n
-        raw_score = (freq * 2.0) + quality + (recency * 1.5)
+        # Score formula (v3): frequency is the dominant signal, thread count
+        # adds volume, quality + recency are tiebreakers, vocabulary-overlap
+        # bonus rewards subs whose name shares tokens with what the user
+        # actually sells (data-driven, not a static list).
+        vocab_bonus = USER_VOCAB_BONUS if vocab_match else 0.0
+        raw_score = (
+            freq * 5.0                       # cross-query confirmation
+            + math.log1p(n) * 2.0            # thread volume
+            + quality                        # per-thread engagement, capped
+            + recency * 0.5                  # mild recency tiebreaker
+            + vocab_bonus
+        )
         noise_mult = NOISE_DOWNRANK_FACTOR if key in NOISE_DOWNRANK_SUBS else 1.0
         final_score = raw_score * noise_mult
 
@@ -554,6 +752,7 @@ def discover_subs_for_profile(
     *,
     vertical: str | None = None,
     deadline: float | None = None,
+    extra_competitors: list[str] | None = None,
 ) -> dict[str, Any]:
     """End-to-end discovery: derive → search (DFS + Reddit native) → rank → fallback.
 
@@ -580,6 +779,14 @@ def discover_subs_for_profile(
         deadline = start + DISCOVERY_HARD_TIMEOUT_S
 
     markdown, competitors = _gather_inputs(homepage_url, conn)
+    # Merge any caller-supplied competitors (e.g. Claude's WebFetch results from
+    # the skill) with cached DFS competitors. Skill-supplied ones go FIRST so
+    # rule 3 picks the most accurate brands.
+    if extra_competitors:
+        seen = {c.lower() for c in extra_competitors}
+        merged = list(extra_competitors)
+        merged.extend(c for c in competitors if c.lower() not in seen)
+        competitors = merged
     queries = derive_queries(answers, markdown, competitors, vertical=vertical)
 
     # Empty / pathological input: skip directly to Tier A
@@ -628,7 +835,8 @@ def discover_subs_for_profile(
             except Exception as e:
                 _log(f"dfs search error for '{q}': {type(e).__name__}")
 
-    ranked = rank_subs(threads)
+    user_vocab = _build_user_vocabulary(answers)
+    ranked = rank_subs(threads, user_vocab=user_vocab)
 
     # All non-noise subs surviving?
     non_noise_count = sum(1 for r in ranked if not r["noise_downranked"])

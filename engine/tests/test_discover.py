@@ -302,13 +302,21 @@ def test_rank_subs_applies_noise_downrank():
 
 
 def test_rank_subs_drops_threads_older_than_cutoff():
+    # Each sub needs MIN_THREAD_COUNT (2) threads so they survive the
+    # single-thread gate. The point of THIS test is the age filter.
     threads = [
         {"sub": "old", "score": 50, "num_comments": 10,
          "created_utc": NOW - 1000 * 86400,
          "source_query": "q1", "source": "reddit_native"},
+        {"sub": "old", "score": 50, "num_comments": 10,
+         "created_utc": NOW - 1100 * 86400,
+         "source_query": "q2", "source": "reddit_native"},
         {"sub": "fresh", "score": 10, "num_comments": 1,
          "created_utc": NOW - 30 * 86400,
          "source_query": "q1", "source": "reddit_native"},
+        {"sub": "fresh", "score": 10, "num_comments": 1,
+         "created_utc": NOW - 40 * 86400,
+         "source_query": "q2", "source": "reddit_native"},
     ]
     ranked = discover.rank_subs(threads)
     assert [r["name"] for r in ranked] == ["fresh"]
@@ -328,13 +336,19 @@ def test_rank_subs_case_insensitive_aggregation():
 
 
 def test_rank_subs_why_line_format():
+    # Two threads from the same sub matching different queries — exactly the
+    # cross-query confirmation pattern the ranker now requires.
     threads = [
         {"sub": "Bookkeeping", "score": 50, "num_comments": 10,
          "created_utc": NOW - 86400,
          "source_query": "saas price increase alternatives", "source": "reddit_native"},
+        {"sub": "Bookkeeping", "score": 30, "num_comments": 5,
+         "created_utc": NOW - 86400,
+         "source_query": "switching from quickbooks", "source": "reddit_native"},
     ]
     ranked = discover.rank_subs(threads)
-    assert ranked[0]["why"] == "found in 1 thread matching 'saas price increase alternatives'"
+    # Why-line uses the highest-engagement thread's source_query
+    assert ranked[0]["why"] == "found in 2 threads matching 'saas price increase alternatives'"
 
 
 # ─── 5. Fallback + end-to-end ─────────────────────────────────────────
