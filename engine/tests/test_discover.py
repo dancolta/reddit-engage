@@ -925,6 +925,39 @@ def test_buyer_intent_match_tuple_unpacks():
     assert passed is True and path == "noun" and weight == 0.6
 
 
+def test_fresh_window_hours_threads_through_to_phase_b():
+    """The 'broaden' clarifier path passes --fresh-window-hours; verify the
+    window reaches validate_sub_freshness (regression guard for the broken
+    broaden path the code review caught)."""
+    c = _conn()
+    answers = {
+        "what_offering": "dispatch software for HVAC shops",
+        "who_to_reach": "HVAC shop owners",
+        "pain_quote": "Housecall Pro is too expensive, looking for a cheaper dispatch tool",
+    }
+    captured = {}
+
+    def capture_window(sub_name, user_vocab, competitors, **kw):
+        captured["window_hours"] = kw.get("window_hours")
+        return {
+            "fresh_post_count": 0, "fresh_buyer_intent_count": 0,
+            "fresh_relevance_count": 0, "weighted_relevance": 0.0,
+            "relevance_path": None, "recent_thread_url": None,
+            "recent_thread_title": None, "recent_thread_age_h": None,
+            "recent_thread_iso": None, "recent_thread_reason": None,
+            "passed": False, "timed_out": False, "error": None,
+        }
+
+    with patch.object(reddit, "fetch_json",
+                      side_effect=lambda u, timeout=15: _reddit_search_response(("HVAC", 5, 2, 5))):
+        with patch.object(enrich, "detect_providers", return_value={"dataforseo": False, "firecrawl": False}):
+            with patch.object(discover, "validate_sub_freshness", side_effect=capture_window):
+                discover.discover_subs_for_profile(
+                    answers, "", c, extra_competitors=["Housecall Pro", "Jobber"],
+                    fresh_window_hours=720)
+    assert captured.get("window_hours") == 720
+
+
 def test_future_dated_post_not_counted_fresh():
     """Clock-skew guard: a post dated in the future must not count as fresh."""
     future = int(time.time()) + 10 * 86400  # 10 days ahead

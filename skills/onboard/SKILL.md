@@ -149,7 +149,7 @@ After the review, you have the final sub list. If the review leaves fewer than 3
 - `stale_only`: Phase A found candidates but none had fresh activity. Offers to broaden the freshness window or refine vertical.
 - `thin_results` / `no_candidates`: Phase A didn't find enough relevant subs. Asks for the vertical.
 
-Wait for user reply. If they say "broaden", re-run discover with extra arg `--fresh-window-hours 168` (7 days). Otherwise re-run with `--vertical "<user reply>"`. Use the second result regardless of clarification status (we only ask once).
+Wait for user reply. If they say "broaden", re-run discover with extra arg `--fresh-window-hours 720` (30 days; discovery already defaults to 7 days, so broadening means going wider). Otherwise re-run with `--vertical "<user reply>"`. Use the second result regardless of clarification status (we only ask once).
 
 **If `discovery_unreachable` is true:** the T5 card will show a one-line warning under the Subreddits row.
 

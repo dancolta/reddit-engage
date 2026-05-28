@@ -42,6 +42,8 @@ _API, framework, infra._
 
 You run `/subscope-run` and one of the surfaces is an engineer asking: *"Anyone moved off Temporal at scale? Looking for something lighter?"* The thread is a few hours old. They are comparing options, reading docs, not yet committed. You have an input into what they evaluate. A week from now they are justifying a tool they already picked. You ran the scan when the thread was still in discovery.
 
+> **Honestly, this is for anyone who sells anything.** The four above are just examples. If you offer a service, a product, software, a course, freelance work, an agency, a physical-goods store, a local business, whatever it is, somebody on Reddit is asking for it right now. subscope finds that person. The onboarding adapts to your exact offer; you do not need to be a SaaS founder.
+
 ---
 
 ## The 8 signals it catches

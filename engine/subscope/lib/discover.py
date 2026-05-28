@@ -227,23 +227,6 @@ def _sub_matches_user_vocab(sub_key: str, vocab: set[str]) -> bool:
     return any(tok in s for tok in vocab)
 
 
-# Legacy alias kept for tests / external callers; semantics now require
-# vocabulary context.
-def _is_operator_sub(sub_key: str, vocab: set[str] | None = None) -> bool:
-    """Compatibility shim. Pass `vocab` for the new vocabulary-aware check.
-
-    When vocab is None, falls back to a conservative built-in list of
-    business/operator tokens so old callers don't crash, but the new ranking
-    pipeline always supplies a vocab set.
-    """
-    if vocab is not None:
-        return _sub_matches_user_vocab(sub_key, vocab)
-    # Conservative legacy fallback (only used by tests and ad-hoc inspection)
-    fallback = {"ops", "founder", "owner", "agency", "accounting",
-                "automation", "nocode", "sales", "marketing"}
-    return _sub_matches_user_vocab(sub_key, fallback)
-
-
 def _has_buyer_intent(title: str, body: str = "") -> bool:
     """True if the thread title or body looks like the OP is shopping /
     comparing / switching, not just venting.
@@ -337,11 +320,6 @@ def _intent_hits(tokens: list[str]) -> list[tuple[int, str]]:
     return sorted(set(kept), key=lambda x: x[0])
 
 
-def _intent_positions(tokens: list[str]) -> list[int]:
-    """Backward-compatible index-only view of _intent_hits."""
-    return [i for i, _ in _intent_hits(tokens)]
-
-
 def _noun_positions(tokens: list[str]) -> list[int]:
     return [i for i, t in enumerate(tokens) if t in _PRODUCT_NOUNS]
 
@@ -361,7 +339,7 @@ def _build_competitor_tokens(competitors: list[str] | None) -> set[str]:
     """Build the set of competitor match tokens.
 
     - Full brand name always added (matched word-boundary for single words,
-      substring for dotted/multi-word names in _competitor_brand_hit).
+      substring for dotted/multi-word names in _matched_competitor).
     - First word of a MULTI-word brand added ONLY if it is distinctive:
       length >= 5 AND not a common English word. So "Drake Software" -> "drake"
       (kept), but "When I Work" -> "when" is dropped (the full phrase
@@ -379,26 +357,6 @@ def _build_competitor_tokens(competitors: list[str] | None) -> set[str]:
             if len(first) >= 5 and first not in _COMMON_BRAND_FIRST_WORDS:
                 tokens.add(first)
     return tokens
-
-
-def _competitor_brand_hit(title: str, body: str, comp_tokens: set[str]) -> bool:
-    """Word-boundary match of any competitor brand in title+body.
-
-    Single-word brands use \\b boundaries (so 'anchor' the brand does not match
-    'anchor' mid-sentence unless it's a standalone word). Multi-word / dotted
-    brands ('drake software', 'bill.com') use literal substring since they're
-    already specific."""
-    blob = (title + " " + body[:800]).lower()
-    for c in comp_tokens:
-        if not c:
-            continue
-        if " " in c or "." in c:
-            if c in blob:
-                return True
-        else:
-            if re.search(rf"\b{re.escape(c)}\b", blob):
-                return True
-    return False
 
 
 @dataclass
@@ -1312,13 +1270,13 @@ def _vertical_clarifier_prompt() -> str:
 
 def _stale_only_clarifier_prompt() -> str:
     """Fires when Phase A found candidates but Phase B killed them all on
-    freshness (no buyer activity in 48h). Different question from vertical
-    clarifier: the issue isn't 'who are your buyers', it's 'where do they
-    talk RIGHT NOW'."""
+    freshness (no buyer activity in the discovery window). Different question
+    from the vertical clarifier: the issue isn't 'who are your buyers', it's
+    'where do they talk RIGHT NOW'."""
     return (
         "Found communities where this conversation has happened historically,\n"
-        "but no active buyer signal in the last 48 hours.\n\n"
-        "→  Broaden to last 7 days? Reply 'broaden'.\n"
+        "but no active buyer thread in the last 7 days.\n\n"
+        "→  Broaden to the last 30 days? Reply 'broaden'.\n"
         "→  Or tell me one more specific vertical / pain phrasing to refine."
     )
 

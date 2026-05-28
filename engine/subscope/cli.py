@@ -577,6 +577,9 @@ def main(argv: list[str] | None = None) -> None:
                     help="Comma-separated competitor brands or domains. Used by the "
                          "engine to generate 'replacing X' and 'X alternative' queries. "
                          "Pass these from the skill when Claude found them via WebFetch.")
+    dc.add_argument("--fresh-window-hours", type=int, default=None,
+                    help="Buyer-activity freshness window in hours. Default 168 (7 days) "
+                         "for onboarding discovery. Pass 720 on the 'broaden' clarifier path.")
 
     sub.add_parser("status", help="Print last-run status as JSON")
 
@@ -601,7 +604,7 @@ def main(argv: list[str] | None = None) -> None:
         cmd_op_vet(args.username)
     elif args.cmd == "discover":
         cmd_discover(args.answers_json, args.homepage, args.vertical,
-                     args.competitors)
+                     args.competitors, args.fresh_window_hours)
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "blog" and args.blogcmd == "ingest":
@@ -629,7 +632,7 @@ def _emit_max_surfaces_warning(n: int) -> None:
 
 
 def cmd_discover(answers_json: str, homepage: str, vertical: str | None,
-                 competitors_csv: str = "") -> None:
+                 competitors_csv: str = "", fresh_window_hours: int | None = None) -> None:
     """Live subreddit discovery for the /subscope-onboard T5 card.
 
     Reads JSON answers from --answers-json. Two forms accepted:
@@ -656,10 +659,13 @@ def cmd_discover(answers_json: str, homepage: str, vertical: str | None,
     extra_competitors = [c.strip() for c in (competitors_csv or "").split(",")
                          if c.strip()]
 
+    kwargs = {"vertical": vertical, "extra_competitors": extra_competitors or None}
+    if fresh_window_hours is not None:
+        kwargs["fresh_window_hours"] = fresh_window_hours
+
     with store.connect() as conn:
         result = discover.discover_subs_for_profile(
-            answers, homepage or "", conn, vertical=vertical,
-            extra_competitors=extra_competitors or None,
+            answers, homepage or "", conn, **kwargs,
         )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
