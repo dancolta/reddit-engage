@@ -16,7 +16,7 @@ Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate 
 
 ## Daily run procedure
 
-### Step 1 — Fetch + candidates (Python engine)
+### Step 1: Fetch + candidates (Python engine)
 
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score --candidates
@@ -38,7 +38,7 @@ The `status` field tells you why a run produced few or no surfaces, so you never
 
 The `inline_markdown` and `inline_table` fields already render both tracks as two labeled sections (BUYER SIGNALS first, then AUTHORITY PLAYS). When the authority track is empty, only the buyer section renders. The authority track can be toggled in `weights.yml` under `authority_track.enabled`. When disabled, the run reverts to buyer-only output exactly.
 
-### Step 2 — Optional Notion sync
+### Step 2: Optional Notion sync
 
 Read `~/.config/subscope/notion.yml`. Branch on the `mode` field:
 
@@ -65,11 +65,11 @@ Read `~/.config/subscope/notion.yml`. Branch on the `mode` field:
 
 If `notion.yml` is missing, skip silently.
 
-### Step 3 — Optional Slack push (handled by Python automatically)
+### Step 3: Optional Slack push (handled by Python automatically)
 
-If `~/.config/subscope/slack.json` exists OR `SLACK_WEBHOOK_URL` env is set, the engine pushes a formatted message to that webhook at the end of `fetch-score`. This skill does NOT need to do anything — the integration is in `engine/subscope/lib/slack.py` and silently no-ops if no webhook is configured. To suppress for one run, pass `--no-slack` to `fetch-score`.
+If `~/.config/subscope/slack.json` exists OR `SLACK_WEBHOOK_URL` env is set, the engine pushes a formatted message to that webhook at the end of `fetch-score`. This skill does NOT need to do anything. The integration is in `engine/subscope/lib/slack.py` and silently no-ops if no webhook is configured. To suppress for one run, pass `--no-slack` to `fetch-score`.
 
-### Step 3.5 — Offer-relevance judge (THIS is the surfacing decision)
+### Step 3.5: Offer-relevance judge (THIS is the surfacing decision)
 
 Under judge-first, **you** decide what surfaces by judging each candidate against the user's offer. The engine's lexical gate is only a recall pre-filter; never rely on keyword density for precision. This step is what guarantees a first-run user does not get spammy or off-topic results.
 
@@ -83,9 +83,9 @@ From those, hold a one-paragraph offer model in mind: WHAT they sell, WHO buys i
 
 **Judge every candidate** in `candidates[]`. Assign exactly one verdict:
 
-- **BUYER** — the poster is plausibly a buyer for the CORE offer: they have the pain the offer solves, or they are evaluating, switching, or pricing tools in the offer's category, and a reply could move a deal. Example: "moving off Dentrix, anyone on a cloud PMS?"
-- **AUTHORITY** — a real ICP person with an on-topic problem who is NOT a direct buyer for the core offer: adjacent tools, industry ops questions, where a helpful reply builds credibility, not a sale. Example: a lab asking about imaging export, a practice asking who builds dental websites.
-- **REJECT** — everything else: patient/clinical questions, careers/jobs, personal finance, vendor self-promo or spam, anything off-topic. **When in doubt, REJECT.**
+- **BUYER**: the poster is plausibly a buyer for the CORE offer: they have the pain the offer solves, or they are evaluating, switching, or pricing tools in the offer's category, and a reply could move a deal. Example: "moving off Dentrix, anyone on a cloud PMS?"
+- **AUTHORITY**: a real ICP person with an on-topic problem who is NOT a direct buyer for the core offer: adjacent tools, industry ops questions, where a helpful reply builds credibility, not a sale. Example: a lab asking about imaging export, a practice asking who builds dental websites.
+- **REJECT**: everything else: patient/clinical questions, careers/jobs, personal finance, vendor self-promo or spam, anything off-topic. **When in doubt, REJECT.**
 
 **Hard rules (this is what keeps the list clean):**
 - Judge against the OFFER, not keywords. A post that names a brand or hits a keyword but is a patient clinical question (or a job post, or spam) is REJECT. `names_brand: true` is NOT a pass.
@@ -97,7 +97,7 @@ From those, hold a one-paragraph offer model in mind: WHAT they sell, WHO buys i
 
 This judge is the same decision the optional `classify.py` path makes headlessly when a user supplies an LLM key; here you are the judge because the Claude session is the LLM.
 
-### Step 4 — Output (surface preference aware)
+### Step 4: Output (surface preference aware)
 
 Read `~/.config/subscope/surface.yml` if it exists:
 
@@ -122,7 +122,7 @@ If Notion sync was attempted and failed, append exactly one line: `(Notion sync 
 - **No em dashes** in any output written to Notion or chat. The Python output is em-dash-free; preserve that.
 - **NEVER hand-compose Reddit URLs.** Read `url` directly from the JSON. Post IDs are globally unique; a single typo can resolve to a completely unrelated (potentially NSFW) post.
 - **Idempotent:** running twice surfaces zero new posts (`surfaced.post_id` PK in SQLite enforces this).
-- **No drafting in v1.** If the user asks "draft a reply for post N", politely defer — that's a deliberate omission, see PLAN.md §6.
+- **No drafting in v1.** If the user asks "draft a reply for post N", politely defer, that is a deliberate omission, see PLAN.md §6.
 
 ## Configuration
 
@@ -153,7 +153,7 @@ Branch on the engine's `status` field (read it from the JSON):
 Scanned <fetched> posts across <the subs scanned>. None cleared the buyer or authority bar today.
 
 Closest <=3 (you judge if they are worth a glance):
-  - <title> (r/sub) — <why it was on-topic but did not clear the bar>
+  - <title> (r/sub): <why it was on-topic but did not clear the bar>
 
 Widen options:
   - run again later, fresh posts land through the day
