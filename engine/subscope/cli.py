@@ -908,6 +908,10 @@ def main(argv: list[str] | None = None) -> None:
     dc.add_argument("--fresh-window-hours", type=int, default=None,
                     help="Buyer-activity freshness window in hours. Default 168 (7 days) "
                          "for onboarding discovery. Pass 720 on the 'broaden' clarifier path.")
+    dc.add_argument("--skip-validation", action="store_true",
+                    help="Skip Phase B per-sub freshness validation (fewer Reddit calls). "
+                         "Returns Phase A candidates + a relative relevance score. Used by "
+                         "onboarding, which confirms sub names and lets the final scan validate.")
 
     sub.add_parser("status", help="Print last-run status as JSON")
 
@@ -934,7 +938,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_op_vet(args.username)
     elif args.cmd == "discover":
         cmd_discover(args.answers_json, args.homepage, args.vertical,
-                     args.competitors, args.fresh_window_hours)
+                     args.competitors, args.fresh_window_hours,
+                     skip_validation=args.skip_validation)
     elif args.cmd == "status":
         cmd_status()
     elif args.cmd == "blog" and args.blogcmd == "ingest":
@@ -962,7 +967,8 @@ def _emit_max_surfaces_warning(n: int) -> None:
 
 
 def cmd_discover(answers_json: str, homepage: str, vertical: str | None,
-                 competitors_csv: str = "", fresh_window_hours: int | None = None) -> None:
+                 competitors_csv: str = "", fresh_window_hours: int | None = None,
+                 skip_validation: bool = False) -> None:
     """Live subreddit discovery for the /subscope-onboard T5 card.
 
     Reads JSON answers from --answers-json. Two forms accepted:
@@ -989,7 +995,8 @@ def cmd_discover(answers_json: str, homepage: str, vertical: str | None,
     extra_competitors = [c.strip() for c in (competitors_csv or "").split(",")
                          if c.strip()]
 
-    kwargs = {"vertical": vertical, "extra_competitors": extra_competitors or None}
+    kwargs = {"vertical": vertical, "extra_competitors": extra_competitors or None,
+              "skip_validation": skip_validation}
     if fresh_window_hours is not None:
         kwargs["fresh_window_hours"] = fresh_window_hours
 
