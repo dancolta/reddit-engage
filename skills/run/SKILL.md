@@ -16,13 +16,15 @@ Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate 
 
 ## Daily run procedure
 
-### Step 1 — Fetch + gate + score (Python engine)
+### Step 1 — Fetch + candidates (Python engine)
 
 ```bash
-cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score
+cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score --candidates
 ```
 
-Engine output: a single JSON document on stdout with `run_id`, `status`, `fetched`, `surfaced`, `buyer_count`, `authority_count`, `subs_skipped_rate_limit`, `fetch_stats`, `dropped_counts`, `surfaces[]`, `inline_table`, and `inline_markdown`.
+Engine output: a single JSON document on stdout with `run_id`, `status`, `fetched`, `surfaced`, `buyer_count`, `authority_count`, `subs_skipped_rate_limit`, `fetch_stats`, `dropped_counts`, `surfaces[]`, `inline_table`, `inline_markdown`, and (with `--candidates`) a `candidates[]` array plus `candidate_count` / `candidate_total`.
+
+`candidates[]` is the recall pre-filter: every fetched post that cleared the absolute rejects (NSFW, removed/locked, vendor-spam, off-topic-sub, tier-3), each with deterministic features: `title`, `body`, `url`, `sub`, `tier`, `age_h`, `kw_hits`, `matched_kw`, `names_brand` (matched against the user's `brand_anchor`), `question_intent`, `pain_intent`, `engagement_available`, `soft_reason`. The engine deliberately does NOT decide relevance for these. **You do, in Step 3.5.** The engine's own `surfaces[]`/`inline_table` are the older lexical-gate output; under judge-first they are a secondary signal, not the chat output.
 
 The `status` field tells you why a run produced few or no surfaces, so you never show the wrong message:
 - `status: "ok"` and `surfaced > 0` -> normal run, render the table (Step 4).
@@ -67,6 +69,34 @@ If `notion.yml` is missing, skip silently.
 
 If `~/.config/subscope/slack.json` exists OR `SLACK_WEBHOOK_URL` env is set, the engine pushes a formatted message to that webhook at the end of `fetch-score`. This skill does NOT need to do anything — the integration is in `engine/subscope/lib/slack.py` and silently no-ops if no webhook is configured. To suppress for one run, pass `--no-slack` to `fetch-score`.
 
+### Step 3.5 — Offer-relevance judge (THIS is the surfacing decision)
+
+Under judge-first, **you** decide what surfaces by judging each candidate against the user's offer. The engine's lexical gate is only a recall pre-filter; never rely on keyword density for precision. This step is what guarantees a first-run user does not get spammy or off-topic results.
+
+**Load the offer context once** (read whichever exist):
+- `~/.config/subscope/offer.yml` (if present: `what_offering`, `who_to_reach`, `pain`)
+- `~/.config/subscope/example-pains.yml` (pain posts in the ICP's voice, a strong offer proxy)
+- `~/.config/subscope/brand-anchor.yml` (competitors / tools the ICP touches)
+- `~/.config/subscope/keywords.yml` (category terms)
+
+From those, hold a one-paragraph offer model in mind: WHAT they sell, WHO buys it, and the PAIN that signals a buyer.
+
+**Judge every candidate** in `candidates[]`. Assign exactly one verdict:
+
+- **BUYER** — the poster is plausibly a buyer for the CORE offer: they have the pain the offer solves, or they are evaluating, switching, or pricing tools in the offer's category, and a reply could move a deal. Example: "moving off Dentrix, anyone on a cloud PMS?"
+- **AUTHORITY** — a real ICP person with an on-topic problem who is NOT a direct buyer for the core offer: adjacent tools, industry ops questions, where a helpful reply builds credibility, not a sale. Example: a lab asking about imaging export, a practice asking who builds dental websites.
+- **REJECT** — everything else: patient/clinical questions, careers/jobs, personal finance, vendor self-promo or spam, anything off-topic. **When in doubt, REJECT.**
+
+**Hard rules (this is what keeps the list clean):**
+- Judge against the OFFER, not keywords. A post that names a brand or hits a keyword but is a patient clinical question (or a job post, or spam) is REJECT. `names_brand: true` is NOT a pass.
+- A first run must never surface spam or off-topic posts. If a row would make the user think "why am I seeing this?", it is REJECT.
+- Every BUYER and AUTHORITY surface MUST carry a one-line reason naming the offer-pain or signal it matched. No defensible reason means do not surface it.
+- Precision over volume. Surfacing 2 right posts beats surfacing 8 with 3 wrong ones. There is no minimum.
+- Cap total surfaces at the daily cap (`weights.yml` `daily_output`, default ~10). Rank BUYER above AUTHORITY, then by strength of buying intent.
+- Use each candidate's `url` verbatim. NEVER hand-compose a Reddit URL.
+
+This judge is the same decision the optional `classify.py` path makes headlessly when a user supplies an LLM key; here you are the judge because the Claude session is the LLM.
+
 ### Step 4 — Output (surface preference aware)
 
 Read `~/.config/subscope/surface.yml` if it exists:
@@ -78,8 +108,8 @@ default_render: table     # which surface /subscope-run prints first in chat
 
 Rendering rules:
 
-- If `surface.yml` is missing → default to `modes: [table]`, print `inline_table`.
-- If `modes` contains `table` → print the engine's `inline_table` field verbatim (a markdown table the user can click links from in chat). It already contains both the BUYER SIGNALS and AUTHORITY PLAYS sections, buyer first. Do NOT split, reorder, or drop the authority section.
+- If `surface.yml` is missing → default to `modes: [table]`.
+- If `modes` contains `table` → print the **judge output from Step 3.5** as two sections: `BUYER SIGNALS` first, then `AUTHORITY PLAYS`. Each row: the post title linked via the candidate `url` (verbatim), `r/sub`, and the one-line reason. Omit a section if it has no surfaces. This judged output, not the engine's `inline_table`, is the chat surface under judge-first. (`inline_table` remains in the JSON as the lexical-gate fallback.)
 - If `modes` contains `notion` → do the Notion sync above. If the user picked BOTH `table` and `notion`, render the table in chat AND sync to Notion.
 - If `modes` is empty `[]` → don't print anything beyond JSON (for piping).
 
@@ -115,20 +145,23 @@ State (SQLite, logs) lives under `${SUBSCOPE_DATA:-~/.local/share/subscope/}`.
 
 Branch on the engine's `status` field (read it from the JSON):
 
-**`status: "ok"` with surfaces** (the normal case): render per Step 4 (`inline_table` by default, or `inline_markdown` if the user asked for the long form). Do NOT add a preamble. If Notion sync was attempted and failed, append exactly one line noting the reason.
+**`status: "ok"` and the judge surfaced >= 1** (the normal case): render the two judged sections per Step 4. Do NOT add a preamble. If Notion sync was attempted and failed, append exactly one line noting the reason.
 
-**`status: "ok"` with zero surfaces** (Reddit was reachable, nothing qualified today): print this copy verbatim, nothing else:
+**`status: "ok"` and the judge surfaced 0** (Reddit was reachable, you judged every candidate REJECT): NEVER print a bare "nothing found". Print the empty-state LADDER so the user always sees the run did real work and what to do next:
 
 ```
-No qualifying posts today. Reddit was reachable, the filters just did not find a buyer-intent thread in your subs.
+Scanned <fetched> posts across <the subs scanned>. None cleared the buyer or authority bar today.
 
-This is normal on a quiet day. Options:
-  - run again later (new posts land through the day)
-  - widen targeting with /subscope-profile (add a subreddit, loosen a keyword)
-  - check what got filtered in the "posts filtered before scoring" breakdown above
+Closest <=3 (you judge if they are worth a glance):
+  - <title> (r/sub) — <why it was on-topic but did not clear the bar>
+
+Widen options:
+  - run again later, fresh posts land through the day
+  - /subscope-profile to add a subreddit or loosen targeting
+  - broader cross-subreddit keyword search is coming in a future update
 ```
 
-If `dropped_counts` is non-empty, the engine already appends the "posts filtered before scoring" breakdown to `inline_table`/`inline_markdown`; print that breakdown too so the user sees why posts were dropped.
+Build the "Closest" list from the highest-ranked candidates you judged REJECT-but-near (on-topic adjacent, not clinical/career/spam). If there were literally zero on-topic candidates (e.g. the subs were all clinical/patient noise that day), say that plainly in one line and point to `/subscope-profile`, and skip the "Closest" block. This empty-state is a feature, not an error: a clear niche must never see a dead end.
 
 **`status: "rate_limited"`** (Reddit returned HTTP 429 this run): if there ARE surfaces, render them first per Step 4 (they are real, just a partial list). Then print this copy verbatim:
 
