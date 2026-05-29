@@ -8,7 +8,8 @@ Public surface (what callers use):
   - parse_post(child)                           : normalize a JSON listing entry
   - parse_atom_entry(entry)                     : normalize an Atom <entry>
   - fetch_json(url)                             : raw public GET with retry
-  - fetch_xml(url)                              : raw RSS/Atom GET with retry
+  - fetch_xml(url)                              : single-URL RSS/Atom GET with retry
+  - fetch_xml_resilient(path)                   : dual-host RSS GET (www, then old.reddit)
   - _safe_username(username)                    : path-injection guard
 
 Why RSS, not JSON: as of 2026-05-29 Reddit's edge (Fastly/Varnish) returns an
@@ -16,7 +17,11 @@ instant `403 Blocked` (Retry-After: 0) for every unauthenticated `.json`
 endpoint, www and old reddit alike, regardless of User-Agent. The machine IP is
 fine (HTML + RSS both return 200). The RSS/Atom surface
 (`/r/<sub>/new/.rss`, `/user/<x>/comments/.rss`) still returns 200 with no
-credentials, so the fetcher reads those instead.
+credentials, so the fetcher reads those instead. For resilience the fetcher
+fails over across two RSS hosts (www.reddit.com, then old.reddit.com) on a
+403/5xx/network error, but never on a 429 (the rate-limit bucket is per-IP and
+shared across hosts). See fetch_xml_resilient + RSS_HOSTS. No HTML scrape, no
+auth host, ever.
 
 OAuth was removed in v0.2 and stays removed. The product positions on
 "Free, no API keys"; reintroducing OAuth is explicitly out of scope.
@@ -95,8 +100,15 @@ def _log(msg: str) -> None:
 # `drained` flips True once a response reports the token bucket at/under the
 #   floor (or a 429 lands), so the caller can stop bursting mid-run.
 
-_FETCH_STATS = {"ok": 0, "failed": 0, "rate_limited": 0}
+_FETCH_STATS = {"ok": 0, "failed": 0, "rate_limited": 0, "fallback_used": 0}
 _RATE_STATE = {"drained": False}
+
+# Ordered RSS hosts for the dual-host 403 failover (SS-104). Both return 200 for
+# keyless RSS today; serving the same Atom shape, so one parser covers both. www
+# is primary; old.reddit is the failover when www returns 403/5xx/network (NOT on
+# 429, which is a per-IP bucket shared across hosts). No HTML scrape, no auth host
+# ever (see test_no_oauth_surface). This is the "keyless 403 workaround".
+RSS_HOSTS = ("www.reddit.com", "old.reddit.com")
 
 # Wall-clock timestamp of the last Reddit GET, for proactive inter-request
 # spacing. Module-level so spacing holds across subs AND author-vet calls.
@@ -108,6 +120,7 @@ def reset_fetch_stats() -> None:
     _FETCH_STATS["ok"] = 0
     _FETCH_STATS["failed"] = 0
     _FETCH_STATS["rate_limited"] = 0
+    _FETCH_STATS["fallback_used"] = 0
     _RATE_STATE["drained"] = False
 
 
@@ -251,18 +264,15 @@ def fetch_json(url: str, timeout: int = 15) -> dict[str, Any] | None:
     return None
 
 
-def fetch_xml(url: str, timeout: int = 15) -> ET.Element | None:
-    """Fetch an RSS/Atom feed and return its parsed root Element, or None.
+def _fetch_xml_attempt(url: str, timeout: int = 15) -> tuple[str, ET.Element | None]:
+    """Single-URL RSS/Atom GET. Returns one of:
+      ("ok", root) | ("rate_limited", None) | ("failed", None)
 
-    This is the live fetch primitive: Reddit's `.rss` feeds return 200 with no
-    credentials where `.json` now 403s. Rate-limit disciplined:
-      - proactively spaces GETs at least MIN_REQUEST_INTERVAL apart (_throttle)
-      - reads x-ratelimit-* on success and pauses (capped) when the bucket is
-        nearly empty, so the next GET does not 429
-      - on 429: backs off (Retry-After, then x-ratelimit-reset, else exponential,
-        all capped) and flips the drained flag so callers can stop bursting
-    Returns None on 403/404/network/parse, and on a 429 with retries exhausted
-    (counted as rate_limited, distinct from failed).
+    Does the per-request work (throttle spacing, 429 retry/backoff, x-ratelimit
+    header pacing) but does NOT touch the per-sub OUTCOME counters. The CALLER
+    decides the outcome, so a www 403 that then succeeds on old.reddit can be
+    counted once (as ok) instead of as failed+ok. This is the seam the dual-host
+    failover (fetch_xml_resilient) and the single-URL wrapper (fetch_xml) share.
     """
     headers = {
         "User-Agent": USER_AGENT,
@@ -276,11 +286,10 @@ def fetch_xml(url: str, timeout: int = 15) -> ET.Element | None:
             with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CONTEXT) as resp:
                 body = resp.read().decode("utf-8")
                 root = ET.fromstring(body)
-                _FETCH_STATS["ok"] += 1
                 # Header-aware pacing: if the bucket is nearly empty, pause now
                 # (until reset, capped) so the NEXT GET does not 429.
                 _ratelimit_pause_from_headers(getattr(resp, "headers", None))
-                return root
+                return ("ok", root)
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 # The bucket is drained. Flag it so the caller stops bursting.
@@ -291,24 +300,72 @@ def fetch_xml(url: str, timeout: int = 15) -> ET.Element | None:
                     _sleep(delay)
                     continue
                 _log("429 retries exhausted")
-                _FETCH_STATS["rate_limited"] += 1
-                return None
+                return ("rate_limited", None)
             elif e.code in (403, 404):
                 _log(f"HTTP {e.code}: {url}")
-                _FETCH_STATS["failed"] += 1
-                return None
+                return ("failed", None)
             else:
                 _log(f"HTTP {e.code}: {e.reason}")
-                _FETCH_STATS["failed"] += 1
-                return None
+                return ("failed", None)
         except (urllib.error.URLError, OSError, TimeoutError) as e:
             _log(f"network error: {e}")
-            _FETCH_STATS["failed"] += 1
-            return None
+            return ("failed", None)
         except ET.ParseError as e:
             _log(f"XML parse error: {e}")
-            _FETCH_STATS["failed"] += 1
+            return ("failed", None)
+    return ("failed", None)
+
+
+def fetch_xml(url: str, timeout: int = 15) -> ET.Element | None:
+    """Single-URL RSS/Atom fetch (back-compat primitive). Increments the per-sub
+    outcome counters exactly as before: ok / rate_limited / failed.
+
+    New callers that want the dual-host 403 failover should use
+    fetch_xml_resilient. This wrapper is kept so existing callers and the
+    fetch_xml contract tests behave identically.
+    """
+    status, root = _fetch_xml_attempt(url, timeout=timeout)
+    if status == "ok":
+        _FETCH_STATS["ok"] += 1
+        return root
+    if status == "rate_limited":
+        _FETCH_STATS["rate_limited"] += 1
+        return None
+    _FETCH_STATS["failed"] += 1
+    return None
+
+
+def fetch_xml_resilient(path: str, timeout: int = 15) -> ET.Element | None:
+    """Fetch an RSS/Atom path across RSS_HOSTS with 403/5xx/network failover.
+
+    `path` is host-relative and begins with '/', e.g. '/r/saas/new/.rss?limit=25'.
+    Per-host precedence (the "100% keyless 403 workaround"):
+      - ok            -> count one ok (+ fallback_used if a non-primary host
+                         served it) and return the parsed root.
+      - rate_limited  -> the per-IP token bucket is drained; it is SHARED across
+                         hosts, so do NOT advance. Count one rate_limited, flip
+                         drained, return None (caller stops bursting).
+      - failed        -> try the next host.
+    All hosts failed -> count one failed, return None.
+
+    Exactly ONE outcome counter is incremented per call, so the
+    ok + failed + rate_limited == subs-attempted invariant holds with failover.
+    """
+    for i, host in enumerate(RSS_HOSTS):
+        url = f"https://{host}{path}"
+        status, root = _fetch_xml_attempt(url, timeout=timeout)
+        if status == "ok":
+            _FETCH_STATS["ok"] += 1
+            if i > 0:
+                _FETCH_STATS["fallback_used"] += 1
+                _log(f"served via failover host {host}: {path}")
+            return root
+        if status == "rate_limited":
+            _RATE_STATE["drained"] = True
+            _FETCH_STATS["rate_limited"] += 1
             return None
+        # failed: try the next host
+    _FETCH_STATS["failed"] += 1
     return None
 
 
@@ -523,8 +580,16 @@ def fetch_feed(url: str, timeout: int = 15) -> list[dict[str, Any]] | None:
     global request throttle, x-ratelimit pacing, and 429 backoff via fetch_xml,
     so discovery search calls draw from the same per-IP rate-limit budget as the
     daily scan. Used by discover.py for keyless search.rss / search-within-sub.
+
+    Reddit-host URLs go through the dual-host failover (fetch_xml_resilient);
+    any other host falls back to the single-URL fetch_xml.
     """
-    root = fetch_xml(url, timeout=timeout)
+    parts = urllib.parse.urlsplit(url)
+    if parts.netloc.endswith("reddit.com"):
+        rel = parts.path + (f"?{parts.query}" if parts.query else "")
+        root = fetch_xml_resilient(rel, timeout=timeout)
+    else:
+        root = fetch_xml(url, timeout=timeout)
     if root is None:
         return None
     posts: list[dict[str, Any]] = []
@@ -543,9 +608,9 @@ def fetch_subreddit_new(sub: str, limit: int = 25,
     so there is no pagination contract. Returns [] on any fetch/parse failure.
     """
     encoded = urllib.parse.quote(sub.lstrip("r/").strip())
-    url = f"https://www.reddit.com/r/{encoded}/new/.rss?limit={int(limit)}"
+    path = f"/r/{encoded}/new/.rss?limit={int(limit)}"
 
-    root = fetch_xml(url, timeout=timeout)
+    root = fetch_xml_resilient(path, timeout=timeout)
     if root is None:
         return []
 
@@ -609,8 +674,8 @@ def fetch_user_recent_subs(username: str, limit: int = 100) -> dict[str, int] | 
     safe = _safe_username(username)
     if not safe:
         return None
-    url = f"https://www.reddit.com/user/{safe}/comments/.rss?limit={int(limit)}"
-    root = fetch_xml(url)
+    path = f"/user/{safe}/comments/.rss?limit={int(limit)}"
+    root = fetch_xml_resilient(path)
     if root is None:
         return None
     counts: dict[str, int] = {}

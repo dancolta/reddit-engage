@@ -45,7 +45,7 @@ def _first_entry(feed_xml: str) -> ET.Element:
 def test_fetch_feed_returns_normalized_posts(monkeypatch):
     """fetch_feed parses every Atom entry into a normalized post via
     parse_atom_entry. Used by discover.py for keyless search.rss."""
-    monkeypatch.setattr(reddit, "fetch_xml", lambda url, timeout=15: ET.fromstring(ATOM_FEED))
+    monkeypatch.setattr(reddit, "fetch_xml_resilient", lambda path, timeout=15: ET.fromstring(ATOM_FEED))
     posts = reddit.fetch_feed("https://www.reddit.com/search.rss?q=x")
     assert posts is not None and len(posts) == 1
     assert posts[0]["subreddit"] == "SaaS"
@@ -56,14 +56,14 @@ def test_fetch_feed_returns_normalized_posts(monkeypatch):
 def test_fetch_feed_none_when_unreachable(monkeypatch):
     """fetch_xml returning None (edge block / network error) -> fetch_feed None,
     so callers can distinguish unreachable from empty."""
-    monkeypatch.setattr(reddit, "fetch_xml", lambda url, timeout=15: None)
+    monkeypatch.setattr(reddit, "fetch_xml_resilient", lambda path, timeout=15: None)
     assert reddit.fetch_feed("https://www.reddit.com/search.rss?q=x") is None
 
 
 def test_fetch_feed_empty_list_for_empty_feed(monkeypatch):
     """A reachable but empty feed yields [] (distinct from None)."""
     empty = '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>empty</title></feed>'
-    monkeypatch.setattr(reddit, "fetch_xml", lambda url, timeout=15: ET.fromstring(empty))
+    monkeypatch.setattr(reddit, "fetch_xml_resilient", lambda path, timeout=15: ET.fromstring(empty))
     assert reddit.fetch_feed("https://www.reddit.com/search.rss?q=x") == []
 
 
@@ -164,7 +164,7 @@ def test_parse_atom_entry_shape_matches_parse_post_keys():
 def test_fetch_subreddit_new_parses_feed(tmp_path, monkeypatch):
     monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     root = ET.fromstring(ATOM_FEED)
-    with patch.object(reddit, "fetch_xml", return_value=root):
+    with patch.object(reddit, "fetch_xml_resilient", return_value=root):
         posts = reddit.fetch_subreddit_new("SaaS", limit=25)
     assert len(posts) == 1
     assert posts[0]["id"] == "1tqxd2g"
@@ -172,7 +172,7 @@ def test_fetch_subreddit_new_parses_feed(tmp_path, monkeypatch):
 
 def test_fetch_subreddit_new_returns_empty_on_fetch_failure(tmp_path, monkeypatch):
     monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
-    with patch.object(reddit, "fetch_xml", return_value=None):
+    with patch.object(reddit, "fetch_xml_resilient", return_value=None):
         assert reddit.fetch_subreddit_new("SaaS") == []
 
 
@@ -190,7 +190,7 @@ def test_fetch_delta_routes_to_public(tmp_path, monkeypatch):
 def test_fetch_delta_stops_at_last_seen(tmp_path, monkeypatch):
     monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     root = ET.fromstring(ATOM_FEED)
-    with patch.object(reddit, "fetch_xml", return_value=root):
+    with patch.object(reddit, "fetch_xml_resilient", return_value=root):
         # last_seen == the only post id -> nothing newer
         out = reddit.fetch_delta("SaaS", "1tqxd2g", max_limit=25)
     assert out == []
@@ -231,7 +231,7 @@ USER_COMMENTS_RSS = """<?xml version="1.0" encoding="UTF-8"?>
 
 def test_fetch_user_recent_subs_returns_none_on_fetch_failure(tmp_path, monkeypatch):
     monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
-    with patch.object(reddit, "fetch_xml", return_value=None):
+    with patch.object(reddit, "fetch_xml_resilient", return_value=None):
         assert reddit.fetch_user_recent_subs("nonexistent") is None
 
 
@@ -239,7 +239,7 @@ def test_fetch_user_recent_subs_builds_histogram(tmp_path, monkeypatch):
     """Aggregates comment subs from RSS <category term> into a {sub: count} dict."""
     monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     root = ET.fromstring(USER_COMMENTS_RSS)
-    with patch.object(reddit, "fetch_xml", return_value=root):
+    with patch.object(reddit, "fetch_xml_resilient", return_value=root):
         out = reddit.fetch_user_recent_subs("u")
     assert out == {"sales": 2, "ops": 1}
 
@@ -248,7 +248,7 @@ def test_unsafe_username_rejected(tmp_path, monkeypatch):
     """Path-injection guard fires before any HTTP, on both user-fetch paths."""
     monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     called = []
-    with patch.object(reddit, "fetch_xml",
+    with patch.object(reddit, "fetch_xml_resilient",
                       side_effect=lambda *a, **k: called.append(1)):
         with patch.object(reddit, "fetch_json",
                           side_effect=lambda *a, **k: called.append(1)):
@@ -282,7 +282,7 @@ def test_reset_fetch_stats_zeroes_counters():
     reddit._FETCH_STATS["rate_limited"] = 2
     reddit._RATE_STATE["drained"] = True
     reddit.reset_fetch_stats()
-    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 0, "rate_limited": 0}
+    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 0, "rate_limited": 0, "fallback_used": 0}
     assert reddit.is_rate_limited() is False
 
 
@@ -295,7 +295,7 @@ def test_fetch_xml_records_ok_on_success(tmp_path, monkeypatch):
         with patch.object(reddit.urllib.request, "urlopen", return_value=_Resp()):
             root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
     assert root is not None
-    assert reddit.get_fetch_stats() == {"ok": 1, "failed": 0, "rate_limited": 0}
+    assert reddit.get_fetch_stats() == {"ok": 1, "failed": 0, "rate_limited": 0, "fallback_used": 0}
 
 
 def test_fetch_xml_records_failed_on_403(tmp_path, monkeypatch):
@@ -310,7 +310,7 @@ def test_fetch_xml_records_failed_on_403(tmp_path, monkeypatch):
         with patch.object(reddit.urllib.request, "urlopen", side_effect=err):
             root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
     assert root is None
-    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 1, "rate_limited": 0}
+    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 1, "rate_limited": 0, "fallback_used": 0}
     assert reddit.is_rate_limited() is False
 
 
@@ -360,7 +360,7 @@ def test_fetch_xml_429_sets_rate_limited_not_blocked(tmp_path, monkeypatch):
         with patch.object(reddit.urllib.request, "urlopen", side_effect=err):
             root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
     assert root is None
-    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 0, "rate_limited": 1}
+    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 0, "rate_limited": 1, "fallback_used": 0}
     assert reddit.is_rate_limited() is True
 
 
