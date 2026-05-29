@@ -104,7 +104,16 @@ def _load_configs(mode: str = "default") -> dict[str, Any]:
     subs = subs_cfg.get("subreddits", [])
     for s in subs:
         s["backing_blogs"] = [_resolve_blog_alias(a, aliases) for a in s.get("backing_blogs", [])]
-    return {"subs": subs, "keywords": keywords, "weights": weights, "mode": mode}
+
+    # brand_anchor: the user's competitors + tools their ICP touches. Optional
+    # (default NodeSparks profile has none). When present, it drives the
+    # brand-match feature so the gate/judge reflect the USER's business instead
+    # of the hardcoded SaaS list. Empty list = fall back to SAAS_BRANDS.
+    brand_cfg = _load_yaml("brand-anchor.yml", optional=True)
+    brands = [b for b in (brand_cfg.get("brand_anchor") or []) if isinstance(b, str) and b.strip()]
+
+    return {"subs": subs, "keywords": keywords, "weights": weights,
+            "brands": brands, "mode": mode}
 
 
 def _bucket_keywords(bucket: str, kw: dict[str, Any]) -> list[str]:
@@ -193,6 +202,7 @@ def cmd_fetch_score(
     max_surfaces: int | None = None,        # power-user override, see weights.yml note
     no_enrich: bool = False,                # kill switch for DFS + Firecrawl cache reads
     explain: bool = False,                  # diagnostic: emit per-post gate inputs + drop reason
+    candidates: bool = False,               # judge-first: emit a candidates list for the skill judge
 ) -> None:
     """Run the surface pipeline for a specific pattern mode.
 
@@ -211,6 +221,14 @@ def cmd_fetch_score(
     """
     cfg = _load_configs(mode=mode)
     weights = cfg["weights"]
+    brands = cfg.get("brands") or []
+    # Judge-first candidate cap: a safety bound on how many candidates the skill
+    # judge reads. Set generously: a daily run fetches well under this, and the
+    # judge (Claude) handles dozens of short posts cheaply, so truncation should
+    # almost never fire and never silently hide a relevant post. The rank only
+    # decides WHICH survive when a run genuinely overflows.
+    judge_cfg = weights.get("judge_candidates", {}) or {}
+    max_candidates = int(judge_cfg.get("max", 80))
 
     # Plumb the --no-enrich flag through the module-level toggle so every
     # downstream cache lookup honors it (mirrors set_disabled in classify.py).
@@ -247,6 +265,7 @@ def cmd_fetch_score(
         total_fetched = 0
         dropped_counts: dict[str, int] = {}
         explain_rows: list[dict[str, Any]] = []
+        cand_list: list[dict[str, Any]] = []
 
         # Authority track config (dual-track surfaces). Default OFF unless the
         # weights.yml authority_track block sets enabled. When disabled, the
@@ -327,6 +346,43 @@ def cmd_fetch_score(
                         "question_intent": score.has_question_intent(_t, _b),
                         "pain_intent": score.has_pain_markers(_t, _b),
                     })
+                # Judge-first candidate emission (SS-110). Recall pre-filter: any
+                # fetched post that clears the ABSOLUTE rejects is a candidate for
+                # the skill-layer offer-relevance judge. The engine attaches
+                # deterministic features (brand match uses the user's brand_anchor)
+                # and a recall rank; it does NOT decide relevance here. Capped after
+                # the loop so the judge reads a bounded set.
+                if candidates and (passes or reason not in score.ABSOLUTE_REJECT_REASONS):
+                    _t = post.get("title", "")
+                    _b = post.get("body", "") or ""
+                    _n, _m = score.count_keyword_hits(post, bucket_kw)
+                    _intent = score.has_question_intent(_t, _b) or score.has_pain_markers(_t, _b)
+                    _brand = score.names_relevant_brand(_t, _b, brands)
+                    _age = score.age_hours(post)
+                    _rank = (
+                        (2.0 if _intent else 0.0)
+                        + (3.0 if _brand else 0.0)
+                        + float(_n)
+                        + max(0.0, (48.0 - _age) / 48.0)  # freshness 0..1
+                    )
+                    cand_list.append({
+                        "id": post["id"],
+                        "sub": s["name"],
+                        "tier": s.get("tier"),
+                        "title": _t,
+                        "body": _b[:1000],
+                        "url": post.get("url", ""),
+                        "age_h": round(_age, 1),
+                        "kw_hits": _n,
+                        "matched_kw": _m,
+                        "names_brand": _brand,
+                        "question_intent": score.has_question_intent(_t, _b),
+                        "pain_intent": score.has_pain_markers(_t, _b),
+                        "engagement_available": post.get("upvote_ratio") is not None,
+                        "soft_reason": "gate_pass" if passes else reason,
+                        "_rank": _rank,
+                    })
+
                 backfill_eligible = (not passes) and _is_backfill_eligible(reason, post)
                 # DESIGN FIX 1: authority-eligible brandless posts (no_saas_brand /
                 # no_intent) are NOT backfill-eligible, so without this clause the
@@ -530,6 +586,15 @@ def cmd_fetch_score(
     }
     if explain:
         payload["explain"] = explain_rows
+    if candidates:
+        # Rank by the recall heuristic, cap, then drop the internal sort key.
+        cand_list.sort(key=lambda c: c["_rank"], reverse=True)
+        capped = cand_list[:max_candidates]
+        for c in capped:
+            c.pop("_rank", None)
+        payload["candidates"] = capped
+        payload["candidate_count"] = len(capped)
+        payload["candidate_total"] = len(cand_list)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
     # Optional Slack push: silent no-op when no webhook configured. Never
@@ -816,6 +881,9 @@ def main(argv: list[str] | None = None) -> None:
     fs.add_argument("--explain", action="store_true",
                     help="DIAGNOSTIC: include a per-post 'explain' list (gate inputs + "
                          "drop reason) in the JSON output. Use to see why posts were dropped.")
+    fs.add_argument("--candidates", action="store_true",
+                    help="JUDGE-FIRST: include a 'candidates' list (posts clearing absolute "
+                         "rejects, with relevance features) for the skill-layer offer-relevance judge.")
     fs.add_argument("--max-surfaces", type=int, default=None,
                     help="POWER USER: surface up to N items (default: weights.yml hard_ceiling=12). "
                          "Reddit API is fine with the volume; review fatigue is the actual risk. "
@@ -860,6 +928,7 @@ def main(argv: list[str] | None = None) -> None:
             max_surfaces=args.max_surfaces,
             no_enrich=args.no_enrich,
             explain=args.explain,
+            candidates=args.candidates,
         )
     elif args.cmd == "op-vet":
         cmd_op_vet(args.username)

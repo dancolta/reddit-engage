@@ -149,20 +149,42 @@ SAAS_BRANDS = (
 )
 
 
-def names_specific_saas(title: str, body: str) -> bool:
-    """Word-boundary match against the brand list. Avoids "monday" matching
-    "monday meeting" and similar collisions with common English."""
+def names_relevant_brand(title: str, body: str, brands: list[str] | None = None) -> bool:
+    """Word-boundary match against a brand list. Avoids "monday" matching
+    "monday meeting" and similar collisions with common English.
+
+    `brands` is the caller-supplied brand list, normally the user's profile
+    brand_anchor (their competitors + the tools their ICP touches). When it is
+    None or empty, falls back to the built-in SAAS_BRANDS so the default
+    NodeSparks profile and existing callers behave exactly as before. This is
+    what lets the gate reflect the USER's business (e.g. Dentrix, Eaglesoft for
+    a dental SaaS) instead of a hardcoded SaaS-sales tool list.
+    """
+    brand_list = brands if brands else SAAS_BRANDS
     full = (title + " " + body).lower()
-    for brand in SAAS_BRANDS:
+    for brand in brand_list:
+        b = brand.lower().strip()
+        if not b:
+            continue
         # Brands with dots / spaces use literal substring (they're already specific)
-        if "." in brand or " " in brand:
-            if brand in full:
+        if "." in b or " " in b:
+            if b in full:
                 return True
         else:
             # Word-boundary for single-word brands
-            if re.search(rf"\b{re.escape(brand)}\b", full):
+            if re.search(rf"\b{re.escape(b)}\b", full):
                 return True
     return False
+
+
+def names_specific_saas(title: str, body: str) -> bool:
+    """Back-compat wrapper: brand match against the built-in SAAS_BRANDS list.
+
+    Retained so existing callers and the OAuth-removed/brand tests keep their
+    contract. New code should call names_relevant_brand(title, body, brands)
+    with the user's brand_anchor.
+    """
+    return names_relevant_brand(title, body, None)
 
 
 def has_question_intent(title: str, body: str) -> bool:
