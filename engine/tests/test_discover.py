@@ -450,42 +450,93 @@ def test_e2e_thin_results_trigger_clarification():
     assert result["clarifier_prompt"] is not None
 
 
-def test_e2e_skip_validation_returns_phase_a_with_relevance():
-    """skip_validation=True (onboarding fast path): return Phase A candidates with
-    a relative relevance score, set validation_skipped, and NEVER run Phase B."""
+def _named_threads(sub, n, *, names="", body=""):
+    """Threads for one sub. `names`/`body` injected so competitor / vocab signal
+    is controllable. source_query cycles 2 values so freq>=2 (clears the Phase A
+    admit gate) when rank_subs is called directly without search_reddit tagging."""
+    return [{
+        "id": f"t3_{sub}_{i}", "subreddit": sub, "sub": sub,
+        "title": f"{names} thread {i} in {sub}", "score": 10, "num_comments": 2,
+        "created_utc": NOW - 2 * 86400, "body": body,
+        "url": f"/r/{sub}/comments/{i}/", "source_query": f"q{i % 2}",
+    } for i in range(n)]
+
+
+def test_rank_subs_emits_offer_signals():
+    """rank_subs exposes per-sub freq / vocab_match / competitor_match so the
+    skip path can gate on a real offer signal."""
+    threads = _named_threads("CRMSoftware", 2, names="HubSpot vs Pipedrive", body="comparing hubspot")
+    ranked = discover.rank_subs(threads, user_vocab={"crm"},
+                                comp_tokens={"hubspot", "pipedrive"})
+    assert ranked, "expected at least one ranked sub"
+    e = ranked[0]
+    assert "freq" in e and "vocab_match" in e and "competitor_match" in e
+    assert e["competitor_match"] is True       # threads name HubSpot
+    # No comp_tokens -> competitor_match defaults False (backward compat)
+    ranked2 = discover.rank_subs(threads, user_vocab={"crm"})
+    assert ranked2[0]["competitor_match"] is False
+
+
+def test_skip_validation_drops_generic_only_garbage():
+    """The regression: a sub admitted to Phase A only via freq>=2 on generic
+    query tokens (no vocab, no competitor) is DROPPED in the skip path, while a
+    competitor-naming sub is kept."""
     c = _conn()
-    answers = {
-        "what_offering": "dental practice management software",
-        "who_to_reach": "dental practice owners",
-        "pain_quote": "dentrix keeps crashing, we want cloud-based",
-    }
-    resp = _reddit_search_response(
-        ("Dentistry", 40, 8, 2),
-        ("DentalAssistant", 20, 4, 3),
-        ("Dentists", 15, 3, 5),
-    )
-    called = {"phase_b": 0}
-
-    def spy_phase_b(*a, **k):
-        called["phase_b"] += 1
-        return {}
-
+    answers = {"what_offering": "CRM for small B2B sales teams",
+               "who_to_reach": "sales leaders", "pain_quote": "salesforce is too expensive"}
+    # r/weddingshaming: generic-token match only, no competitor, no vocab.
+    # r/CRMSoftware: threads name HubSpot (a competitor) -> real offer signal.
+    resp = (_named_threads("weddingshaming", 3, names="alternative drama expensive")
+            + _named_threads("CRMSoftware", 3, names="HubSpot alternative", body="moving off hubspot"))
     with patch.object(reddit, "fetch_feed", return_value=resp):
         with patch.object(enrich, "detect_providers",
                           return_value={"dataforseo": False, "firecrawl": False}):
-            with patch.object(discover, "validate_sub_freshness", side_effect=spy_phase_b):
-                result = discover.discover_subs_for_profile(
-                    answers, "", c, skip_validation=True,
-                )
-
-    assert result["validation_skipped"] is True
-    assert called["phase_b"] == 0, "Phase B must not run under skip_validation"
-    assert result["needs_clarification"] is False
-    assert len(result["subs"]) >= 1
+            result = discover.discover_subs_for_profile(
+                answers, "", c, skip_validation=True, extra_competitors=["HubSpot", "Salesforce"],
+            )
+    names = [s["name"].lower() for s in result["subs"]]
+    assert "crmsoftware" in names, "competitor-naming sub must be kept"
+    assert "weddingshaming" not in names, "generic-only garbage sub must be dropped"
     for s in result["subs"]:
-        assert isinstance(s["relevance"], int) and 1 <= s["relevance"] <= 100
+        assert isinstance(s["relevance"], int) and 0 <= s["relevance"] <= 100
         assert s["validation_skipped"] is True
-        assert "confidence" not in s  # Phase B confidence intentionally not computed
+        assert "confidence" not in s
+
+
+def test_skip_validation_all_garbage_triggers_clarification():
+    """If nothing has a real offer signal, ask for the vertical instead of
+    showing freq-only noise."""
+    c = _conn()
+    answers = {"what_offering": "CRM for sales teams", "who_to_reach": "sales",
+               "pain_quote": "too expensive"}
+    resp = (_named_threads("weddingshaming", 3, names="alternative expensive drama")
+            + _named_threads("HFY", 3, names="alternative expensive story"))
+    with patch.object(reddit, "fetch_feed", return_value=resp):
+        with patch.object(enrich, "detect_providers",
+                          return_value={"dataforseo": False, "firecrawl": False}):
+            result = discover.discover_subs_for_profile(
+                answers, "", c, skip_validation=True,
+            )
+    assert result["subs"] == []
+    assert result["needs_clarification"] is True
+    assert result["validation_skipped"] is True
+
+
+def test_skip_validation_keeps_vocab_match_no_competitor():
+    """A sub whose name matches the offer vocabulary is kept even with no
+    competitor named (vocab is a valid offer signal)."""
+    c = _conn()
+    answers = {"what_offering": "bookkeeping software", "who_to_reach": "bookkeepers",
+               "pain_quote": "quickbooks raised prices"}
+    resp = _named_threads("Bookkeeping", 3, names="software recommendation question")
+    with patch.object(reddit, "fetch_feed", return_value=resp):
+        with patch.object(enrich, "detect_providers",
+                          return_value={"dataforseo": False, "firecrawl": False}):
+            result = discover.discover_subs_for_profile(
+                answers, "", c, skip_validation=True,
+            )
+    names = [s["name"].lower() for s in result["subs"]]
+    assert "bookkeeping" in names
 
 
 def test_e2e_no_provider_response_flags_discovery_unreachable():

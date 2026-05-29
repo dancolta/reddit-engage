@@ -853,7 +853,8 @@ def search_dfs(query: str, conn) -> list[dict[str, Any]]:
 
 
 def rank_subs(threads: list[dict[str, Any]],
-              user_vocab: set[str] | None = None) -> list[dict[str, Any]]:
+              user_vocab: set[str] | None = None,
+              comp_tokens: set[str] | None = None) -> list[dict[str, Any]]:
     """Aggregate threads per subreddit, score, sort desc by final_score.
 
     Args:
@@ -908,6 +909,16 @@ def rank_subs(threads: list[dict[str, Any]],
                        and _sub_matches_user_vocab(key, user_vocab))
         if not vocab_match and freq < 2:
             continue
+        # Competitor signal: does any of this sub's threads name a competitor
+        # brand? Deterministic, no network. Used by the skip-validation path as
+        # a precision stand-in for Phase B (a sub with a real offer signal,
+        # vocab OR competitor, is kept; freq-only generic-query matches are not).
+        competitor_match = False
+        if comp_tokens:
+            for t in ts:
+                if _matched_competitor(t.get("title", ""), t.get("body", "") or "", comp_tokens):
+                    competitor_match = True
+                    break
         # quality: average of log1p(upvotes) + log1p(comments) per thread,
         # capped at QUALITY_CEILING. Capping is critical because a single
         # viral thread can crush the cross-query frequency signal otherwise.
@@ -952,6 +963,9 @@ def rank_subs(threads: list[dict[str, Any]],
             "score": round(final_score, 3),
             "why": why,
             "thread_count": n,
+            "freq": freq,
+            "vocab_match": bool(vocab_match),
+            "competitor_match": competitor_match,
             "sources": sorted({t.get("source", "") for t in ts}),
             "noise_downranked": noise_mult < 1.0,
         })
@@ -1380,7 +1394,8 @@ def discover_subs_for_profile(
                 _log(f"dfs search error for '{q}': {type(e).__name__}")
 
     user_vocab = _build_user_vocabulary(answers)
-    phase_a_candidates = rank_subs(threads, user_vocab=user_vocab)
+    comp_tokens = _build_competitor_tokens(competitors)
+    phase_a_candidates = rank_subs(threads, user_vocab=user_vocab, comp_tokens=comp_tokens)
     phase_a_count = len(phase_a_candidates)
 
     discovery_unreachable = (
@@ -1412,18 +1427,56 @@ def discover_subs_for_profile(
     # relative to the batch (no freshness => honestly lower ceiling, no chip
     # implying a verified buyer thread).
     if skip_validation:
-        cands = phase_a_candidates[:MAX_SUBS_RETURNED]
-        max_score = max((c.get("score", 0.0) for c in cands), default=0.0) or 1.0
-        subs_out = [{
-            "name": c["name"],
-            "relevance": max(1, min(100, round(c.get("score", 0.0) / max_score * 100))),
-            "score": round(c.get("score", 0.0), 2),
-            "why": c.get("why", ""),
-            "thread_count": c.get("thread_count", 0),
-            "sources": c.get("sources", []),
-            "noise_downranked": c.get("noise_downranked", False),
-            "validation_skipped": True,
-        } for c in cands]
+        # Precision stand-in for Phase B, fully deterministic (no network):
+        # require a REAL offer signal per sub, either the sub name matches the
+        # offer vocabulary OR one of its threads names a competitor brand. A sub
+        # that only reached Phase A via freq>=2 on generic query tokens (drama
+        # reposts, off-topic communities that happen to contain "alternative" or
+        # a pain word) has neither signal and is dropped here. This is what
+        # Phase B used to filter; skipping Phase B without this gate let garbage
+        # subs rank high (the QA regression).
+        signaled = [c for c in phase_a_candidates
+                    if c.get("vocab_match") or c.get("competitor_match")]
+        if not signaled:
+            # Nothing with a real offer signal: ask for the vertical rather than
+            # show freq-only noise (or nothing). Mirrors the empty-Phase-A path.
+            return {
+                "subs": [],
+                "dropped_subs": [],
+                "queries_used": queries,
+                "needs_clarification": vertical is None,
+                "clarifier_prompt": _vertical_clarifier_prompt() if vertical is None else None,
+                "clarifier_reason": "no_candidates" if vertical is None else None,
+                "discovery_unreachable": discovery_unreachable,
+                "source_mix": source_mix,
+                "phase_a_count": phase_a_count,
+                "validation_skipped": True,
+            }
+        freq_max = max((c.get("freq", 0) for c in signaled), default=0)
+        subs_out = []
+        for c in signaled[:MAX_SUBS_RETURNED]:
+            # Honest 0-100 via compute_confidence (NOT score/batch-max, which
+            # always paints the top sub 100 even if it is weak). No Phase B means
+            # no fresh-intent evidence, so the score carries an honest ceiling.
+            rel = compute_confidence(
+                freq=c.get("freq", 0),
+                freq_max=freq_max,
+                vocab_match=bool(c.get("vocab_match")),
+                weighted_relevance=3.0 if c.get("competitor_match") else 1.0,
+                fresh_buyer_intent_count=0,
+                is_noise=bool(c.get("noise_downranked")),
+            )
+            subs_out.append({
+                "name": c["name"],
+                "relevance": rel,
+                "score": round(c.get("score", 0.0), 2),
+                "why": c.get("why", ""),
+                "thread_count": c.get("thread_count", 0),
+                "sources": c.get("sources", []),
+                "noise_downranked": c.get("noise_downranked", False),
+                "validation_skipped": True,
+            })
+        subs_out.sort(key=lambda s: s["relevance"], reverse=True)
         return {
             "subs": subs_out,
             "dropped_subs": [],
