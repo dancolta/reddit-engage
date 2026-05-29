@@ -456,7 +456,24 @@ Run the first scan:
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score
 ```
 
-Render the engine's `inline_table` in chat. If destinations include Notion/Slack/Obsidian, the engine handles those automatically.
+Branch on the engine's `status` field before rendering:
+
+- `status: "ok"` with surfaces: render the engine's `inline_table` in chat. If destinations include Notion/Slack/Obsidian, the engine handles those automatically.
+- `status: "ok"` with zero surfaces: a quiet first scan is normal, the targeting is still saved. Print verbatim:
+
+  ```
+  No qualifying posts on this first scan. Your targeting is saved. Reddit was reachable, there just was not a buyer-intent thread in your subs right now. Run /subscope-run again later, fresh posts land through the day.
+  ```
+
+- `status: "blocked"`: the configs were written fine, the scan just could not read Reddit this run. Print verbatim:
+
+  ```
+  Configs saved. Could not read Reddit on this first scan though, every feed request was blocked or unreachable.
+
+  This is not a setup problem. subscope reads Reddit's public RSS feeds, so there is no login, API key, or account to configure. It is usually a temporary network or edge-throttle issue. Run /subscope-run in a few minutes to pull your first list.
+  ```
+
+  Do NOT tell the user to set up Reddit OAuth or a Reddit API key. There is no such step, the fetch path is keyless RSS by design.
 
 After the scan output, print verbatim:
 

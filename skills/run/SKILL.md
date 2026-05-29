@@ -22,7 +22,12 @@ Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate 
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score
 ```
 
-Engine output: a single JSON document on stdout with `run_id`, `fetched`, `surfaced`, `dropped_counts`, `surfaces[]`, and `inline_markdown`.
+Engine output: a single JSON document on stdout with `run_id`, `status`, `fetched`, `surfaced`, `fetch_stats`, `dropped_counts`, `surfaces[]`, `inline_table`, and `inline_markdown`.
+
+The `status` field tells you why a run produced no surfaces, so you never show the wrong message:
+- `status: "ok"` and `surfaced > 0` -> normal run, render the table (Step 4).
+- `status: "ok"` and `surfaced == 0` -> Reddit was reachable, today was just quiet. Show the EMPTY-DAY copy below.
+- `status: "blocked"` -> every Reddit feed request failed (Reddit's edge returned 403, or the network was down). The scan could not read anything. Show the BLOCKED copy below.
 
 ### Step 2 — Optional Notion sync
 
@@ -100,4 +105,35 @@ State (SQLite, logs) lives under `${SUBSCOPE_DATA:-~/.local/share/subscope/}`.
 
 ## After completion
 
-Print the `inline_markdown` from the engine output verbatim. Do NOT add a preamble. If Notion sync was attempted and failed, append exactly one line noting the reason.
+Branch on the engine's `status` field (read it from the JSON):
+
+**`status: "ok"` with surfaces** (the normal case): render per Step 4 (`inline_table` by default, or `inline_markdown` if the user asked for the long form). Do NOT add a preamble. If Notion sync was attempted and failed, append exactly one line noting the reason.
+
+**`status: "ok"` with zero surfaces** (Reddit was reachable, nothing qualified today): print this copy verbatim, nothing else:
+
+```
+No qualifying posts today. Reddit was reachable, the filters just did not find a buyer-intent thread in your subs.
+
+This is normal on a quiet day. Options:
+  - run again later (new posts land through the day)
+  - widen targeting with /subscope-profile (add a subreddit, loosen a keyword)
+  - check what got filtered in the "posts filtered before scoring" breakdown above
+```
+
+If `dropped_counts` is non-empty, the engine already appends the "posts filtered before scoring" breakdown to `inline_table`/`inline_markdown`; print that breakdown too so the user sees why posts were dropped.
+
+**`status: "blocked"`** (every Reddit feed request failed): print this copy verbatim, nothing else:
+
+```
+Could not read Reddit this run. Every feed request was blocked or unreachable.
+
+What this is NOT: this is not a setup or credentials problem. subscope uses Reddit's public RSS feeds and needs no login, no API key, and no account.
+
+Likely causes:
+  - a temporary network issue on this machine (check your connection, then re-run)
+  - Reddit's edge throttling this IP for a short window (wait a few minutes, then re-run)
+
+If it keeps failing across several runs over a day, open an issue: github.com/dancolta/subscope/issues
+```
+
+Do NOT, under any circumstances, tell the user to configure Reddit OAuth, add a Reddit API key, or run a Reddit auth setup step. No such step exists. The fetch path is keyless RSS by design.

@@ -125,12 +125,48 @@ def test_real_operator_passes():
 
 
 def test_fetch_failure_degrades_open():
-    """If Reddit returns None (404, suspended, network), default to pass —
-    don't kill a real lead because the API hiccuped."""
+    """If both Reddit surfaces return None (404, suspended, network), default to
+    pass, don't kill a real lead because the API hiccuped."""
     with patch.object(author_vet.reddit, "fetch_user_about", return_value=None):
-        result = author_vet.vet_author("unreachable", now=NOW)
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value=None):
+            result = author_vet.vet_author("unreachable", now=NOW)
     assert result["verdict"] == "pass"
     assert result["reason"] == "fetch_failed"
+
+
+# ─── 403 RSS-fix: about.json is dead, vet must fail open on karma/age ──
+
+def test_about_none_does_not_reject_on_age_or_karma():
+    """about.json 403s -> fetch_user_about returns None. The age/karma gates
+    must NOT fire (no data = fail open). With clean audience data the OP passes,
+    even though karma/age are unknown."""
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=None):
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs",
+                          return_value={"sales": 40, "RevOps": 30, "ExperiencedDevs": 20}):
+            result = author_vet.vet_author("data_missing_op", now=NOW)
+    assert result["verdict"] == "pass"
+    assert result["reason"] != "account_too_young"
+    assert result["reason"] != "low_karma"
+
+
+def test_about_none_still_fires_wrong_audience_gate():
+    """Even with karma/age gone (about=None), the wrong-audience gate keeps
+    working off the comments-RSS histogram. A hustle-bro OP still drops."""
+    sub_hist = {"Entrepreneur": 60, "smallbusiness": 25, "startups": 12, "sales": 3}
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=None):
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value=sub_hist):
+            result = author_vet.vet_author("hustlebro", now=NOW)
+    assert result["verdict"] == "fail"
+    assert result["reason"] == "wrong_audience"
+
+
+def test_about_none_with_empty_histogram_passes():
+    """about=None and an empty (but reachable) histogram is not 'wrong audience'
+    (fraction 0), so the OP passes. No fail-closed path."""
+    with patch.object(author_vet.reddit, "fetch_user_about", return_value=None):
+        with patch.object(author_vet.reddit, "fetch_user_recent_subs", return_value={}):
+            result = author_vet.vet_author("quiet_op", now=NOW)
+    assert result["verdict"] == "pass"
 
 
 def test_cache_hit_skips_network(tmp_path):

@@ -228,6 +228,52 @@ def test_quarantine_weight_zero_rejects_even_at_tier2():
     assert reason == "tier3_quarantined"
 
 
+def test_scorer_tolerates_missing_engagement_fields():
+    """RSS posts carry no score/num_comments keys. compute_score + evaluate_gate
+    must run on such a dict without KeyError (STORY-3)."""
+    post = make_post()
+    del post["score"]
+    del post["num_comments"]
+    sub = make_sub()
+    # No KeyError on either path.
+    passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert passes, f"expected pass, got {reason}"
+    s = score.compute_score(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert s > 0  # freshness + keyword + intent still produce a score
+
+
+def test_velocity_helpers_default_to_zero_without_keys():
+    post = make_post()
+    del post["score"]
+    del post["num_comments"]
+    assert score.velocity_per_hour(post, now=NOW) == 0.0
+    assert score.comment_velocity(post, now=NOW) == 0.0
+
+
+def test_tier1_comment_ceiling_fails_open_without_comments():
+    """Missing num_comments must never trip the comment_ceiling gate."""
+    post = make_post()
+    del post["num_comments"]
+    sub = make_sub(gate_overrides={"post_age_hours": 48, "comment_ceiling": 25,
+                                   "pain_keywords_min": 1})
+    passes, reason = score.evaluate_gate(post, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert passes, f"expected pass, got {reason}"
+
+
+def test_ranking_orders_by_freshness_without_engagement():
+    """Even with no engagement data, fresher posts outrank older ones."""
+    fresh = make_post(created_utc=NOW - 1800)   # 30m old
+    old = make_post(created_utc=NOW - 40 * 3600, id="old01")  # ~40h old
+    for p in (fresh, old):
+        p.pop("score", None)
+        p.pop("num_comments", None)
+    sub = make_sub(gate_overrides={"post_age_hours": 48, "comment_ceiling": 100,
+                                   "pain_keywords_min": 1})
+    s_fresh = score.compute_score(fresh, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    s_old = score.compute_score(old, sub, [], WEIGHTS, KEYWORDS, now=NOW)
+    assert s_fresh > s_old
+
+
 def test_compute_score_quarantine_short_circuits_to_zero():
     """Score must return 0.0 for tier 3 / weight 0, never div-by-zero or NaN."""
     post = make_post()

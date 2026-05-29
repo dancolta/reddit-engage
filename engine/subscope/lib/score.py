@@ -171,17 +171,20 @@ def age_hours(post: dict[str, Any], now: int | None = None) -> float:
 
 
 def velocity_per_hour(post: dict[str, Any], now: int | None = None) -> float:
+    # `score` is absent on RSS-sourced posts (the .rss feed carries no upvotes);
+    # default to 0 so velocity degrades to 0 instead of raising KeyError.
     ah = age_hours(post, now)
     if ah <= 0.0:
         return float(post.get("score", 0))
-    return float(post["score"]) / ah
+    return float(post.get("score", 0)) / ah
 
 
 def comment_velocity(post: dict[str, Any], now: int | None = None) -> float:
+    # `num_comments` is absent on RSS-sourced posts; default to 0.
     ah = age_hours(post, now)
     if ah <= 0.0:
         return float(post.get("num_comments", 0))
-    return float(post["num_comments"]) / ah
+    return float(post.get("num_comments", 0)) / ah
 
 
 def count_keyword_hits(post: dict[str, Any], keywords: list[str]) -> tuple[int, list[str]]:
@@ -303,8 +306,10 @@ def _tier1_gate(post: dict[str, Any], sub: dict[str, Any], weights: dict[str, An
     if ah > float(g.get("post_age_hours", 48)):
         return False, "tier1_post_age"
 
+    # `num_comments` is absent on RSS posts; default 0 so this gate fails open
+    # (0 <= ceiling, never wrongly rejects a thread for missing engagement data).
     ceiling = int(g.get("comment_ceiling", 100))
-    if ceiling > 0 and post["num_comments"] > ceiling:
+    if ceiling > 0 and post.get("num_comments", 0) > ceiling:
         return False, "tier1_comment_ceiling"
 
     n_hits, _ = count_keyword_hits(post, bucket_keywords)

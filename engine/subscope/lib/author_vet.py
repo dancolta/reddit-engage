@@ -112,13 +112,19 @@ def vet_author(
       }
 
     Fail reasons (any one drops):
-      - "deleted_or_private"     — Reddit returned no profile
-      - "account_too_young"      — created < MIN_ACCOUNT_AGE_DAYS ago
-      - "low_karma"              — comment_karma < MIN_COMMENT_KARMA
-      - "wrong_audience"         — > MAX_WRONG_AUDIENCE_FRACTION in hustle-bro subs
+      - "deleted_or_private"     author is "[deleted]"
+      - "account_too_young"      created < MIN_ACCOUNT_AGE_DAYS ago (only when
+                                 karma/age data is present)
+      - "low_karma"              comment_karma < MIN_COMMENT_KARMA (only when
+                                 karma/age data is present)
+      - "wrong_audience"         > MAX_WRONG_AUDIENCE_FRACTION in hustle-bro subs
 
-    On Reddit API failure, returns `verdict="pass", reason="fetch_failed"`
-    rather than dropping the post — degrade open, not closed.
+    FAIL-OPEN contract (2026-05-29): Reddit's `/user/<x>/about.json` returns 403
+    for anonymous requests, so `fetch_user_about` always returns None and the
+    karma/age data is gone. When that data is absent we MUST NOT reject on
+    account_too_young or low_karma; those gates fire ONLY when the data is
+    present (e.g. a future restored source, or a cached snapshot). The
+    wrong-audience gate still has data via the comments RSS, so it keeps firing.
     """
     now = now if now is not None else _now()
     username = username.lstrip("u/").strip()
@@ -131,33 +137,39 @@ def vet_author(
     if cached:
         return cached
 
-    # Fresh fetch
-    about = reddit.fetch_user_about(username)
-    if not about:
-        result = _result("pass", "fetch_failed", 0, 0, 0.0, False)
-        _write_cache(conn, username, result, sub_breakdown={}, now=now)
-        return result
-
-    karma = int(about.get("comment_karma") or 0)
-    created = int(about.get("created_utc") or 0)
-    age_days = max(0, (now - created) // 86400) if created else 0
-
     min_age_days, min_karma, max_wrong_frac = _load_thresholds(weights)
 
-    if age_days < min_age_days:
-        result = _result("fail", "account_too_young", karma, age_days, 0.0, False)
+    # Karma/age fetch. None today (about.json 403s). When present, the age/karma
+    # gates apply; when absent, we fail open on those two gates and proceed to
+    # the audience histogram (which has its own, still-live, RSS data source).
+    about = reddit.fetch_user_about(username)
+    karma = int(about.get("comment_karma") or 0) if about else 0
+    created = int(about.get("created_utc") or 0) if about else 0
+    age_days = max(0, (now - created) // 86400) if created else 0
+
+    if about:
+        if age_days < min_age_days:
+            result = _result("fail", "account_too_young", karma, age_days, 0.0, False)
+            _write_cache(conn, username, result, sub_breakdown={}, now=now,
+                         comment_karma=karma, created_utc=created)
+            return result
+
+        if karma < min_karma:
+            result = _result("fail", "low_karma", karma, age_days, 0.0, False)
+            _write_cache(conn, username, result, sub_breakdown={}, now=now,
+                         comment_karma=karma, created_utc=created)
+            return result
+
+    # Audience histogram (rebuilt from /user/<x>/comments/.rss <category> tags).
+    # If this is also unreachable, degrade open: pass with reason 'fetch_failed'
+    # so a real lead is never dropped just because the API hiccuped.
+    sub_breakdown = reddit.fetch_user_recent_subs(username, limit=100)
+    if sub_breakdown is None:
+        result = _result("pass", "fetch_failed", karma, age_days, 0.0, False)
         _write_cache(conn, username, result, sub_breakdown={}, now=now,
                      comment_karma=karma, created_utc=created)
         return result
 
-    if karma < min_karma:
-        result = _result("fail", "low_karma", karma, age_days, 0.0, False)
-        _write_cache(conn, username, result, sub_breakdown={}, now=now,
-                     comment_karma=karma, created_utc=created)
-        return result
-
-    # Last (most expensive) check: sub histogram
-    sub_breakdown = reddit.fetch_user_recent_subs(username, limit=100) or {}
     wrong_frac = _wrong_audience_fraction(sub_breakdown)
     if wrong_frac > max_wrong_frac:
         result = _result("fail", "wrong_audience", karma, age_days, wrong_frac, False)

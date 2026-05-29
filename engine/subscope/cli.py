@@ -245,6 +245,10 @@ def cmd_fetch_score(
         total_fetched = 0
         dropped_counts: dict[str, int] = {}
 
+        # Reset feed reachability counters so we can tell "edge blocked us" apart
+        # from "feeds reachable but nothing new" (drives the JSON `status` field).
+        reddit.reset_fetch_stats()
+
         for s in cfg["subs"]:
             db_sub = store.get_sub(conn, s["name"])
             if not db_sub:
@@ -254,7 +258,7 @@ def cmd_fetch_score(
 
             last_cursor = db_sub.get("last_cursor")
             try:
-                # Public-JSON-only fetcher. See reddit.fetch_delta() docstring.
+                # RSS/Atom fetcher (keyless). See reddit.fetch_delta() docstring.
                 posts = reddit.fetch_delta(s["name"], last_cursor, max_limit=limit_per_sub)
             except Exception as e:
                 fetch_errors.append(f"r/{s['name']}: {e}")
@@ -364,12 +368,25 @@ def cmd_fetch_score(
         notes = "; ".join(all_notes) if all_notes else ""
         store.finish_run(conn, run_id, total_fetched, len(selected), notes)
 
+    # Reachability verdict: "blocked" when every feed GET failed (Reddit edge
+    # 403, network), so the skill can show edge-block copy instead of a misleading
+    # "empty day" message. "ok" when at least one feed was reachable (a zero-
+    # surface result then means a genuinely quiet day, not a block).
+    fetch_stats = reddit.get_fetch_stats()
+    status = "blocked" if (fetch_stats["ok"] == 0 and fetch_stats["failed"] > 0) else "ok"
+    if status == "blocked":
+        # Surface it in dropped_counts too, so consumers reading only that dict
+        # still see the block. Count = number of failed feed GETs.
+        dropped_counts["fetch_blocked"] = fetch_stats["failed"]
+
     from .lib import output as out_mod
     payload = {
         "run_id": run_id,
         "mode": mode,
+        "status": status,
         "fetched": total_fetched,
         "surfaced": len(selected),
+        "fetch_stats": fetch_stats,
         "dropped_counts": dropped_counts,
         "notes": notes,
         "surfaces": out_mod.render_json_payload(selected),

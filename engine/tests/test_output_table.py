@@ -81,6 +81,24 @@ def test_render_table_includes_op_score_when_vet_present():
     assert "2y/" in out or "2y" in out
 
 
+def test_op_score_omits_karma_age_when_about_unavailable():
+    """about.json is 403 now -> age/karma are 0. The op_score must NOT print a
+    misleading '0d old · 0 karma'; it shows only the wrong-audience signal."""
+    s = output._op_score_string(
+        {"account_age_days": 0, "comment_karma": 0, "wrong_audience_fraction": 0.05}
+    )
+    assert s == "5% wrong-audience"
+    assert "karma" not in s
+    assert "old" not in s
+
+
+def test_op_score_empty_when_nothing_known():
+    assert output._op_score_string(
+        {"account_age_days": 0, "comment_karma": 0, "wrong_audience_fraction": None}
+    ) == ""
+    assert output._op_score_string({}) == ""
+
+
 def test_render_table_includes_dropped_summary():
     """FOOTER-1: dropped_counts renders as grouped, plain-English block.
     Unknown key (`low_karma` without the `author_vet_` prefix) falls through

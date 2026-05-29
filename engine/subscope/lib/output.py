@@ -59,7 +59,10 @@ def _build_dropped_footer(dropped_counts: dict[str, int]) -> list[str]:
         Group B
           NN  label
     """
-    nonzero = {k: v for k, v in dropped_counts.items() if v}
+    # `fetch_blocked` is a reachability status marker, not a pre-scoring drop.
+    # It is surfaced via the JSON `status` field and the no-surface copy, so keep
+    # it out of the "filtered before scoring" footer to avoid a misleading line.
+    nonzero = {k: v for k, v in dropped_counts.items() if v and k != "fetch_blocked"}
     if not nonzero:
         return []
     total = sum(nonzero.values())
@@ -279,28 +282,39 @@ def render_json_payload(surfaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _op_score_string(vet: dict[str, Any]) -> str:
-    """One-line operator score for Notion 'OP score' column.
+    """One-line operator score for the 'OP score' column.
 
     Example: '2y old · 4.2k karma · 12% wrong-audience'.
 
-    Empty string when vet data missing (e.g. cache miss + fetch failure).
-    Saves the user a profile-open click before deciding to reply.
+    Karma + account age come from `/user/<x>/about.json`, which returns 403 for
+    anonymous requests as of 2026-05-29, so those are usually unavailable now.
+    When age and karma are both absent we omit them (showing '0d old · 0 karma'
+    would be a lie) and render only the wrong-audience fraction, which is still
+    available via the comments RSS histogram. Empty string when nothing is known.
     """
     if not vet:
         return ""
     age_days = vet.get("account_age_days") or 0
+    karma = vet.get("comment_karma") or 0
+    frac = vet.get("wrong_audience_fraction")
+
+    have_age_karma = age_days > 0 or karma > 0
+    if not have_age_karma:
+        # about.json unavailable: show only the audience signal we actually have.
+        if frac is None:
+            return ""
+        return f"{int(frac * 100)}% wrong-audience"
+
     if age_days >= 365:
         age = f"{age_days // 365}y"
     elif age_days >= 30:
         age = f"{age_days // 30}mo"
     else:
         age = f"{age_days}d"
-    karma = vet.get("comment_karma") or 0
     if karma >= 1000:
         k = f"{karma / 1000:.1f}k"
     else:
         k = str(karma)
-    frac = vet.get("wrong_audience_fraction")
     if frac is None:
         return f"{age} old · {k} karma"
     return f"{age} old · {k} karma · {int(frac * 100)}% wrong-audience"
