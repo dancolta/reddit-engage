@@ -53,6 +53,21 @@ USER_AGENT = "subscope/0.1 (research tool, github.com/dancolta)"
 MAX_RETRIES = 3
 BASE_BACKOFF = 2.0
 
+# Rate-limit discipline. Reddit's keyless RSS surface enforces a per-IP token
+# bucket (~100 req / 10 min, surfaced via x-ratelimit-* headers). A daily manual
+# run fires ~18 sub feeds plus an author comments feed per plausible OP, which
+# will trip the limit if we burst. We pace requests instead.
+#
+# MIN_REQUEST_INTERVAL: minimum wall-clock gap between ANY two Reddit GETs. A
+#   once or twice daily run can afford ~30 to 60s of total spacing.
+# RATELIMIT_REMAINING_FLOOR: when a response says this few tokens remain, pause
+#   until the bucket resets rather than bursting into a 429.
+# MAX_RATELIMIT_PAUSE: hard cap on any single ratelimit/Retry-After sleep, so a
+#   bogus or huge reset value can never hang a run.
+MIN_REQUEST_INTERVAL = 1.6
+RATELIMIT_REMAINING_FLOOR = 2.0
+MAX_RATELIMIT_PAUSE = 60.0
+
 # Atom namespace used by Reddit RSS feeds.
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 
@@ -68,22 +83,92 @@ def _log(msg: str) -> None:
 
 
 # ─── Fetch reachability stats ─────────────────────────────────────────
-# Lets a caller (cli.fetch_score) tell "the edge blocked us" apart from "the
-# feeds were reachable but had nothing new". `ok` counts feed GETs that returned
-# parseable XML; `failed` counts GETs that 403'd / errored. Reset per run.
+# Lets a caller (cli.fetch_score) tell three run states apart:
+#   ok           : at least one feed fetched, no rate-limit hit -> normal run
+#   rate_limited : one or more GETs hit 429 (retry shortly), possibly partial
+#   blocked      : every GET failed for a NON-429 reason (true edge block / net)
+#
+# Counters (per run, reset via reset_fetch_stats):
+#   ok           : feed GETs that returned parseable XML
+#   failed       : feed GETs that failed for a non-429 reason (403/404/net/parse)
+#   rate_limited : feed GETs that ultimately returned None due to a 429
+# `drained` flips True once a response reports the token bucket at/under the
+#   floor (or a 429 lands), so the caller can stop bursting mid-run.
 
-_FETCH_STATS = {"ok": 0, "failed": 0}
+_FETCH_STATS = {"ok": 0, "failed": 0, "rate_limited": 0}
+_RATE_STATE = {"drained": False}
+
+# Wall-clock timestamp of the last Reddit GET, for proactive inter-request
+# spacing. Module-level so spacing holds across subs AND author-vet calls.
+_last_request_at = 0.0
 
 
 def reset_fetch_stats() -> None:
-    """Zero the per-run feed reachability counters. Call before a fetch batch."""
+    """Zero the per-run feed counters and rate state. Call before a fetch batch."""
     _FETCH_STATS["ok"] = 0
     _FETCH_STATS["failed"] = 0
+    _FETCH_STATS["rate_limited"] = 0
+    _RATE_STATE["drained"] = False
 
 
 def get_fetch_stats() -> dict[str, int]:
-    """Return a copy of the feed reachability counters for the current batch."""
+    """Return a copy of the per-run feed counters."""
     return dict(_FETCH_STATS)
+
+
+def is_rate_limited() -> bool:
+    """True once a 429 landed or the token bucket reported at/under the floor.
+
+    The CLI checks this between subs to stop bursting and return partial
+    results instead of draining the bucket and wholesale-failing the run.
+    """
+    return _RATE_STATE["drained"]
+
+
+def _sleep(seconds: float) -> None:
+    """Indirection over time.sleep so tests can assert spacing without waiting."""
+    if seconds > 0:
+        time.sleep(seconds)
+
+
+def _throttle() -> None:
+    """Proactively space Reddit GETs at least MIN_REQUEST_INTERVAL apart."""
+    global _last_request_at
+    now = time.monotonic()
+    elapsed = now - _last_request_at
+    if _last_request_at and elapsed < MIN_REQUEST_INTERVAL:
+        _sleep(MIN_REQUEST_INTERVAL - elapsed)
+    _last_request_at = time.monotonic()
+
+
+def _ratelimit_pause_from_headers(headers: Any) -> None:
+    """Read x-ratelimit-remaining / x-ratelimit-reset from a 200 response and
+    pause until reset when the bucket is nearly empty, so we never burst into a
+    429. Flips the drained flag so the caller can stop early. Capped wait."""
+    if headers is None:
+        return
+    remaining = _header_float(headers, "x-ratelimit-remaining")
+    if remaining is None:
+        return
+    if remaining <= RATELIMIT_REMAINING_FLOOR:
+        _RATE_STATE["drained"] = True
+        reset = _header_float(headers, "x-ratelimit-reset")
+        pause = min(reset, MAX_RATELIMIT_PAUSE) if reset and reset > 0 else MIN_REQUEST_INTERVAL
+        _log(f"ratelimit low (remaining={remaining}), pausing {pause:.1f}s until reset")
+        _sleep(pause)
+
+
+def _header_float(headers: Any, name: str) -> float | None:
+    """Parse a numeric header value to float, or None if absent/unparseable."""
+    if headers is None:
+        return None
+    raw = headers.get(name)
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 # ─── Username safety ──────────────────────────────────────────────────
@@ -147,7 +232,7 @@ def fetch_json(url: str, timeout: int = 15) -> dict[str, Any] | None:
                 delay = _retry_after_delay(e, attempt)
                 _log(f"429 rate-limited, retry {attempt + 1}/{MAX_RETRIES} after {delay:.1f}s")
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(delay)
+                    _sleep(delay)
                     continue
                 _log("429 retries exhausted")
                 return None
@@ -169,9 +254,15 @@ def fetch_json(url: str, timeout: int = 15) -> dict[str, Any] | None:
 def fetch_xml(url: str, timeout: int = 15) -> ET.Element | None:
     """Fetch an RSS/Atom feed and return its parsed root Element, or None.
 
-    Retries on 429 with backoff (honoring Retry-After), returns None on
-    403/404/network/parse errors. This is the live fetch primitive: Reddit's
-    `.rss` feeds return 200 with no credentials where `.json` now 403s.
+    This is the live fetch primitive: Reddit's `.rss` feeds return 200 with no
+    credentials where `.json` now 403s. Rate-limit disciplined:
+      - proactively spaces GETs at least MIN_REQUEST_INTERVAL apart (_throttle)
+      - reads x-ratelimit-* on success and pauses (capped) when the bucket is
+        nearly empty, so the next GET does not 429
+      - on 429: backs off (Retry-After, then x-ratelimit-reset, else exponential,
+        all capped) and flips the drained flag so callers can stop bursting
+    Returns None on 403/404/network/parse, and on a 429 with retries exhausted
+    (counted as rate_limited, distinct from failed).
     """
     headers = {
         "User-Agent": USER_AGENT,
@@ -180,21 +271,27 @@ def fetch_xml(url: str, timeout: int = 15) -> ET.Element | None:
     req = urllib.request.Request(url, headers=headers)
 
     for attempt in range(MAX_RETRIES):
+        _throttle()  # proactive inter-request spacing, every attempt
         try:
             with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CONTEXT) as resp:
                 body = resp.read().decode("utf-8")
                 root = ET.fromstring(body)
                 _FETCH_STATS["ok"] += 1
+                # Header-aware pacing: if the bucket is nearly empty, pause now
+                # (until reset, capped) so the NEXT GET does not 429.
+                _ratelimit_pause_from_headers(getattr(resp, "headers", None))
                 return root
         except urllib.error.HTTPError as e:
             if e.code == 429:
+                # The bucket is drained. Flag it so the caller stops bursting.
+                _RATE_STATE["drained"] = True
                 delay = _retry_after_delay(e, attempt)
                 _log(f"429 rate-limited, retry {attempt + 1}/{MAX_RETRIES} after {delay:.1f}s")
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(delay)
+                    _sleep(delay)
                     continue
                 _log("429 retries exhausted")
-                _FETCH_STATS["failed"] += 1
+                _FETCH_STATS["rate_limited"] += 1
                 return None
             elif e.code in (403, 404):
                 _log(f"HTTP {e.code}: {url}")
@@ -216,17 +313,19 @@ def fetch_xml(url: str, timeout: int = 15) -> ET.Element | None:
 
 
 def _retry_after_delay(err: urllib.error.HTTPError, attempt: int) -> float:
-    """Compute the backoff delay for a 429, honoring Retry-After when present."""
+    """Backoff delay for a 429. Prefer Retry-After, then x-ratelimit-reset, else
+    exponential. Always capped at MAX_RATELIMIT_PAUSE so a bogus header value can
+    never hang the run."""
     delay = BASE_BACKOFF * (2 ** attempt)
-    retry_after = None
-    if hasattr(err, "headers"):
-        retry_after = err.headers.get("Retry-After")
-    if retry_after:
-        try:
-            delay = float(retry_after)
-        except ValueError:
-            pass
-    return delay
+    hdrs = getattr(err, "headers", None)
+    retry_after = _header_float(hdrs, "Retry-After")
+    if retry_after is not None and retry_after > 0:
+        delay = retry_after
+    else:
+        reset = _header_float(hdrs, "x-ratelimit-reset")
+        if reset is not None and reset > 0:
+            delay = reset
+    return min(delay, MAX_RATELIMIT_PAUSE)
 
 
 # ─── JSON listing parser (kept for the parse contract + canonical tests) ──

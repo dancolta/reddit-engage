@@ -465,6 +465,14 @@ Branch on the engine's `status` field before rendering:
   No qualifying posts on this first scan. Your targeting is saved. Reddit was reachable, there just was not a buyer-intent thread in your subs right now. Run /subscope-run again later, fresh posts land through the day.
   ```
 
+- `status: "rate_limited"`: the configs were written fine, Reddit just rate-limited this first scan (HTTP 429). Render any surfaces you got, then print verbatim:
+
+  ```
+  Configs saved. Reddit rate-limited this first scan, so some subreddits were skipped. This is temporary, not a block, and there is no login or API key to set up. Run /subscope-run again in a minute to pull your first full list.
+  ```
+
+  Do NOT call this "blocked" and do NOT suggest a Reddit login, API key, or OAuth setup.
+
 - `status: "blocked"`: the configs were written fine, the scan just could not read Reddit this run. Print verbatim:
 
   ```

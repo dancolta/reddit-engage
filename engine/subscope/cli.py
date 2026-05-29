@@ -245,11 +245,25 @@ def cmd_fetch_score(
         total_fetched = 0
         dropped_counts: dict[str, int] = {}
 
-        # Reset feed reachability counters so we can tell "edge blocked us" apart
-        # from "feeds reachable but nothing new" (drives the JSON `status` field).
+        # Reset feed counters + rate state so we can classify the run as ok /
+        # rate_limited / blocked (drives the JSON `status` field).
         reddit.reset_fetch_stats()
+        subs_skipped_rate_limit = 0
 
-        for s in cfg["subs"]:
+        sub_list = cfg["subs"]
+        for sub_idx, s in enumerate(sub_list):
+            # Graceful partial results: if the token bucket drained on a prior
+            # sub, stop bursting. Return what we already fetched rather than
+            # hammering into 429s and wholesale-failing the run.
+            if reddit.is_rate_limited():
+                subs_skipped_rate_limit += len(sub_list) - sub_idx
+                sys.stderr.write(
+                    f"[subscope] rate-limited mid-run, skipping {subs_skipped_rate_limit} "
+                    f"remaining sub(s); returning partial results\n"
+                )
+                sys.stderr.flush()
+                break
+
             db_sub = store.get_sub(conn, s["name"])
             if not db_sub:
                 store.upsert_subreddit(conn, s)
@@ -274,20 +288,33 @@ def cmd_fetch_score(
                 if store.already_surfaced(conn, post["id"]):
                     continue
 
-                # Author pre-gate (Phase 1.5): drop low-karma / young / wrong-audience
-                # OPs before scoring. Cached 7d to avoid refetching same OP across runs.
-                # Degrades open on fetch failure (verdict='pass', reason='fetch_failed').
-                vet = author_vet.vet_author(post.get("author", ""), conn=conn, weights=weights)
-                if vet["verdict"] == "fail":
-                    reason = f"author_vet_{vet['reason']}"
-                    dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
-                    continue
-
                 blog_matches = score.find_blog_matches(post, blog_posts)
 
+                # Lexical gate FIRST (no network). The gate + backfill check are
+                # pure keyword/intent logic, so we run them before touching the
+                # network-bound author vet. Posts that fail the gate and are not
+                # backfill-eligible are dropped here without an author fetch.
                 passes, reason = score.evaluate_gate(
                     post, dict(s, **db_sub), blog_matches, weights, bucket_kw
                 )
+                backfill_eligible = (not passes) and _is_backfill_eligible(reason, post)
+                if not passes and not backfill_eligible:
+                    dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
+                    continue
+
+                # Author pre-gate (Phase 1.5): drop young / low-karma / wrong-
+                # audience OPs before scoring. Cached 7d (consulted before any
+                # network call). Gated behind the lexical gate above so we only
+                # spend an author comments-RSS GET on posts that could surface,
+                # keeping us well under Reddit's RSS rate-limit budget. The vet
+                # still runs BEFORE scoring/selection (the architectural intent),
+                # just not on every fetched post. Degrades open on fetch failure.
+                vet = author_vet.vet_author(post.get("author", ""), conn=conn, weights=weights)
+                if vet["verdict"] == "fail":
+                    drop_reason = f"author_vet_{vet['reason']}"
+                    dropped_counts[drop_reason] = dropped_counts.get(drop_reason, 0) + 1
+                    continue
+
                 post["score_internal"] = score.compute_score(
                     post, dict(s, **db_sub), blog_matches, weights, bucket_kw
                 )
@@ -315,13 +342,12 @@ def cmd_fetch_score(
                         post["score_internal"] = post["score_internal"] + (verdict["fit_score"] * 3)
                     all_candidates.append(candidate)
                 else:
+                    # Gate-failed but backfill-eligible (named a specific SaaS
+                    # brand + failed only a softer signal). Already filtered to
+                    # backfill_eligible above, so it always joins the pool. Still
+                    # counted under its gate-fail reason for the dropped footer.
                     dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
-                    # Backfill pool: only posts that named a specific SaaS brand
-                    # AND failed a softer signal. Brand check is enforced in
-                    # _is_backfill_eligible (the gate short-circuits before the
-                    # brand check, so reason alone cannot be trusted here).
-                    if _is_backfill_eligible(reason, post):
-                        near_miss_pool.append(candidate)
+                    near_miss_pool.append(candidate)
 
         # Phase B enrichment: pure cache-read augmentation on the gate-pass set
         # BEFORE selection so any link_context can inform the inline table.
@@ -368,16 +394,29 @@ def cmd_fetch_score(
         notes = "; ".join(all_notes) if all_notes else ""
         store.finish_run(conn, run_id, total_fetched, len(selected), notes)
 
-    # Reachability verdict: "blocked" when every feed GET failed (Reddit edge
-    # 403, network), so the skill can show edge-block copy instead of a misleading
-    # "empty day" message. "ok" when at least one feed was reachable (a zero-
-    # surface result then means a genuinely quiet day, not a block).
+    # Run verdict, three states:
+    #   rate_limited : a 429 landed or we stopped early to avoid one. The run may
+    #                  be partial; the user should re-run in a minute. This takes
+    #                  precedence over "blocked" (it is transient, not an edge ban).
+    #   blocked      : every feed GET failed for a NON-429 reason and nothing was
+    #                  fetched (true edge block / network down).
+    #   ok           : at least one feed fetched, no rate-limit hit. A zero-surface
+    #                  result here is a genuinely quiet day.
     fetch_stats = reddit.get_fetch_stats()
-    status = "blocked" if (fetch_stats["ok"] == 0 and fetch_stats["failed"] > 0) else "ok"
-    if status == "blocked":
+    rate_limited = fetch_stats.get("rate_limited", 0) > 0 or subs_skipped_rate_limit > 0
+    if rate_limited:
+        status = "rate_limited"
+        # Count = feeds that 429'd plus subs we deliberately skipped to avoid one.
+        dropped_counts["fetch_rate_limited"] = (
+            fetch_stats.get("rate_limited", 0) + subs_skipped_rate_limit
+        )
+    elif fetch_stats["ok"] == 0 and fetch_stats["failed"] > 0:
+        status = "blocked"
         # Surface it in dropped_counts too, so consumers reading only that dict
         # still see the block. Count = number of failed feed GETs.
         dropped_counts["fetch_blocked"] = fetch_stats["failed"]
+    else:
+        status = "ok"
 
     from .lib import output as out_mod
     payload = {
@@ -386,6 +425,7 @@ def cmd_fetch_score(
         "status": status,
         "fetched": total_fetched,
         "surfaced": len(selected),
+        "subs_skipped_rate_limit": subs_skipped_rate_limit,
         "fetch_stats": fetch_stats,
         "dropped_counts": dropped_counts,
         "notes": notes,

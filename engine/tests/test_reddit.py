@@ -230,13 +230,33 @@ def test_unsafe_username_rejected(tmp_path, monkeypatch):
     assert called == []
 
 
-# ─── Fetch reachability stats (STORY-4 blocked-vs-empty signal) ───────
+# ─── Fetch reachability stats (blocked / rate_limited / ok signal) ────
+
+
+class _Resp:
+    """Minimal urlopen context-manager stub with optional response headers."""
+    def __init__(self, body: str = ATOM_FEED, headers: dict | None = None):
+        self._body = body.encode("utf-8")
+        self.headers = headers or {}
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
 
 def test_reset_fetch_stats_zeroes_counters():
     reddit._FETCH_STATS["ok"] = 5
     reddit._FETCH_STATS["failed"] = 3
+    reddit._FETCH_STATS["rate_limited"] = 2
+    reddit._RATE_STATE["drained"] = True
     reddit.reset_fetch_stats()
-    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 0}
+    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 0, "rate_limited": 0}
+    assert reddit.is_rate_limited() is False
 
 
 def test_fetch_xml_records_ok_on_success(tmp_path, monkeypatch):
@@ -244,33 +264,158 @@ def test_fetch_xml_records_ok_on_success(tmp_path, monkeypatch):
     genuinely empty day, not a block."""
     monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     reddit.reset_fetch_stats()
-
-    class _Resp:
-        def read(self):
-            return ATOM_FEED.encode("utf-8")
-        def __enter__(self):
-            return self
-        def __exit__(self, *a):
-            return False
-
-    with patch.object(reddit.urllib.request, "urlopen", return_value=_Resp()):
-        root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
+    with patch.object(reddit, "_sleep"):
+        with patch.object(reddit.urllib.request, "urlopen", return_value=_Resp()):
+            root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
     assert root is not None
-    assert reddit.get_fetch_stats() == {"ok": 1, "failed": 0}
+    assert reddit.get_fetch_stats() == {"ok": 1, "failed": 0, "rate_limited": 0}
 
 
 def test_fetch_xml_records_failed_on_403(tmp_path, monkeypatch):
     """A 403 (edge block) increments `failed`, which the CLI maps to status
-    'blocked' when no feed was reachable."""
+    'blocked' when no feed was reachable. It is NOT a rate-limit."""
     monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
     reddit.reset_fetch_stats()
     err = reddit.urllib.error.HTTPError(
         "https://www.reddit.com/r/SaaS/new/.rss", 403, "Blocked", {}, None
     )
-    with patch.object(reddit.urllib.request, "urlopen", side_effect=err):
-        root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
+    with patch.object(reddit, "_sleep"):
+        with patch.object(reddit.urllib.request, "urlopen", side_effect=err):
+            root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
     assert root is None
-    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 1}
+    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 1, "rate_limited": 0}
+    assert reddit.is_rate_limited() is False
+
+
+# ─── Rate-limit discipline ────────────────────────────────────────────
+
+def test_throttle_spaces_requests_by_min_interval(monkeypatch):
+    """Two back-to-back GETs must be spaced >= MIN_REQUEST_INTERVAL apart via a
+    proactive sleep, not a burst."""
+    reddit.reset_fetch_stats()
+    reddit._last_request_at = 0.0
+    clock = {"t": 1000.0}
+    slept: list[float] = []
+    monkeypatch.setattr(reddit.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(reddit, "_sleep", lambda s: slept.append(s))
+
+    reddit._throttle()              # first call: no prior request, no sleep
+    assert slept == []
+    clock["t"] += 0.3               # only 0.3s elapsed since last request
+    reddit._throttle()              # must sleep the remaining ~1.3s
+    assert len(slept) == 1
+    assert abs(slept[0] - (reddit.MIN_REQUEST_INTERVAL - 0.3)) < 1e-6
+
+
+def test_throttle_no_sleep_when_interval_elapsed(monkeypatch):
+    reddit._last_request_at = 0.0
+    clock = {"t": 500.0}
+    slept: list[float] = []
+    monkeypatch.setattr(reddit.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(reddit, "_sleep", lambda s: slept.append(s))
+    reddit._throttle()
+    clock["t"] += reddit.MIN_REQUEST_INTERVAL + 5  # plenty of time passed
+    reddit._throttle()
+    assert slept == []  # no proactive sleep needed
+
+
+def test_fetch_xml_429_sets_rate_limited_not_blocked(tmp_path, monkeypatch):
+    """A 429 with retries exhausted increments `rate_limited` (NOT `failed`) and
+    flips the drained flag so the caller can stop bursting."""
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
+    reddit.reset_fetch_stats()
+    reddit._last_request_at = 0.0
+    err = reddit.urllib.error.HTTPError(
+        "https://www.reddit.com/r/SaaS/new/.rss", 429, "Too Many Requests",
+        {"Retry-After": "1"}, None,
+    )
+    with patch.object(reddit, "_sleep"):
+        with patch.object(reddit.urllib.request, "urlopen", side_effect=err):
+            root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
+    assert root is None
+    assert reddit.get_fetch_stats() == {"ok": 0, "failed": 0, "rate_limited": 1}
+    assert reddit.is_rate_limited() is True
+
+
+def test_fetch_xml_429_then_success_recovers(tmp_path, monkeypatch):
+    """A 429 on the first attempt, then a 200, should succeed (count ok) after a
+    bounded backoff. drained still flips (caller decides whether to slow down)."""
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
+    reddit.reset_fetch_stats()
+    reddit._last_request_at = 0.0
+    err = reddit.urllib.error.HTTPError(
+        "u", 429, "Too Many Requests", {"Retry-After": "1"}, None,
+    )
+    seq = [err, _Resp()]
+
+    def _fake_urlopen(*a, **k):
+        item = seq.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    with patch.object(reddit, "_sleep"):
+        with patch.object(reddit.urllib.request, "urlopen", side_effect=_fake_urlopen):
+            root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
+    assert root is not None
+    assert reddit.get_fetch_stats()["ok"] == 1
+    assert reddit.is_rate_limited() is True  # the 429 was observed
+
+
+def test_retry_after_delay_prefers_retry_after_then_reset_then_caps():
+    # Retry-After wins
+    e1 = reddit.urllib.error.HTTPError("u", 429, "x", {"Retry-After": "5"}, None)
+    assert reddit._retry_after_delay(e1, 0) == 5.0
+    # No Retry-After -> falls back to x-ratelimit-reset
+    e2 = reddit.urllib.error.HTTPError("u", 429, "x", {"x-ratelimit-reset": "7"}, None)
+    assert reddit._retry_after_delay(e2, 0) == 7.0
+    # Huge value is capped at MAX_RATELIMIT_PAUSE
+    e3 = reddit.urllib.error.HTTPError("u", 429, "x", {"Retry-After": "9999"}, None)
+    assert reddit._retry_after_delay(e3, 0) == reddit.MAX_RATELIMIT_PAUSE
+
+
+def test_header_aware_pause_when_bucket_low(tmp_path, monkeypatch):
+    """A 200 whose x-ratelimit-remaining is at/under the floor triggers a pause
+    until reset (capped) and flips drained, so the next GET does not 429."""
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
+    reddit.reset_fetch_stats()
+    reddit._last_request_at = 0.0
+    slept: list[float] = []
+    resp = _Resp(headers={"x-ratelimit-remaining": "0.0", "x-ratelimit-reset": "30"})
+    monkeypatch.setattr(reddit, "_sleep", lambda s: slept.append(s))
+    with patch.object(reddit.urllib.request, "urlopen", return_value=resp):
+        root = reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
+    assert root is not None
+    assert reddit.is_rate_limited() is True
+    # The reset-driven pause (30s) should be among the sleeps and within cap.
+    assert any(abs(s - 30.0) < 1e-6 for s in slept)
+    assert all(s <= reddit.MAX_RATELIMIT_PAUSE for s in slept)
+
+
+def test_header_aware_pause_caps_at_max(tmp_path, monkeypatch):
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
+    reddit.reset_fetch_stats()
+    reddit._last_request_at = 0.0
+    slept: list[float] = []
+    resp = _Resp(headers={"x-ratelimit-remaining": "1", "x-ratelimit-reset": "9999"})
+    monkeypatch.setattr(reddit, "_sleep", lambda s: slept.append(s))
+    with patch.object(reddit.urllib.request, "urlopen", return_value=resp):
+        reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
+    assert any(abs(s - reddit.MAX_RATELIMIT_PAUSE) < 1e-6 for s in slept)
+
+
+def test_header_aware_no_pause_when_bucket_healthy(tmp_path, monkeypatch):
+    monkeypatch.setenv("SUBSCOPE_CONFIG", str(tmp_path))
+    reddit.reset_fetch_stats()
+    reddit._last_request_at = 0.0
+    slept: list[float] = []
+    resp = _Resp(headers={"x-ratelimit-remaining": "95", "x-ratelimit-reset": "300"})
+    monkeypatch.setattr(reddit, "_sleep", lambda s: slept.append(s))
+    with patch.object(reddit.urllib.request, "urlopen", return_value=resp):
+        reddit.fetch_xml("https://www.reddit.com/r/SaaS/new/.rss")
+    assert reddit.is_rate_limited() is False
+    # No ratelimit pause sleeps (only possibly the throttle, which is 0 on first call)
+    assert all(s == 0 for s in slept) or slept == []
 
 
 # ─── OAuth-removed invariant (must stay green) ────────────────────────

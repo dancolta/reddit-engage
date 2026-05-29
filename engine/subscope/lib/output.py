@@ -59,10 +59,11 @@ def _build_dropped_footer(dropped_counts: dict[str, int]) -> list[str]:
         Group B
           NN  label
     """
-    # `fetch_blocked` is a reachability status marker, not a pre-scoring drop.
-    # It is surfaced via the JSON `status` field and the no-surface copy, so keep
-    # it out of the "filtered before scoring" footer to avoid a misleading line.
-    nonzero = {k: v for k, v in dropped_counts.items() if v and k != "fetch_blocked"}
+    # `fetch_blocked` / `fetch_rate_limited` are run-status markers, not
+    # pre-scoring drops. They are surfaced via the JSON `status` field and the
+    # no-surface copy, so keep them out of the "filtered before scoring" footer.
+    _status_markers = {"fetch_blocked", "fetch_rate_limited"}
+    nonzero = {k: v for k, v in dropped_counts.items() if v and k not in _status_markers}
     if not nonzero:
         return []
     total = sum(nonzero.values())

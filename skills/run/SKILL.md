@@ -22,12 +22,13 @@ Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate 
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score
 ```
 
-Engine output: a single JSON document on stdout with `run_id`, `status`, `fetched`, `surfaced`, `fetch_stats`, `dropped_counts`, `surfaces[]`, `inline_table`, and `inline_markdown`.
+Engine output: a single JSON document on stdout with `run_id`, `status`, `fetched`, `surfaced`, `subs_skipped_rate_limit`, `fetch_stats`, `dropped_counts`, `surfaces[]`, `inline_table`, and `inline_markdown`.
 
-The `status` field tells you why a run produced no surfaces, so you never show the wrong message:
+The `status` field tells you why a run produced few or no surfaces, so you never show the wrong message:
 - `status: "ok"` and `surfaced > 0` -> normal run, render the table (Step 4).
 - `status: "ok"` and `surfaced == 0` -> Reddit was reachable, today was just quiet. Show the EMPTY-DAY copy below.
-- `status: "blocked"` -> every Reddit feed request failed (Reddit's edge returned 403, or the network was down). The scan could not read anything. Show the BLOCKED copy below.
+- `status: "rate_limited"` -> Reddit rate-limited this run (HTTP 429). Some subreddits may have been skipped (`subs_skipped_rate_limit` says how many), so the list can be partial or empty. This is transient. Render any surfaces you DID get, then show the RATE-LIMITED copy below. Do NOT call this "blocked".
+- `status: "blocked"` -> every Reddit feed request failed for a non-rate-limit reason (Reddit's edge returned 403, or the network was down). The scan could not read anything. Show the BLOCKED copy below.
 
 ### Step 2 — Optional Notion sync
 
@@ -121,6 +122,16 @@ This is normal on a quiet day. Options:
 ```
 
 If `dropped_counts` is non-empty, the engine already appends the "posts filtered before scoring" breakdown to `inline_table`/`inline_markdown`; print that breakdown too so the user sees why posts were dropped.
+
+**`status: "rate_limited"`** (Reddit returned HTTP 429 this run): if there ARE surfaces, render them first per Step 4 (they are real, just a partial list). Then print this copy verbatim:
+
+```
+Reddit rate-limited this run, so some subreddits were skipped. Any posts above are real, the list is just partial.
+
+This is temporary, not a block. subscope reads Reddit's public RSS feeds with no login or API key. Reddit caps how fast a single machine can pull feeds, and this run hit that cap. Run /subscope-run again in a minute to pick up the rest.
+```
+
+Do NOT call this "blocked" and do NOT suggest any Reddit login, API key, or OAuth setup. Re-running shortly is the fix.
 
 **`status: "blocked"`** (every Reddit feed request failed): print this copy verbatim, nothing else:
 
