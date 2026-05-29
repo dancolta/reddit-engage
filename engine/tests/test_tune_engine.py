@@ -125,6 +125,23 @@ def test_unknown_sub_in_skipped_list(tmp_path):
     assert "unknownsub" in result["skipped"]
 
 
+def test_meh_and_skipped_do_not_change_weight(tmp_path):
+    """Targeted feedback: a sub that gets only meh marks (and skipped surfaces
+    default to meh) keeps its weight unchanged. No hidden down-weight for what
+    the user did not rate."""
+    subs = {"subreddits": [
+        {"name": "RevOps", "tier": 1, "bucket": "operator", "weight": 1.0},
+    ]}
+    subs_path = tmp_path / "subreddits.yml"
+    subs_path.write_text(yaml.safe_dump(subs))
+    surfaces = [{"id": f"p{i}", "subreddit": "RevOps", "title": "x"} for i in range(1, 4)]
+    marks = {1: "m", 2: "m", 3: "m"}
+    tune_engine.apply_marks_to_subs(surfaces, marks, subs_path)
+    after = yaml.safe_load(subs_path.read_text())
+    w = next(s["weight"] for s in after["subreddits"] if s["name"] == "RevOps")
+    assert w == 1.0, "meh/skipped must not change weight"
+
+
 def test_format_deltas_readout_shows_top_5():
     changes = [
         {"name": f"Sub{i}", "old_weight": 1.0, "new_weight": 1.0 + 0.1 * (10 - i),
