@@ -9,7 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subscope.cli import _select_daily, _is_backfill_eligible  # noqa: E402
+from subscope.cli import _select_daily, _is_backfill_eligible, _select_authority  # noqa: E402
+from subscope.lib import score  # noqa: E402
 
 
 NOW = int(time.time())
@@ -192,6 +193,86 @@ def test_backfill_rejects_disallowed_reasons_even_with_brand():
     assert _is_backfill_eligible("tier1_no_saas_brand", branded) is False
     assert _is_backfill_eligible("tier1_post_age", branded) is False
     assert _is_backfill_eligible("vendor_content", branded) is False
+
+
+# ─── Authority path must NOT resurrect the brandless keyword-density leak ───
+# The dual-track authority track is a SECOND pass over the soft-reject pool. It
+# is keyed off the buyer-gate failure REASON. A brandless thin post short-circuits
+# the tier gates on keyword density (BEFORE the no_saas_brand check), so it
+# carries `tier*_keyword_density`, which is NOT in AUTHORITY_ELIGIBLE_REASONS.
+# This is the same invariant the _is_backfill_eligible regression protects, now
+# extended to the authority path. The brandless dental post from the original
+# leak must never surface on EITHER track.
+
+_LEAK_KEYWORDS = ["crown", "root canal", "cavity", "onlay", "filling", "dental"]
+
+
+def _authority_weights(min_density=2, cap=4, enabled=True) -> dict:
+    return {
+        "scoring": {
+            "freshness_decay": {"zero_hours": 30, "max_points": 30},
+            "upvote_velocity": {"multiplier": 4, "max_points": 20},
+            "comment_velocity": {"multiplier": 6, "max_points": 15},
+            "pain_keyword_match": {"points_per_keyword": 6, "max_points": 30},
+            "blog_coverage_bonus": {"points_per_match": 25, "max_points": 50},
+            "intent_bonus": {"question_bonus": 20, "pain_bonus": 15},
+            "tier_weight": {"tier_1": 1.0, "tier_2": 1.25},
+        },
+        "authority_track": {
+            "enabled": enabled, "cap": cap, "min_keyword_density": min_density,
+            "scoring": {"reach_weight": 1.5, "answerability_weight": 1.5,
+                        "blog_weight": 1.5, "pain_weight": 0.25,
+                        "freshness_max_points": 30},
+        },
+    }
+
+
+def test_authority_constant_excludes_keyword_density_reason():
+    """Contract: the brandless keyword-density miss reason is NOT authority-eligible.
+    This is the structural guard that keeps the leak plugged on the authority path."""
+    assert "tier1_keyword_density" not in score.AUTHORITY_ELIGIBLE_REASONS
+    assert "tier2_keyword_density" not in score.AUTHORITY_ELIGIBLE_REASONS
+
+
+def test_authority_does_not_resurrect_brandless_keyword_density_leak():
+    """The original leak post (brandless dental question) must NOT surface on the
+    authority track. It carries a keyword-density reason, so it is filtered out
+    of the authority pool by reason, exactly like the backfill guard."""
+    leak_candidate = {
+        "post": {
+            "id": "leak1",
+            "title": "Cavity>Onlay>Crown>Root Canal?! What do you do?",
+            "subreddit": "Dentistry", "body": "",
+            "score": 50, "num_comments": 30, "created_utc": NOW - 3600,
+            "score_internal": 0.0,
+        },
+        "sub": {"name": "Dentistry", "tier": 2, "weight": 1.0, "saturation": "medium"},
+        "blog_matches": [],
+        # Brandless thin post short-circuits on keyword density in the real gate.
+        "gate_reason": "tier2_keyword_density",
+        "vet": {"verdict": "pass"},
+        "bucket_kw": _LEAK_KEYWORDS,
+    }
+    dropped: dict[str, int] = {}
+    out = _select_authority([leak_candidate], set(), _authority_weights(), dropped)
+    assert out == [], "brandless keyword-density miss leaked onto authority track"
+    assert dropped.get("authority_not_eligible_reason") == 1
+
+
+def test_select_daily_unchanged_with_authority_present():
+    """Sanity: _select_daily (the buyer selector) is untouched by dual-track.
+    Buyer selection must produce identical output regardless of authority work,
+    since the two passes are independent."""
+    gate = [
+        _candidate("g1", "sales", 2, score=100.0),
+        _candidate("g2", "ops", 2, score=90.0),
+    ]
+    near = [_candidate(f"n{i}", "sales", 2, score=80.0 - i) for i in range(5)]
+    out = _select_daily(gate, near, _weights(minimum=5), daily_cap=10)
+    assert len(out) >= 5
+    # No surface carries a track from the buyer selector (track is stamped later
+    # in cmd_fetch_score, not in _select_daily).
+    assert all("track" not in c for c in out)
 
 
 if __name__ == "__main__":

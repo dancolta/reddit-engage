@@ -241,9 +241,17 @@ def cmd_fetch_score(
 
         all_candidates: list[dict[str, Any]] = []
         near_miss_pool: list[dict[str, Any]] = []
+        authority_pool: list[dict[str, Any]] = []
         fetch_errors: list[str] = []
         total_fetched = 0
         dropped_counts: dict[str, int] = {}
+
+        # Authority track config (dual-track surfaces). Default OFF unless the
+        # weights.yml authority_track block sets enabled. When disabled, the
+        # authority pool is never built and the run reverts to today's
+        # buyer-only behavior exactly.
+        authority_cfg = weights.get("authority_track", {}) or {}
+        authority_enabled = bool(authority_cfg.get("enabled", False))
 
         # Reset feed counters + rate state so we can classify the run as ok /
         # rate_limited / blocked (drives the JSON `status` field).
@@ -263,6 +271,7 @@ def cmd_fetch_score(
                 )
                 sys.stderr.flush()
                 break
+
 
             db_sub = store.get_sub(conn, s["name"])
             if not db_sub:
@@ -290,15 +299,24 @@ def cmd_fetch_score(
 
                 blog_matches = score.find_blog_matches(post, blog_posts)
 
-                # Lexical gate FIRST (no network). The gate + backfill check are
-                # pure keyword/intent logic, so we run them before touching the
-                # network-bound author vet. Posts that fail the gate and are not
-                # backfill-eligible are dropped here without an author fetch.
+                # Lexical gate FIRST (no network). The gate + backfill + authority
+                # eligibility checks are pure keyword/intent logic, so we run them
+                # before touching the network-bound author vet. A post is spared
+                # the early drop only if it can still surface: a buyer survivor, a
+                # backfill-eligible near-miss, OR an authority-eligible reject.
                 passes, reason = score.evaluate_gate(
                     post, dict(s, **db_sub), blog_matches, weights, bucket_kw
                 )
                 backfill_eligible = (not passes) and _is_backfill_eligible(reason, post)
-                if not passes and not backfill_eligible:
+                # DESIGN FIX 1: authority-eligible brandless posts (no_saas_brand /
+                # no_intent) are NOT backfill-eligible, so without this clause the
+                # early drop below would cull them before they reach authority_pool,
+                # leaving the authority track nearly empty. Spare them here.
+                authority_eligible = (
+                    authority_enabled and (not passes)
+                    and reason in score.AUTHORITY_ELIGIBLE_REASONS
+                )
+                if not passes and not backfill_eligible and not authority_eligible:
                     dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
                     continue
 
@@ -306,17 +324,40 @@ def cmd_fetch_score(
                 # audience OPs before scoring. Cached 7d (consulted before any
                 # network call). Gated behind the lexical gate above so we only
                 # spend an author comments-RSS GET on posts that could surface,
-                # keeping us well under Reddit's RSS rate-limit budget. The vet
-                # still runs BEFORE scoring/selection (the architectural intent),
-                # just not on every fetched post. Degrades open on fetch failure.
-                vet = author_vet.vet_author(post.get("author", ""), conn=conn, weights=weights)
-                if vet["verdict"] == "fail":
-                    drop_reason = f"author_vet_{vet['reason']}"
-                    dropped_counts[drop_reason] = dropped_counts.get(drop_reason, 0) + 1
-                    continue
+                # keeping us well under Reddit's RSS rate-limit budget.
+                #
+                # DESIGN FIX 2 (lazy authority vetting): the 403 fix deliberately
+                # vets only buyer gate-passers + backfill-eligible near-misses to
+                # stay under the RSS rate limit. Authority-eligible posts are the
+                # LARGEST bucket (every keyword-density-passing brandless post), so
+                # vetting them here would re-pressure the exact limit the 403 fix
+                # hardened. A post that is ONLY authority-eligible (not a buyer
+                # survivor and not backfill-eligible) is therefore NOT vetted in
+                # the loop: its vet is deferred to _select_authority, which only
+                # vets the small set of authority-gate survivors. A post that is
+                # also backfill-eligible IS vetted here, and that vet is reused.
+                vet_needed = passes or backfill_eligible
+                if vet_needed:
+                    vet = author_vet.vet_author(post.get("author", ""), conn=conn, weights=weights)
+                    if vet["verdict"] == "fail":
+                        drop_reason = f"author_vet_{vet['reason']}"
+                        dropped_counts[drop_reason] = dropped_counts.get(drop_reason, 0) + 1
+                        # A buyer-rejected post that fails author vetting is also
+                        # disqualified from the authority track (vetting is shared).
+                        continue
+                else:
+                    # Authority-only candidate: defer the network vet. The vet
+                    # still runs before authority scoring/selection, just lazily
+                    # inside _select_authority on the gate-survivor subset.
+                    vet = None
 
-                post["score_internal"] = score.compute_score(
-                    post, dict(s, **db_sub), blog_matches, weights, bucket_kw
+                # compute_score is buyer scoring. Skip it for authority-only
+                # candidates (they are rescored with compute_authority_score in
+                # _select_authority); leave a 0.0 placeholder so the dict shape is
+                # stable for any reader.
+                post["score_internal"] = (
+                    score.compute_score(post, dict(s, **db_sub), blog_matches, weights, bucket_kw)
+                    if vet_needed else 0.0
                 )
                 candidate = {
                     "post": post,
@@ -324,6 +365,7 @@ def cmd_fetch_score(
                     "blog_matches": blog_matches,
                     "gate_reason": reason,
                     "vet": vet,
+                    "bucket_kw": bucket_kw,
                 }
                 if passes:
                     # Optional Phase 2 LLM classifier: only fires on regex-gate
@@ -342,12 +384,25 @@ def cmd_fetch_score(
                         post["score_internal"] = post["score_internal"] + (verdict["fit_score"] * 3)
                     all_candidates.append(candidate)
                 else:
-                    # Gate-failed but backfill-eligible (named a specific SaaS
-                    # brand + failed only a softer signal). Already filtered to
-                    # backfill_eligible above, so it always joins the pool. Still
-                    # counted under its gate-fail reason for the dropped footer.
+                    # Gate-failed but kept because it is backfill-eligible and/or
+                    # authority-eligible (filtered above). Counted once under its
+                    # gate-fail reason for the dropped footer, then routed to the
+                    # pool(s) it qualifies for.
                     dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
-                    near_miss_pool.append(candidate)
+                    # Backfill pool: only posts that named a specific SaaS brand
+                    # AND failed a softer signal (brand check enforced in
+                    # _is_backfill_eligible; the gate short-circuits before the
+                    # brand check, so reason alone cannot be trusted here).
+                    if backfill_eligible:
+                        near_miss_pool.append(candidate)
+                    # Authority pool (dual-track): a buyer-reject is a candidate
+                    # for the SECOND-pass authority gate ONLY if it failed the
+                    # buyer gate for an on-topic-but-not-a-buyer reason
+                    # (no_saas_brand / no_intent). A keyword-density miss carries
+                    # the *_keyword_density reason, never *_no_saas_brand, so it
+                    # cannot enter here, which preserves the brandless leak fix.
+                    if authority_eligible:
+                        authority_pool.append(candidate)
 
         # Phase B enrichment: pure cache-read augmentation on the gate-pass set
         # BEFORE selection so any link_context can inform the inline table.
@@ -361,38 +416,53 @@ def cmd_fetch_score(
         if max_surfaces and max_surfaces > 12:
             _emit_max_surfaces_warning(max_surfaces)
 
+        # Authority track (dual-track surfaces): SECOND pass over the soft-reject
+        # pool, with an INDEPENDENT cap. Buyer-selected posts are excluded so a
+        # post never double-surfaces. No-op (and zero authority surfaces) when
+        # the flag is disabled. Authority disposition is folded into
+        # dropped_counts so the footer can show why candidates were not promoted.
+        buyer_ids = {s["post"]["id"] for s in selected}
+        authority_selected = _select_authority(
+            authority_pool, buyer_ids, weights, dropped_counts, conn=conn,
+        )
+
         # Persist. Each surface is isolated so one bad row does not kill the run.
         persist_errors: list[str] = []
         kept_for_output: list[dict[str, Any]] = []
-        for s in selected:
-            post = s["post"]
-            sub_row = s["sub"]
-            try:
-                store.insert_post(conn, post)
-                store.update_score(conn, post["id"], post["score_internal"])
-                for m in s["blog_matches"]:
-                    store.record_blog_ref(
-                        conn, post["id"], m["url"], m["match_score"], m["matched_keywords"]
-                    )
-                # Cooling queue: surfaces land 'drafting' (held cool_minutes)
-                # unless --no-cool is set. Notion sync flushes only 'hot' rows.
-                surface_state = "hot" if no_cool else "drafting"
-                store.mark_surfaced(conn, post["id"], run_id, sub_row["tier"],
-                                    state=surface_state)
-            except Exception as e:
-                persist_errors.append(f"{post.get('id', '?')}: {e}")
-                continue
-            s["pain_summary"] = _pain_summary(post, s["blog_matches"])
-            s["fit_summary"] = _fit_summary(sub_row, s["blog_matches"])
-            s["score_internal"] = post["score_internal"]
-            s["pattern"] = mode
-            s["pattern_emoji"] = PATTERN_EMOJI.get(mode, "")
-            kept_for_output.append(s)
-        selected = kept_for_output
+        surface_state = "hot" if no_cool else "drafting"
+        for track, track_list in (("buyer", selected), ("authority", authority_selected)):
+            for s in track_list:
+                post = s["post"]
+                sub_row = s["sub"]
+                try:
+                    store.insert_post(conn, post)
+                    store.update_score(conn, post["id"], post["score_internal"])
+                    for m in s["blog_matches"]:
+                        store.record_blog_ref(
+                            conn, post["id"], m["url"], m["match_score"], m["matched_keywords"]
+                        )
+                    # Cooling queue: surfaces land 'drafting' (held cool_minutes)
+                    # unless --no-cool is set. Notion sync flushes only 'hot' rows.
+                    store.mark_surfaced(conn, post["id"], run_id, sub_row["tier"],
+                                        state=surface_state)
+                except Exception as e:
+                    persist_errors.append(f"{post.get('id', '?')}: {e}")
+                    continue
+                s["pain_summary"] = _pain_summary(post, s["blog_matches"])
+                s["fit_summary"] = _fit_summary(sub_row, s["blog_matches"])
+                s["score_internal"] = post["score_internal"]
+                s["pattern"] = mode
+                s["pattern_emoji"] = PATTERN_EMOJI.get(mode, "")
+                s["track"] = track
+                kept_for_output.append(s)
+        # Split back out for the renderers (both keep only successfully persisted rows).
+        selected = [s for s in kept_for_output if s["track"] == "buyer"]
+        authority_selected = [s for s in kept_for_output if s["track"] == "authority"]
 
+        total_surfaced = len(selected) + len(authority_selected)
         all_notes = fetch_errors + [f"persist:{e}" for e in persist_errors]
         notes = "; ".join(all_notes) if all_notes else ""
-        store.finish_run(conn, run_id, total_fetched, len(selected), notes)
+        store.finish_run(conn, run_id, total_fetched, total_surfaced, notes)
 
     # Run verdict, three states:
     #   rate_limited : a 429 landed or we stopped early to avoid one. The run may
@@ -424,14 +494,19 @@ def cmd_fetch_score(
         "mode": mode,
         "status": status,
         "fetched": total_fetched,
-        "surfaced": len(selected),
+        "surfaced": total_surfaced,
+        "buyer_count": len(selected),
+        "authority_count": len(authority_selected),
         "subs_skipped_rate_limit": subs_skipped_rate_limit,
         "fetch_stats": fetch_stats,
         "dropped_counts": dropped_counts,
         "notes": notes,
-        "surfaces": out_mod.render_json_payload(selected),
-        "inline_markdown": out_mod.render(selected, notes, dropped_counts),
-        "inline_table": out_mod.render_table(selected, dropped_counts),
+        "surfaces": (out_mod.render_json_payload(selected, track="buyer")
+                     + out_mod.render_json_payload(authority_selected, track="authority")),
+        "inline_markdown": out_mod.render(
+            selected, notes, dropped_counts, authority_surfaces=authority_selected),
+        "inline_table": out_mod.render_table(
+            selected, dropped_counts, authority_surfaces=authority_selected),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -560,6 +635,92 @@ def _select_daily(candidates: list[dict[str, Any]], near_miss_pool: list[dict[st
             _take(c)
 
     return chosen
+
+
+def _select_authority(
+    authority_pool: list[dict[str, Any]],
+    buyer_ids: set[str],
+    weights: dict[str, Any],
+    dropped_counts: dict[str, int],
+    conn: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Second-pass authority selection (dual-track surfaces).
+
+    Runs the deterministic authority gate FIRST, then vets the author LAZILY on
+    gate survivors only, then scores with compute_authority_score over the
+    soft-reject pool. Drops anything the buyer track already surfaced (no
+    double-surfacing), dedups by (sub, title), sorts by authority score, and
+    applies the INDEPENDENT authority_track.cap. Gate + vet rejections are folded
+    into dropped_counts so the footer can show authority disposition.
+
+    Lazy author vetting (rate-limit safety): authority-eligible posts are the
+    largest bucket, so the main loop does NOT vet them (it defers with
+    candidate["vet"] = None). We vet here, but ONLY for posts that already PASSED
+    the deterministic authority gate (question-intent + keyword-density + career/
+    identity filter). That bounds author comments-RSS GETs to the small set of
+    gate survivors, keeping us under Reddit's RSS rate-limit budget. The vet is
+    cache-first (7-day vetted_authors table consulted before any network call). A
+    candidate that already carries a vet dict (e.g. a branded no_intent post that
+    was backfill-eligible and vetted in the main loop, or a synthetic test vet) is
+    reused, never re-vetted.
+
+    Returns [] when the authority track is disabled or empty. The selected
+    surfaces carry post["score_internal"] = the authority score (so the renderer
+    and persistence use the authority ranking, not the buyer ranking).
+    """
+    at_cfg = weights.get("authority_track", {}) or {}
+    if not at_cfg.get("enabled", False) or not authority_pool:
+        return []
+
+    cap = int(at_cfg.get("cap", 4))
+    if cap <= 0:
+        return []
+
+    qualified: list[dict[str, Any]] = []
+    for c in authority_pool:
+        post = c["post"]
+        # No double-surfacing: a buyer-selected post never appears in authority.
+        if post["id"] in buyer_ids:
+            continue
+        # Deterministic gate FIRST (no network): question intent + keyword
+        # density + career/identity filter + absolute rejects. With vet=None its
+        # final author-vet check is a defensive pass, so the network vet only
+        # fires below on posts that already cleared the deterministic gate.
+        passes, areason = score.evaluate_authority_gate(
+            post, c["sub"], c.get("gate_reason", ""), weights,
+            c.get("bucket_kw", []), vet=c.get("vet"),
+        )
+        if not passes:
+            dropped_counts[areason] = dropped_counts.get(areason, 0) + 1
+            continue
+        # Lazy author vet on the gate survivor. Reuse a vet already on the
+        # candidate (computed in the main loop, or supplied by a test); otherwise
+        # vet now, cache-first. Drop on a failing verdict.
+        vet = c.get("vet")
+        if vet is None:
+            vet = author_vet.vet_author(
+                post.get("author", ""), conn=conn, weights=weights
+            )
+            c["vet"] = vet
+        if vet.get("verdict") == "fail":
+            drop_reason = f"author_vet_{vet.get('reason')}"
+            dropped_counts[drop_reason] = dropped_counts.get(drop_reason, 0) + 1
+            continue
+        post["score_internal"] = score.compute_authority_score(
+            post, c["sub"], c.get("blog_matches", []), weights, c.get("bucket_kw", []),
+        )
+        qualified.append(c)
+
+    # Dedup by (sub, title): a cross-post or duplicate keeps the higher score.
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for c in qualified:
+        key = (c["sub"]["name"].lower(), c["post"]["title"].strip().lower())
+        prev = by_key.get(key)
+        if prev is None or c["post"]["score_internal"] > prev["post"]["score_internal"]:
+            by_key[key] = c
+    deduped = list(by_key.values())
+    deduped.sort(key=lambda c: c["post"]["score_internal"], reverse=True)
+    return deduped[:cap]
 
 
 def _pain_summary(post: dict[str, Any], blog_matches: list[dict[str, Any]]) -> str:

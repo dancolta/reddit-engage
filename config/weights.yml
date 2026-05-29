@@ -70,6 +70,25 @@ daily_output:
     "build-vs-buy": 6
     "rfp-bait": 6
 
+# === Authority track (dual-track surfaces) ===
+# Second-pass gate over the soft-reject pool (posts that failed the buyer gate
+# ONLY for no_saas_brand / no_intent). Recovers on-topic, answerable questions
+# worth a reply to build authority, not to close a sale. Buyer track is
+# unchanged. Set enabled: false to revert to today's buyer-only behavior exactly.
+authority_track:
+  enabled: true                    # default ON
+  cap: 4                           # independent surface cap (3-5), separate from buyer cap
+  # Topical-fit floor. Stricter than the buyer keyword gate (pain_keywords_min: 1)
+  # on purpose: without a named-brand anchor, keyword density is the proof a
+  # brandless post is genuinely on-topic. Keep >= the buyer tier minimums.
+  min_keyword_density: 2
+  scoring:
+    reach_weight: 1.5              # up-weight upvote + comment velocity (who sees the reply)
+    answerability_weight: 1.5      # up-weight question intent (a real question to answer)
+    blog_weight: 1.5               # up-weight blog coverage (citable authority lever)
+    pain_weight: 0.25              # down-weight pain markers (not the point of an authority reply)
+    freshness_max_points: 30       # keep freshness decay (dead threads not worth answering)
+
 # === Freshness floor (PIPE-1) ===
 # Auto-promote near-miss posts younger than max_age_hours, up to max_promoted.
 # Bypasses per-sub caps. Freshness IS the signal: a 2h-old post that fails

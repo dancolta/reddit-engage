@@ -22,13 +22,19 @@ Daily Reddit surfacing orchestrator. Python (under `engine/`) does fetch + gate 
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score
 ```
 
-Engine output: a single JSON document on stdout with `run_id`, `status`, `fetched`, `surfaced`, `subs_skipped_rate_limit`, `fetch_stats`, `dropped_counts`, `surfaces[]`, `inline_table`, and `inline_markdown`.
+Engine output: a single JSON document on stdout with `run_id`, `status`, `fetched`, `surfaced`, `buyer_count`, `authority_count`, `subs_skipped_rate_limit`, `fetch_stats`, `dropped_counts`, `surfaces[]`, `inline_table`, and `inline_markdown`.
 
 The `status` field tells you why a run produced few or no surfaces, so you never show the wrong message:
 - `status: "ok"` and `surfaced > 0` -> normal run, render the table (Step 4).
 - `status: "ok"` and `surfaced == 0` -> Reddit was reachable, today was just quiet. Show the EMPTY-DAY copy below.
 - `status: "rate_limited"` -> Reddit rate-limited this run (HTTP 429). Some subreddits may have been skipped (`subs_skipped_rate_limit` says how many), so the list can be partial or empty. This is transient. Render any surfaces you DID get, then show the RATE-LIMITED copy below. Do NOT call this "blocked".
 - `status: "blocked"` -> every Reddit feed request failed for a non-rate-limit reason (Reddit's edge returned 403, or the network was down). The scan could not read anything. Show the BLOCKED copy below.
+
+**Dual-track surfaces.** Results are split into two tracks. `surfaced` is the combined total; `buyer_count` and `authority_count` break it down. Every entry in `surfaces[]` carries a `track` field:
+- `track: "buyer"` = Buyer signals. The post names a specific tool or brand AND shows buying intent. A reply here moves a deal.
+- `track: "authority"` = Authority plays. On-topic, answerable question with no buyer present yet. A reply here builds presence and credibility, it does not close a sale.
+
+The `inline_markdown` and `inline_table` fields already render both tracks as two labeled sections (BUYER SIGNALS first, then AUTHORITY PLAYS). When the authority track is empty, only the buyer section renders. The authority track can be toggled in `weights.yml` under `authority_track.enabled`. When disabled, the run reverts to buyer-only output exactly.
 
 ### Step 2 — Optional Notion sync
 
@@ -51,6 +57,7 @@ Read `~/.config/subscope/notion.yml`. Branch on the `mode` field:
 
 - `Title`, `Tier`, `Subreddit`, `Score`, `Upvotes`, `Comments`, `Posted` (ISO date), `Pain`, `Fit`, `URL` (verbatim from engine output, **never hand-compose Reddit URLs**), `Surfaced on` (today, ISO)
 - `Pattern` = the mode that produced the surface (default: `run`)
+- `Track` ← read from `surface.track` (`buyer` or `authority`). Buyer = a reply moves a deal; authority = a reply builds presence, no buyer yet. Skip this property if the Notion DB has no `Track` column (it is optional, added with dual-track surfaces).
 - `State` = `Drafting` if cooling queue active, else `Hot`
 - `OP score` ← read from `surface.op_score` (string like `"2y old · 4.2k karma · 12% wrong-audience"`)
 
@@ -72,7 +79,7 @@ default_render: table     # which surface /subscope-run prints first in chat
 Rendering rules:
 
 - If `surface.yml` is missing → default to `modes: [table]`, print `inline_table`.
-- If `modes` contains `table` → print the engine's `inline_table` field verbatim (a markdown table the user can click links from in chat).
+- If `modes` contains `table` → print the engine's `inline_table` field verbatim (a markdown table the user can click links from in chat). It already contains both the BUYER SIGNALS and AUTHORITY PLAYS sections, buyer first. Do NOT split, reorder, or drop the authority section.
 - If `modes` contains `notion` → do the Notion sync above. If the user picked BOTH `table` and `notion`, render the table in chat AND sync to Notion.
 - If `modes` is empty `[]` → don't print anything beyond JSON (for piping).
 
