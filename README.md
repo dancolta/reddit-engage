@@ -2,47 +2,59 @@
 
 # subscope
 
-[![License: MIT](https://img.shields.io/github/license/dancolta/subscope?color=blue)](LICENSE) [![Release](https://img.shields.io/github/v/release/dancolta/subscope)](https://github.com/dancolta/subscope/releases) [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/github/license/dancolta/subscope?color=blue)](LICENSE) [![Release](https://img.shields.io/github/v/release/dancolta/subscope)](https://github.com/dancolta/subscope/releases) [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-7c3aed)](https://docs.claude.com/en/docs/claude-code)
 
-![subscope hero: 8-bit arcade scanner, purple grid background, SUBSCOPE title pulsing as the magenta scan-line sweeps across, pattern words like PRICING-RAGE / CHURN / ALTERNATIVES flashing in colored brackets](assets/hero.gif)
+![subscope hero: a Claude Code chat after /subscope-run, showing two labeled sections, BUYER SIGNALS with ranked threads like "HubSpot renewal +28%, anyone moved off?" and AUTHORITY PLAYS with answerable threads, each tagged with subreddit, age, score, and pattern](assets/hero.gif)
 
-**subscope reads Reddit for you and finds threads where someone is actively shopping for what you sell.**
+**subscope reads Reddit for you and hands you the threads worth replying to: the people shopping for what you sell, and the questions you can answer to build authority.**
 
-Run it whenever you want. Each scan returns 5 to 12 of the strongest threads directly in your Claude Code chat. Things like "Apollo renewal hike, what's the alternative?" or "switching from HubSpot, recommendations?". You read them, decide which deserve a reply, and write the comment yourself on Reddit. Free. No API keys. Runs inside Claude Code.
+Run it whenever you want. Each scan returns 5 to 12 ranked threads in your Claude Code chat, split into two tracks: **Buyer signals** where a reply moves a deal, and **Authority plays** where a reply builds credibility. You read them, decide which deserve a reply, and write the comment yourself on Reddit.
+
+Keyless. No OAuth, no API key, no Reddit account. It reads Reddit's public RSS feeds. Free, MIT, local.
+
+**It never posts for you.** Not an alert firehose, not a Reddit growth bot, not a $200 a month listening suite. subscope finds the thread. You write the reply.
 
 ```bash
 /plugin install dancolta/subscope
-/subscope-onboard       # mandatory targeting setup, ends with your first scan
-/subscope-run           # any subsequent scan
+/subscope-onboard       # one-time targeting setup (~5 min), ends with your first scan
+/subscope-run           # every scan after that
 ```
 
 </div>
 
 ---
 
+## What a scan returns
+
+You run `/subscope-run`. A few seconds later, two ranked lists land in chat:
+
+```
+BUYER SIGNALS  ·  someone is shopping, a reply moves a deal
+[T1] r/RevOps      14h · 92 · pricing-rage    "HubSpot renewal +28%, anyone moved off?"
+[T1] r/SalesOps     6h · 88 · churn           "Canceling Apollo, what do you use instead?"
+[T2] r/B2BSaaS      3h · 74 · alternative     "Alternative to Salesforce under 25 seats?"
+
+AUTHORITY PLAYS  ·  no buyer yet, answer to build presence
+[A]  r/Entrepreneur 5h · 61 · question        "How do you handle multi-entity invoicing?"
+[A]  r/smallbusiness 9h · 58 · question       "Best way to track recurring client work?"
+```
+
+Each line is a live thread with a clickable link, ranked by how much your reply is worth and how fresh the window still is. Click in, read the room, write a comment that helps. That is the whole loop.
+
+**Why two tracks.** Most tools stop at "someone mentioned your keyword." subscope splits the result. Buyer signals are demand you can capture now. Authority plays are the questions where showing up as the helpful expert compounds, builds the karma and history that make your buyer-signal replies land later, and keeps your account from looking like it only shows up to pitch.
+
+---
+
 ## Who this is for
 
-### 🧱 B2B SaaS founder
-_Project management, analytics, productivity, HR, anything per-seat._
+Anyone who sells anything. The onboarding adapts to your exact offer, you do not need to be a SaaS founder.
 
-You run `/subscope-run` at 11am and it surfaces a thread posted two hours ago: *"30-person team, Notion is a mess, what's next?"* It has 6 replies. You write comment 7. By tomorrow it has 80 replies and a locked-in shortlist. The scan returned it while the OP was still active because you ran it early, not because anything was watching.
+- **B2B SaaS** (per-seat, analytics, PM, HR): catch "30-person team, Notion is a mess, what's next?" while the OP is still reading replies.
+- **Sales or marketing tools** (CRM, outreach): catch "Apollo just hiked us 40%, who's everyone moving to?" before the vendor pile-on hardens into a shortlist.
+- **Agency or freelance** (marketing, RevOps, dev): catch "need a Webflow dev who knows e-commerce, 4 weeks" while you can still write something different from the eight identical pitches.
+- **Developer tools** (API, framework, infra): catch "anyone moved off Temporal at scale?" while they are comparing, not after they have committed.
 
-### 📈 Sales or marketing tool
-_CRM, outreach, automation._
-
-A sales ops manager posts in r/sales: *"Apollo just hiked us 40%, who's everyone moving to?"* You run a scan, the thread is four hours old with 12 replies. The OP has not started booking demos yet. That is the window. You get in before the vendor pile-on hardens into a shortlist, because you checked while the thread was still forming.
-
-### 🛠️ Agency or freelance practice
-_Marketing, RevOps, dev work._
-
-This one is incoming demand, not competitor defection. You run the scan and it pulls a post from this morning: *"Need a freelance Webflow dev who actually knows e-commerce, 4 weeks part-time."* Eight people have replied with identical pitches. You are still early enough to write something different. The scan did not hand you the brief, it found it in the subs you configured. You ran it, you got the signal, you still have time to act on it.
-
-### 🧑‍💻 Developer tool
-_API, framework, infra._
-
-You run `/subscope-run` and one of the surfaces is an engineer asking: *"Anyone moved off Temporal at scale? Looking for something lighter?"* The thread is a few hours old. They are comparing options, reading docs, not yet committed. You have an input into what they evaluate. A week from now they are justifying a tool they already picked. You ran the scan when the thread was still in discovery.
-
-> **Honestly, this is for anyone who sells anything.** The four above are just examples. If you offer a service, a product, software, a course, freelance work, an agency, a physical-goods store, a local business, whatever it is, somebody on Reddit is asking for it right now. subscope finds that person. The onboarding adapts to your exact offer; you do not need to be a SaaS founder.
+The edge is timing. subscope returns the thread while it is still forming, because you ran a scan early, not because anything was watching around the clock.
 
 ---
 
@@ -67,51 +79,46 @@ Each pattern has its own scoring path. A `pricing-rage` thread and an `alternati
 
 | Command | What it does |
 |---|---|
-| `/subscope-run` | Manual scan, 5 to 12 threads land in chat with pattern badges. Posts under 24 hours old get a freshness boost so first-mover threads surface even when the keyword gate barely catches them. |
-| `/subscope-judge <n>` | Deeper read on a single thread, returns intent and a reply angle |
-| `/subscope-tune` | Mark surfaces good/bad/meh, the ranker adjusts to your niche |
-
-**The tool gets sharper for your specific niche the longer you use it, because `/subscope-tune` back-propagates your good/bad/meh judgments into per-sub weights and keyword scores.**
+| `/subscope-run` | Manual scan. 5 to 12 threads land in chat as Buyer signals + Authority plays, with pattern badges. Posts under 24 hours old get a freshness boost so first-mover threads surface even when the keyword gate barely catches them. |
+| `/subscope-judge <n>` | Deeper read on a single thread. Returns the intent and a reply angle. It does not write the reply. |
+| `/subscope-tune` | Mark surfaces good / bad / meh. The ranker back-propagates your judgments into per-sub weights and keyword scores, so the list sharpens to your niche the more you use it. |
 
 ---
 
 ## How it works
 
-![workflow demo: terminal types /subscope-run, counters increment, five ranked surfaces populate with pattern badges](assets/workflow.gif)
+Three steps.
 
-**The setup is where the targeting actually happens.** Every install goes through one onboarding flow: `/subscope-onboard`. No shortcut, no fast path. You won't see a single scored post until the flow ends, that's the tradeoff.
+1. **Onboard once.** `/subscope-onboard` asks what you sell, who buys it, and what they complain about, then builds a targeting profile from your URLs, your competitor brands, and live Reddit threads matching your actual pain phrasing. This is mandatory first-run, there is no generic template.
+2. **Run on demand.** `/subscope-run` fetches new posts from your subs, filters low-quality authors, ranks what is left, and returns the two-track list.
+3. **You reply.** You open the threads, decide which are worth your time, and write the comment yourself on Reddit.
 
-Seven turns, plain questions, one confirmation, optional integrations, first scan:
+<details>
+<summary>The onboarding flow in full (7 turns)</summary>
 
-1. **Paste URLs.** Homepage plus optional case studies, blog posts, or pricing pages. One per line. subscope scrapes them silently in the background while you answer the next three questions, pulling positioning, competitor names, buyer titles, and pain phrasing.
+You will not see a single scored post until the flow ends. That is the tradeoff for targeting built around your offer instead of a SaaS-founder template.
+
+1. **Paste URLs.** Homepage plus optional case studies, blog, or pricing. subscope scrapes them silently while you answer the next questions, pulling positioning, competitor names, buyer titles, and pain phrasing.
 2. **What do you sell?** One line.
 3. **Who buys it?** A job title is enough.
 4. **What is the pain?** A real customer quote is gold. Paraphrase is fine.
-5. **Confirm the scan card.** What you sell, buyers, pain pattern, your competitor list, and the recommended subreddits. Each subreddit carries a confidence score, a one-line reason it was picked, and a clickable link to a real buyer thread posted in the last 7 days (see ["How subscope finds your subreddits"](#how-subscope-finds-your-subreddits) below). Reply `go` to lock the card, or tell the flow what to fix and it re-renders.
-6. **Connect integrations (optional).** One menu, multi-pick. DataForSEO, Firecrawl, Notion, Slack, Obsidian. Reply `skip` to skip the whole menu, or `skip` inside any sub-prompt to drop just that one. A failed paste re-asks once, then moves on. The scan still runs.
-7. **First scan runs.** If DataForSEO or Firecrawl keys were set up, the engine warms the enrichment cache against your homepage once. Then 5 to 12 threads land in chat with pattern badges, grouped by tier, with a plain-English summary of what was filtered before scoring (subreddit rules, author quality, content rules).
+5. **Confirm the scan card.** What you sell, buyers, pain pattern, competitor list, and recommended subreddits, each with a confidence score and a clickable link to a real buyer thread from the last 7 days. Reply `go`, or tell the flow what to fix.
+6. **Connect integrations (optional).** One menu: DataForSEO, Firecrawl, Notion, Slack, Obsidian. Reply `skip` for any or all.
+7. **First scan runs.**
 
-The flow writes config files to `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains, plus one file per connected integration). Every future scan reads them. The product differentiator: the profile is built specifically for you from your URLs, your competitor brands, and live Reddit threads matching your actual pain phrasing, not pulled from a generic SaaS-founder template.
+The flow writes config to `~/.config/subscope/` (subreddits, keywords, brand-anchor, example-pains). Refine later with `/subscope-profile`: redo the competitor anchor, rebuild pain language, swap a subreddit, just the section that drifted.
 
-Need to refine later? `/subscope-profile` is a per-section deep dive: `redo just the competitor anchor`, `rebuild pain language`, `swap a subreddit`. Not a full re-interview, just the section that's drifted.
+</details>
 
-Once your profile is in place, each scan fetches new posts from your configured subs, filters throwaway accounts before scoring, and ranks what's left by signal strength: freshness, upvote velocity, comment velocity, keyword density, and which of 8 buying-intent patterns the post matches. Tier 1 surfaces every run. Tier 2 surfaces only when a standout appears.
+<details>
+<summary>How subscope picks your subreddits, with receipts</summary>
 
----
+When you onboard, subscope does not hand you a generic list of r/SaaS and r/Entrepreneur. It hands you a list of people asking for what you sell, with the evidence.
 
-## How subscope finds your subreddits
-
-When you onboard, subscope does not hand you a generic list of r/SaaS and r/Entrepreneur. It does not hand you a list of subreddits at all. It hands you a list of people asking for what you sell, with the receipts.
-
-Here is what happens during discovery:
-
-1. **Live search, not a template.** subscope searches Reddit in real time using your own pain phrasing and your competitors' brand names. The subreddits it recommends come from real conversations happening this week, not a founder-archetype lookup. Two people selling different things get different subreddits.
-
-2. **A real buyer thread, dated, on every result.** A subreddit only makes the list if it has a genuine buyer thread from the **last 7 days**. Each recommendation includes a direct link to that exact thread plus an absolute timestamp. A subreddit name is a guess. A live buyer thread is evidence.
-
-3. **Claude reviews every candidate.** A keyword pass finds candidates, then Claude (the AI running the plugin) reads each one and drops the false positives that keyword matching cannot catch: career questions ("Software Engineering vs Dentistry"), self-promoters announcing their own newsletter, and brand-name collisions (the law software "Clio" vs the Renault "Clio", the scheduling app "Homebase" vs the Eufy camera "Homebase"). You only see subreddits with a confirmed buyer.
-
-4. **A plain-English reason + a confidence score.** Each result tells you why it was picked, naming only signals that are actually in the thread, plus a 0-100 confidence so you know which to trust most. A result looks like this:
+1. **Live search, not a template.** subscope searches Reddit in real time using your own pain phrasing and your competitors' brand names. Two people selling different things get different subreddits.
+2. **A real buyer thread, dated, on every result.** A subreddit only makes the list if it has a genuine buyer thread from the last 7 days, with a direct link and an absolute timestamp. A subreddit name is a guess. A live buyer thread is evidence.
+3. **Claude reviews every candidate.** A keyword pass finds candidates, then Claude (running the plugin) reads each one and drops the false positives keyword matching cannot catch: career questions ("Software Engineering vs Dentistry"), self-promoters, and brand-name collisions (the law tool "Clio" vs the Renault "Clio").
+4. **A reason + a confidence score.** Each result tells you why it was picked and how much to trust it:
 
    ```
    [64] r/LawFirm   buyer post 2026-05-28 07:29 UTC
@@ -119,62 +126,104 @@ Here is what happens during discovery:
         Buyer post 14h ago. Someone asking about a "tool" with buying intent ("best").
    ```
 
-**Verify it yourself.** Click the thread link on any recommendation. If it is not a real person shopping for what you sell, the tool failed. That is the bar we hold it to, and you can check it in one click.
+**Verify it yourself.** Click the thread link on any recommendation. If it is not a real person shopping for what you sell, the tool failed. That is the bar.
 
-**Precision over volume, on purpose.** In a narrow B2B niche you might see one to three subreddits, or occasionally "no active buyer this week." That honest result beats padding the list with noise. subscope never auto-posts and never invents a match. You find the thread, you decide, you write the reply.
+**Precision over volume, on purpose.** In a narrow niche you might see one to three subreddits, or "no active buyer this week." That honest result beats padding the list with noise.
+
+</details>
 
 ---
 
-## Integrations
+## subscope vs the alternatives
 
-subscope slots into the tools you already use.
+|  | subscope | GummySearch | Syften / F5Bot | Manual |
+|---|:---:|:---:|:---:|:---:|
+| Free, open source (MIT) | ✓ | ✗ | partial | ✓ |
+| Keyless: no OAuth, no API key, no account | ✓ | ✗ | ✗ | partial |
+| Ranked, author-vetted shortlist (not raw alerts) | ✓ | partial | ✗ | ✗ |
+| Buyer-signal vs authority-play split | ✓ | ✗ | ✗ | ✗ |
+| Human-in-the-loop, never auto-posts | ✓ | ✓ | ✓ | ✓ |
+| Local-only data, zero telemetry | ✓ | ✗ | ✗ | ✓ |
+| Runs inside Claude Code, reply in context | ✓ | ✗ | ✗ | ✗ |
+| Freshness-boosted first-mover surfacing | ✓ | partial | partial | ✗ |
 
-| Integration | Why | Setup |
-|---|---|---|
-| Bulk LLM grading | Optional. Grade posts at scale via any of 5 providers | One API key in setup wizard |
-| DataForSEO | Optional. SERP-verified competitor list for brand-anchor seeding + ranked-keyword extension | Paste login + API password during onboarding |
-| Firecrawl | Optional. Cleaner positioning extraction from your homepage + link context on surfaced Reddit posts that cite comparison pages | Paste `fc-…` API key during onboarding |
-| Notion daily triage DB | Optional. 14-column triage schema with OP score | ~5 min |
-| Slack daily push | Optional. Formatted morning digest to your channel | Paste one webhook URL |
-| Obsidian weekly digest | Optional. Weekly pulse via `/subscope-pulse` | Vault path in config |
+Comparison reflects subscope's design. Verify competitor cells against their current plans before relying on them.
 
-**Supported LLM providers for bulk grading:** Anthropic, OpenAI, Groq, OpenRouter, Ollama. Provider is auto-detected from your key prefix. Without a key, the regex gate runs alone and `/subscope-judge` handles ad-hoc grading at no extra cost.
+---
 
-**DataForSEO + Firecrawl behavior.** Both are silent no-ops when no key is present. When configured, DataForSEO seeds your `brand_anchor.yml` competitor list during onboarding (`competitors_domain` lookup) and Firecrawl scrapes your homepage for richer positioning copy. Every result is cached in SQLite (30 days for DFS, 90 days for Firecrawl). Daily scans are cache-read only and never touch the network for enrichment. Disable per-run with `--no-enrich`, globally with `SUBSCOPE_NO_ENRICH=1`.
+## FAQ
+
+**What is subscope and what does it do?**
+subscope is a free, open-source Claude Code plugin that finds Reddit threads where someone is actively shopping for a product or service. It reads public RSS feeds, scores posts by 8 buying-signal patterns, and returns 5 to 12 ranked threads in your Claude Code chat, split into buyer signals and authority plays. No API keys, no Reddit account, no auto-posting.
+
+**How does subscope work without a Reddit API key?**
+subscope is keyless by design. It reads Reddit's public RSS and Atom feeds instead of the authenticated JSON API, which Reddit edge-blocked for unauthenticated access. All processing happens locally in a SQLite database, with zero telemetry.
+
+**How is subscope different from GummySearch, Syften, or F5Bot?**
+subscope runs inside Claude Code as a local plugin rather than as a paid SaaS, and it is free and MIT-licensed. Unlike GummySearch and Syften it needs no account or plan. Unlike F5Bot it ranks threads by buying intent and splits them into buyer signals and authority plays, instead of alerting on every keyword match.
+
+**Does subscope post to Reddit automatically?**
+No. subscope is strictly human-in-the-loop. It never auto-posts, never drafts replies, and has no account rotation. The plugin finds and ranks threads. You read them and write any reply yourself.
+
+**What is the dual-track output?**
+Every scan returns two ranked tracks. Buyer signals are threads where someone is shopping or switching tools, where a reply can move a deal. Authority plays are threads with no buyer intent yet, where answering the question builds credibility. Both pull from the same scored pool and are separated before output.
+
+**What buying-signal patterns does subscope detect?**
+Eight: pricing-rage, churn, build-vs-buy, rfp-bait, stack-audit, alternative-seeking, resurrect, and rivals. Each has its own scoring path so they rank independently.
 
 ---
 
 <details>
+<summary>Integrations (all optional)</summary>
+
+subscope runs on day one with zero keys. Each integration is a silent no-op until you add it.
+
+| Integration | Why | Setup |
+|---|---|---|
+| Bulk LLM grading | Grade posts at scale via any of 5 providers | One API key in setup |
+| DataForSEO | SERP-verified competitor list for brand-anchor seeding | Paste login + API password |
+| Firecrawl | Cleaner positioning extraction from your homepage | Paste `fc-...` key |
+| Notion triage DB | Daily surfaces in a Notion database | ~5 min |
+| Slack push | Morning digest to a channel | Paste one webhook URL |
+| Obsidian digest | Weekly pulse via `/subscope-pulse` | Vault path in config |
+
+**LLM providers for bulk grading:** Anthropic, OpenAI, Groq, OpenRouter, Ollama. Auto-detected from your key prefix. Without a key, the regex gate runs alone and `/subscope-judge` handles ad-hoc grading at no extra cost.
+
+**DataForSEO + Firecrawl** are cached in SQLite (30 days for DFS, 90 for Firecrawl). Daily scans are cache-read only and never touch the network for enrichment. Disable per-run with `--no-enrich`, globally with `SUBSCOPE_NO_ENRICH=1`.
+
+</details>
+
+<details>
 <summary>All 15 skills</summary>
 
-The 3 core skills above are what you'll use day to day. The other 12 are setup, pattern-specific scans, and one-off utilities.
+The 3 core skills above are what you use day to day. The other 12 are setup, pattern-specific scans, and utilities.
 
 **Setup and onboarding**
 
 | Skill | What it does |
 |---|---|
-| `/subscope-setup` | Standalone configuration wizard for LLM provider, surface choice (chat / Notion / Slack / Obsidian), and dry-run validation. Most users don't need this; `/subscope-onboard` covers it. |
-| `/subscope-onboard` | Mandatory first-run flow. Seven turns: paste URLs, answer what-you-sell / who-buys-it / what-is-the-pain, confirm the targeting card, pick optional integrations (DataForSEO, Firecrawl, Notion, Slack, Obsidian), and the first scan runs at the end. No fast path. |
-| `/subscope-profile` | Per-section deep dive for refining an existing profile. "Redo competitor anchor", "rebuild pain language", "swap a subreddit". Not a full re-interview, just the section that's drifted. |
+| `/subscope-setup` | Standalone config for LLM provider, surface choice, and dry-run validation. Most users do not need this; `/subscope-onboard` covers it. |
+| `/subscope-onboard` | Mandatory first-run flow. Seven turns, ends with the first scan. No fast path. |
+| `/subscope-profile` | Per-section deep dive for refining an existing profile. Not a full re-interview. |
 
-**Pattern-specific scans** (each runs `fetch-score --mode <pattern>` so you can target one intent class on demand)
+**Pattern-specific scans** (each runs `fetch-score --mode <pattern>`)
 
 | Skill | What it catches |
 |---|---|
-| `/subscope-pricing-rage` | Renewal-hike rage threads. Cooling queue skipped because these go cold fast. |
+| `/subscope-pricing-rage` | Renewal-hike rage. Cooling queue skipped because these go cold fast. |
 | `/subscope-churn` | "Looking to ditch X for..." posts. Active switching intent. |
-| `/subscope-build-vs-buy` | In-house vs SaaS debates with actual numbers (engineering hours, TCO). |
-| `/subscope-rfp-bait` | "A vs B vs C" comparison threads where multiple vendors are named. |
-| `/subscope-stack-audit` | Posts where someone lists 8+ tools and asks what to cut. Highest-intent format. |
-| `/subscope-resurrect` | 6 to 18-month-old quality threads that still pull Google traffic. Late comments compound forever. |
+| `/subscope-build-vs-buy` | In-house vs SaaS debates with real numbers. |
+| `/subscope-rfp-bait` | "A vs B vs C" threads where multiple vendors are named. |
+| `/subscope-stack-audit` | Someone lists 8+ tools and asks what to cut. Highest-intent format. |
+| `/subscope-resurrect` | 6 to 18-month-old quality threads that still pull Google traffic. |
 | `/subscope-rivals` | Today's mentions of any competitor in your `brand_anchor` list. |
 
 **Utilities**
 
 | Skill | What it does |
 |---|---|
-| `/subscope-pulse` | Weekly Obsidian digest. Builds a markdown summary of the week's surfaces and writes it to your vault. |
-| `/subscope-op-vet <user>` | Vet a single Reddit user before replying. Returns karma, age, audience-fit breakdown, GO / HOLD / SKIP verdict. |
+| `/subscope-pulse` | Weekly Obsidian digest of the week's surfaces. |
+| `/subscope-op-vet <user>` | Vet a Reddit OP before replying. Returns an audience-fit read (which subs they post in) and a GO / HOLD / SKIP verdict. Karma and account age are best-effort: Reddit no longer serves them to unauthenticated clients, so the vet leans on audience fit and fails open when a signal is unavailable. |
 
 Skill source files in [`skills/`](skills/).
 
@@ -184,16 +233,14 @@ Skill source files in [`skills/`](skills/).
 
 ## Setup
 
-Run `/subscope-setup`. The wizard presents each optional layer. Skip any of them and the default runs without it. Runs on day 1 with zero API keys.
+Run `/subscope-setup` to change any single layer (LLM provider, where surfaces land, integrations). It runs on day one with zero API keys.
 
-Need more than 10 results per run? `--max-surfaces N` raises the cap.
-
-Want to tune the scan without touching code? Three knobs in `~/.config/subscope/weights.yml`:
+Tuning knobs in `~/.config/subscope/weights.yml`:
 - `daily_output.minimum` (default 5) and `tier2_per_sub_cap` (default 2) control how aggressively backfill kicks in when the gate pool is thin.
-- `freshness_floor.max_age_hours` / `max_promoted` (defaults 24h / 3 per run) control how many sub-24-hour posts get auto-promoted past the keyword gate.
-- `author_vet.min_comment_karma` / `min_account_age_days` (defaults 50 / 30) control OP-quality strictness. Lower these when the daily list runs dry.
+- `freshness_floor.max_age_hours` / `max_promoted` (defaults 24h / 3) control how many sub-24-hour posts get auto-promoted past the keyword gate.
+- `authority_track.enabled` (default on) and `authority_track.cap` (default 4) control the Authority plays track.
 
-Want recurring scans? Wrap `subscope fetch-score` in a cron job or launchd service. The SQLite cursor handles dedup across runs, so you never see the same thread twice.
+Need more than 10 results per run? `--max-surfaces N` raises the cap. Want recurring scans? Wrap `subscope fetch-score` in cron or launchd. The SQLite cursor dedups across runs, so you never see the same thread twice.
 
 Config lives at `~/.config/subscope/`. Every file is written with `chmod 600`.
 
@@ -203,10 +250,10 @@ Config lives at `~/.config/subscope/`. Every file is written with `chmod 600`.
 
 - All data is local. SQLite at `~/.local/share/subscope/subscope.sqlite`, config at `~/.config/subscope/`. Both `0o600`.
 - All credentials (LLM, DataForSEO, Firecrawl, Notion, Slack) are written atomically with `0o600` from the moment they appear on disk, no umask race.
-- When bulk LLM grading or DataForSEO or Firecrawl is enabled, the relevant data (post bodies capped at 800 chars for LLM, your homepage for Firecrawl, domain queries for DataForSEO) goes to your configured endpoint. A one-time stderr notice appears the first time per provider. Zero telemetry otherwise.
+- When bulk LLM grading, DataForSEO, or Firecrawl is enabled, the relevant data goes to your configured endpoint. A one-time stderr notice appears the first time per provider. Zero telemetry otherwise.
 
 ---
 
 You find the thread. You write the reply. subscope handles the part that would take you an hour every morning.
 
-MIT. See [LICENSE](LICENSE).
+MIT licensed, see [LICENSE](LICENSE). Issues and PRs welcome. The anti-positioning surface (no auto-posting, no drafting, no account rotation) is deliberate and load-bearing, so open an issue before proposing write-side Reddit features.

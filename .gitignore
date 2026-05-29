@@ -12,6 +12,9 @@ db/*.sqlite-*
 .mypy_cache/
 .ruff_cache/
 
+# hero GIF render scratch (intermediate PNG frames + palette)
+assets/_frames/
+
 # voice-profile is local-only until Dan signals it's ready to ship
 voice-profile.md
 
