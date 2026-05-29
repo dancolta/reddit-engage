@@ -192,6 +192,7 @@ def cmd_fetch_score(
     no_slack: bool = False,
     max_surfaces: int | None = None,        # power-user override, see weights.yml note
     no_enrich: bool = False,                # kill switch for DFS + Firecrawl cache reads
+    explain: bool = False,                  # diagnostic: emit per-post gate inputs + drop reason
 ) -> None:
     """Run the surface pipeline for a specific pattern mode.
 
@@ -245,6 +246,7 @@ def cmd_fetch_score(
         fetch_errors: list[str] = []
         total_fetched = 0
         dropped_counts: dict[str, int] = {}
+        explain_rows: list[dict[str, Any]] = []
 
         # Authority track config (dual-track surfaces). Default OFF unless the
         # weights.yml authority_track block sets enabled. When disabled, the
@@ -307,6 +309,24 @@ def cmd_fetch_score(
                 passes, reason = score.evaluate_gate(
                     post, dict(s, **db_sub), blog_matches, weights, bucket_kw
                 )
+                if explain:
+                    _t = post.get("title", "")
+                    _b = post.get("body", "") or ""
+                    _nhits, _matched = score.count_keyword_hits(post, bucket_kw)
+                    explain_rows.append({
+                        "id": post["id"],
+                        "sub": s["name"],
+                        "tier": s.get("tier"),
+                        "title": _t[:80],
+                        "passes": passes,
+                        "reason": reason,
+                        "age_h": round(score.age_hours(post), 1),
+                        "kw_hits": _nhits,
+                        "matched_kw": _matched,
+                        "names_brand": score.names_specific_saas(_t, _b),
+                        "question_intent": score.has_question_intent(_t, _b),
+                        "pain_intent": score.has_pain_markers(_t, _b),
+                    })
                 backfill_eligible = (not passes) and _is_backfill_eligible(reason, post)
                 # DESIGN FIX 1: authority-eligible brandless posts (no_saas_brand /
                 # no_intent) are NOT backfill-eligible, so without this clause the
@@ -508,6 +528,8 @@ def cmd_fetch_score(
         "inline_table": out_mod.render_table(
             selected, dropped_counts, authority_surfaces=authority_selected),
     }
+    if explain:
+        payload["explain"] = explain_rows
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
     # Optional Slack push: silent no-op when no webhook configured. Never
@@ -791,6 +813,9 @@ def main(argv: list[str] | None = None) -> None:
                     help="Disable DataForSEO + Firecrawl cache reads for this run.")
     fs.add_argument("--no-slack", action="store_true",
                     help="Skip Slack notification even if webhook is configured")
+    fs.add_argument("--explain", action="store_true",
+                    help="DIAGNOSTIC: include a per-post 'explain' list (gate inputs + "
+                         "drop reason) in the JSON output. Use to see why posts were dropped.")
     fs.add_argument("--max-surfaces", type=int, default=None,
                     help="POWER USER: surface up to N items (default: weights.yml hard_ceiling=12). "
                          "Reddit API is fine with the volume; review fatigue is the actual risk. "
@@ -834,6 +859,7 @@ def main(argv: list[str] | None = None) -> None:
             mode=args.mode, no_slack=args.no_slack,
             max_surfaces=args.max_surfaces,
             no_enrich=args.no_enrich,
+            explain=args.explain,
         )
     elif args.cmd == "op-vet":
         cmd_op_vet(args.username)
