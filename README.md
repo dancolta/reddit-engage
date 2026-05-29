@@ -8,7 +8,12 @@
 
 **subscope reads Reddit for you and hands you the threads worth replying to: the people shopping for what you sell, and the questions you can answer to build authority.**
 
-Run it whenever you want. Each scan returns 5 to 12 ranked threads in your Claude Code chat, split into two tracks: **Buyer signals** where a reply moves a deal, and **Authority plays** where a reply builds credibility. You read them, decide which deserve a reply, and write the comment yourself on Reddit.
+Run it whenever you want. Each scan returns 5 to 12 ranked threads in your Claude Code chat, split into two tracks:
+
+**Buyer signals** · someone is shopping, a reply moves a deal<br>
+**Authority plays** · no buyer yet, a reply builds credibility
+
+You read them, decide which deserve a reply, and write the comment yourself on Reddit.
 
 Keyless. No OAuth, no API key, no Reddit account. It reads Reddit's public RSS feeds. Free, MIT, local.
 
