@@ -118,15 +118,15 @@ Which subs feel off?
 Paste edits like "move r/SaaS to tier 1, drop r/marketing, add r/RevOps".
 ```
 
-For each `add` candidate, optionally validate via warm-scan:
+For each `add` candidate, optionally validate via warm-scan. The engine scans the whole config (there is no single-sub flag), so add the candidate to Tier 2 of `subreddits.yml` provisionally, then run a small capped scan to see whether it surfaces anything worth keeping:
 
 ```bash
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score \
-  --subs <NEW_SUB> --limit-per-sub 10 --daily-cap 5 --no-slack --max-surfaces 5 \
+  --limit-per-sub 10 --daily-cap 5 --no-slack --max-surfaces 5 \
   2>/dev/null || echo "warm-scan-skipped"
 ```
 
-Diff. Confirm. Write.
+If the candidate produced nothing relevant, drop it. Diff. Confirm. Write.
 
 #### Section 4: Keywords (keywords.yml)
 

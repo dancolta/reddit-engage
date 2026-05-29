@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from subscope.cli import _select_daily  # noqa: E402
+from subscope.cli import _select_daily, _is_backfill_eligible  # noqa: E402
 
 
 NOW = int(time.time())
@@ -166,6 +166,32 @@ def test_select_daily_replay_live_drop_distribution():
 def test_select_daily_empty_inputs():
     out = _select_daily([], [], _weights(minimum=5), daily_cap=10)
     assert out == []
+
+
+# ─── Backfill pool contract: brandless near-misses must NOT be eligible ────
+# Regression for the freshness/backfill leak: the tier gates short-circuit on
+# keyword_density before the no_saas_brand check, so a brandless post carries a
+# soft reason and used to slip into the pool, surfacing off-intent noise when
+# nothing real passed the gate.
+
+def test_backfill_excludes_brandless_keyword_density_miss():
+    post = {"title": "Cavity>Onlay>Crown>Root Canal?!", "body": ""}
+    assert _is_backfill_eligible("tier1_keyword_density", post) is False
+    assert _is_backfill_eligible("tier2_keyword_density", post) is False
+
+
+def test_backfill_allows_branded_soft_miss():
+    post = {"title": "thinking of switching off HubSpot, what else?", "body": ""}
+    assert _is_backfill_eligible("tier1_keyword_density", post) is True
+    assert _is_backfill_eligible("tier2_no_intent", post) is True
+
+
+def test_backfill_rejects_disallowed_reasons_even_with_brand():
+    branded = {"title": "Salesforce renewal is brutal", "body": ""}
+    # no_saas_brand + post_age + absolute rejects are never backfill-eligible
+    assert _is_backfill_eligible("tier1_no_saas_brand", branded) is False
+    assert _is_backfill_eligible("tier1_post_age", branded) is False
+    assert _is_backfill_eligible("vendor_content", branded) is False
 
 
 if __name__ == "__main__":

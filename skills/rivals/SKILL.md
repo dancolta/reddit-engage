@@ -19,7 +19,7 @@ Engine call:
 cd "$CLAUDE_PLUGIN_ROOT" && PYTHONPATH=engine python3 -m subscope.cli fetch-score --mode rivals
 ```
 
-The rivals mode loads `config/keywords-rivals.yml` (alternative-seeking, switching, churn keywords) and matches against your brand_anchor list. If you want a one-off scan of a brand NOT in your config, add it to brand_anchor temporarily in `~/.config/subscope/profile.yml`.
+The rivals mode loads `config/keywords-rivals.yml` (alternative-seeking, switching, churn keywords) and surfaces competitor-shaped mentions across your configured subs. Your competitor list lives in `~/.config/subscope/brand-anchor.yml` (written during /subscope-onboard or /subscope-profile). For a one-off scan of a brand NOT in your config, add it there.
 
 Cooling queue applies (24h window already keeps it fresh).
 

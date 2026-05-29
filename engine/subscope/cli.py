@@ -161,6 +161,28 @@ def cmd_orient() -> None:
     print(welcome + fork)
 
 
+def _is_backfill_eligible(reason: str, post: dict[str, Any]) -> bool:
+    """Freshness/backfill pool contract: a near-miss qualifies ONLY if it named
+    a specific SaaS brand AND failed a softer signal (keyword density, intent).
+
+    The brand requirement is ENFORCED here in code, not inferred from the gate.
+    The tier gates (score._tier1_gate / _tier2_gate) check keyword_density BEFORE
+    the no_saas_brand check and short-circuit on first failure, so a post with no
+    keywords AND no brand carries the soft reason `tier1_keyword_density`, not
+    `tier1_no_saas_brand`. Without this re-check, brandless posts leak into the
+    pool and get surfaced by the freshness floor / minimum backfill when nothing
+    real passes the gate, which reads as off-intent noise.
+    """
+    backfill_disallowed = (
+        score.ABSOLUTE_REJECT_REASONS
+        | {"tier1_post_age", "tier2_post_age",
+           "tier1_no_saas_brand", "tier2_no_saas_brand"}
+    )
+    if reason in backfill_disallowed:
+        return False
+    return score.names_specific_saas(post.get("title", ""), post.get("body", ""))
+
+
 def cmd_fetch_score(
     limit_per_sub: int = 25,
     daily_cap: int | None = None,           # None = read from weights.yml pattern_caps
@@ -290,16 +312,11 @@ def cmd_fetch_score(
                     all_candidates.append(candidate)
                 else:
                     dropped_counts[reason] = dropped_counts.get(reason, 0) + 1
-                    # Backfill pool: only posts that named a specific SaaS
-                    # brand AND failed a softer signal (keyword density,
-                    # intent). Vendor / negative / no-brand posts are NEVER
-                    # backfill-eligible.
-                    backfill_disallowed = (
-                        score.ABSOLUTE_REJECT_REASONS
-                        | {"tier1_post_age", "tier2_post_age",
-                           "tier1_no_saas_brand", "tier2_no_saas_brand"}
-                    )
-                    if reason not in backfill_disallowed:
+                    # Backfill pool: only posts that named a specific SaaS brand
+                    # AND failed a softer signal. Brand check is enforced in
+                    # _is_backfill_eligible (the gate short-circuits before the
+                    # brand check, so reason alone cannot be trusted here).
+                    if _is_backfill_eligible(reason, post):
                         near_miss_pool.append(candidate)
 
         # Phase B enrichment: pure cache-read augmentation on the gate-pass set
