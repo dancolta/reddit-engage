@@ -13,19 +13,19 @@ Run it whenever you want. Each scan returns 5 to 12 ranked threads in your Claud
 **Buyer signals** · someone is shopping, a reply moves a deal<br>
 **Authority plays** · no buyer yet, a reply builds credibility
 
-You read them, decide which deserve a reply, and write the comment yourself on Reddit.
+You read them, decide where to jump in, and reply yourself: engage a potential buyer, or build your authority.
 
 Keyless. No OAuth, no API key, no Reddit account. It reads Reddit's public RSS feeds. Free, MIT, local.
 
 **It never posts for you.** Not an alert firehose, not a Reddit growth bot, not a $20 to $100 a month alert subscription. subscope finds the thread. You write the reply.
+
+</div>
 
 ```bash
 /plugin install dancolta/subscope
 /subscope-onboard       # one-time targeting setup (~5 min), ends with your first scan
 /subscope-run           # every scan after that
 ```
-
-</div>
 
 ---
 
