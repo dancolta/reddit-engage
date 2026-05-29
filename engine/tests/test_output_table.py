@@ -8,13 +8,14 @@ from subscope.lib import output  # noqa: E402
 
 
 def _surface(idx: int, tier: int, sub: str, title: str, score: int = 5,
-             vet: dict | None = None) -> dict:
+             vet: dict | None = None, track: str = "buyer") -> dict:
     """Construct a minimal surface dict matching what cli.py builds."""
     return {
         "post": {
             "id": f"post_{idx}", "title": title, "subreddit": sub,
             "score": score, "num_comments": 0, "created_utc": 1700000000,
             "url": f"https://reddit.com/r/{sub}/comments/post_{idx}/",
+            "canonical_url": f"https://reddit.com/comments/post_{idx}/",
         },
         "sub": {"name": sub, "tier": tier, "saturation": None},
         "blog_matches": [],
@@ -22,6 +23,7 @@ def _surface(idx: int, tier: int, sub: str, title: str, score: int = 5,
         "score_internal": 100.0,
         "pain_summary": title,
         "fit_summary": f"r/{sub}",
+        "track": track,
     }
 
 
@@ -183,3 +185,103 @@ def test_select_daily_respects_max_surfaces_override():
     # Override: should accept 15
     out_override = _select_daily(candidates, [], weights, daily_cap=5, max_surfaces=15)
     assert len(out_override) == 15
+
+
+# ─── Dual-track two-section output (DT-4) ──────────────────────────────
+
+def test_render_table_two_sections_when_authority_present():
+    """Both labeled sections appear, buyer FIRST, when authority is non-empty."""
+    buyer = [_surface(1, 1, "RevOps", "HubSpot is dropping us")]
+    authority = [_surface(2, 2, "Bookkeeping", "How do you handle invoicing?",
+                          track="authority")]
+    out = output.render_table(buyer, authority_surfaces=authority)
+    assert "BUYER SIGNALS (1)" in out
+    assert "AUTHORITY PLAYS (1)" in out
+    # Buyer section must come before authority section.
+    assert out.index("BUYER SIGNALS") < out.index("AUTHORITY PLAYS")
+    # Both rows present.
+    assert "HubSpot is dropping us" in out
+    assert "How do you handle invoicing?" in out
+
+
+def test_render_table_no_authority_header_when_empty():
+    """Empty authority track prints buyer section only, no empty header."""
+    buyer = [_surface(1, 1, "RevOps", "HubSpot is dropping us")]
+    out = output.render_table(buyer, authority_surfaces=[])
+    assert "AUTHORITY PLAYS" not in out
+    assert "BUYER SIGNALS" not in out  # no labels at all in buyer-only mode
+
+
+def test_render_table_buyer_only_byte_equal_to_legacy():
+    """REGRESSION: with the authority track disabled (empty), the rendered table
+    is byte-for-byte identical to the historical buyer-only call. This is the
+    disable-flag-reverts-to-today guarantee at the renderer level."""
+    buyer = [
+        _surface(1, 1, "RevOps", "Tier 1 post"),
+        _surface(2, 2, "SaaS", "Tier 2 post"),
+    ]
+    dropped = {"tier2_keyword_density": 12, "author_vet_low_karma": 5}
+    legacy = output.render_table(buyer, dropped)               # no authority arg
+    explicit_empty = output.render_table(buyer, dropped, authority_surfaces=[])
+    assert legacy == explicit_empty
+
+
+def test_render_table_authority_section_no_em_dashes():
+    buyer = [_surface(1, 1, "RevOps", "Post")]
+    authority = [_surface(2, 2, "Bookkeeping", "How do you handle invoicing?",
+                          track="authority")]
+    out = output.render_table(buyer, authority_surfaces=authority)
+    assert "—" not in out
+    assert "–" not in out
+
+
+def test_render_markdown_two_sections_when_authority_present():
+    """The verbose markdown renderer also carries both sections, buyer first."""
+    buyer = [_surface(1, 1, "RevOps", "HubSpot is dropping us")]
+    authority = [_surface(2, 2, "Bookkeeping", "How do you handle invoicing?",
+                          track="authority")]
+    out = output.render(buyer, authority_surfaces=authority)
+    assert "BUYER SIGNALS (1)" in out
+    assert "AUTHORITY PLAYS (1)" in out
+    assert out.index("BUYER SIGNALS") < out.index("AUTHORITY PLAYS")
+
+
+def test_render_markdown_buyer_only_byte_equal_to_legacy():
+    """REGRESSION: verbose markdown buyer-only output is unchanged when the
+    authority track is empty."""
+    buyer = [
+        _surface(1, 1, "RevOps", "Tier 1 post"),
+        _surface(2, 2, "SaaS", "Tier 2 post"),
+    ]
+    legacy = output.render(buyer, run_notes="all good",
+                           dropped_counts={"tier2_keyword_density": 3})
+    explicit_empty = output.render(buyer, run_notes="all good",
+                                   dropped_counts={"tier2_keyword_density": 3},
+                                   authority_surfaces=[])
+    assert legacy == explicit_empty
+
+
+def test_render_json_payload_stamps_track():
+    """Every JSON entry carries its track field."""
+    buyer = [_surface(1, 1, "RevOps", "Post")]
+    authority = [_surface(2, 2, "Bookkeeping", "Q?", track="authority")]
+    buyer_json = output.render_json_payload(buyer, track="buyer")
+    auth_json = output.render_json_payload(authority, track="authority")
+    assert all(e["track"] == "buyer" for e in buyer_json)
+    assert all(e["track"] == "authority" for e in auth_json)
+
+
+def test_render_table_authority_disposition_labels():
+    """Authority dropped_counts render as plain English, not raw engine keys."""
+    buyer = [_surface(1, 1, "RevOps", "Post")]
+    dropped = {
+        "authority_career_identity": 4,
+        "authority_keyword_density": 2,
+        "authority_no_question": 1,
+    }
+    out = output.render_table(buyer, dropped_counts=dropped)
+    for key in dropped:
+        assert key not in out, f"raw authority key {key!r} leaked into footer"
+    assert "career / identity question" in out
+    assert "weak topical fit" in out
+    assert "Authority track" in out

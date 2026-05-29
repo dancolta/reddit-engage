@@ -241,9 +241,16 @@ def cmd_fetch_score(
 
         all_candidates: list[dict[str, Any]] = []
         near_miss_pool: list[dict[str, Any]] = []
+        authority_pool: list[dict[str, Any]] = []
         fetch_errors: list[str] = []
         total_fetched = 0
         dropped_counts: dict[str, int] = {}
+
+        # Authority track config (dual-track surfaces). Default ON. When
+        # disabled, the authority pool is never built and the run reverts to
+        # today's buyer-only behavior exactly.
+        authority_cfg = weights.get("authority_track", {}) or {}
+        authority_enabled = bool(authority_cfg.get("enabled", False))
 
         for s in cfg["subs"]:
             db_sub = store.get_sub(conn, s["name"])
@@ -293,6 +300,7 @@ def cmd_fetch_score(
                     "blog_matches": blog_matches,
                     "gate_reason": reason,
                     "vet": vet,
+                    "bucket_kw": bucket_kw,
                 }
                 if passes:
                     # Optional Phase 2 LLM classifier: only fires on regex-gate
@@ -318,6 +326,14 @@ def cmd_fetch_score(
                     # brand check, so reason alone cannot be trusted here).
                     if _is_backfill_eligible(reason, post):
                         near_miss_pool.append(candidate)
+                    # Authority pool (dual-track): a buyer-reject is a candidate
+                    # for the SECOND-pass authority gate ONLY if it failed the
+                    # buyer gate for an on-topic-but-not-a-buyer reason
+                    # (no_saas_brand / no_intent). A keyword-density miss carries
+                    # the *_keyword_density reason, never *_no_saas_brand, so it
+                    # cannot enter here, which preserves the brandless leak fix.
+                    if authority_enabled and reason in score.AUTHORITY_ELIGIBLE_REASONS:
+                        authority_pool.append(candidate)
 
         # Phase B enrichment: pure cache-read augmentation on the gate-pass set
         # BEFORE selection so any link_context can inform the inline table.
@@ -331,50 +347,70 @@ def cmd_fetch_score(
         if max_surfaces and max_surfaces > 12:
             _emit_max_surfaces_warning(max_surfaces)
 
+        # Authority track (dual-track surfaces): SECOND pass over the soft-reject
+        # pool, with an INDEPENDENT cap. Buyer-selected posts are excluded so a
+        # post never double-surfaces. No-op (and zero authority surfaces) when
+        # the flag is disabled. Authority disposition is folded into
+        # dropped_counts so the footer can show why candidates were not promoted.
+        buyer_ids = {s["post"]["id"] for s in selected}
+        authority_selected = _select_authority(
+            authority_pool, buyer_ids, weights, dropped_counts,
+        )
+
         # Persist. Each surface is isolated so one bad row does not kill the run.
         persist_errors: list[str] = []
         kept_for_output: list[dict[str, Any]] = []
-        for s in selected:
-            post = s["post"]
-            sub_row = s["sub"]
-            try:
-                store.insert_post(conn, post)
-                store.update_score(conn, post["id"], post["score_internal"])
-                for m in s["blog_matches"]:
-                    store.record_blog_ref(
-                        conn, post["id"], m["url"], m["match_score"], m["matched_keywords"]
-                    )
-                # Cooling queue: surfaces land 'drafting' (held cool_minutes)
-                # unless --no-cool is set. Notion sync flushes only 'hot' rows.
-                surface_state = "hot" if no_cool else "drafting"
-                store.mark_surfaced(conn, post["id"], run_id, sub_row["tier"],
-                                    state=surface_state)
-            except Exception as e:
-                persist_errors.append(f"{post.get('id', '?')}: {e}")
-                continue
-            s["pain_summary"] = _pain_summary(post, s["blog_matches"])
-            s["fit_summary"] = _fit_summary(sub_row, s["blog_matches"])
-            s["score_internal"] = post["score_internal"]
-            s["pattern"] = mode
-            s["pattern_emoji"] = PATTERN_EMOJI.get(mode, "")
-            kept_for_output.append(s)
-        selected = kept_for_output
+        surface_state = "hot" if no_cool else "drafting"
+        for track, track_list in (("buyer", selected), ("authority", authority_selected)):
+            for s in track_list:
+                post = s["post"]
+                sub_row = s["sub"]
+                try:
+                    store.insert_post(conn, post)
+                    store.update_score(conn, post["id"], post["score_internal"])
+                    for m in s["blog_matches"]:
+                        store.record_blog_ref(
+                            conn, post["id"], m["url"], m["match_score"], m["matched_keywords"]
+                        )
+                    # Cooling queue: surfaces land 'drafting' (held cool_minutes)
+                    # unless --no-cool is set. Notion sync flushes only 'hot' rows.
+                    store.mark_surfaced(conn, post["id"], run_id, sub_row["tier"],
+                                        state=surface_state)
+                except Exception as e:
+                    persist_errors.append(f"{post.get('id', '?')}: {e}")
+                    continue
+                s["pain_summary"] = _pain_summary(post, s["blog_matches"])
+                s["fit_summary"] = _fit_summary(sub_row, s["blog_matches"])
+                s["score_internal"] = post["score_internal"]
+                s["pattern"] = mode
+                s["pattern_emoji"] = PATTERN_EMOJI.get(mode, "")
+                s["track"] = track
+                kept_for_output.append(s)
+        # Split back out for the renderers (both keep only successfully persisted rows).
+        selected = [s for s in kept_for_output if s["track"] == "buyer"]
+        authority_selected = [s for s in kept_for_output if s["track"] == "authority"]
 
+        total_surfaced = len(selected) + len(authority_selected)
         all_notes = fetch_errors + [f"persist:{e}" for e in persist_errors]
         notes = "; ".join(all_notes) if all_notes else ""
-        store.finish_run(conn, run_id, total_fetched, len(selected), notes)
+        store.finish_run(conn, run_id, total_fetched, total_surfaced, notes)
 
     from .lib import output as out_mod
     payload = {
         "run_id": run_id,
         "mode": mode,
         "fetched": total_fetched,
-        "surfaced": len(selected),
+        "surfaced": total_surfaced,
+        "buyer_count": len(selected),
+        "authority_count": len(authority_selected),
         "dropped_counts": dropped_counts,
         "notes": notes,
-        "surfaces": out_mod.render_json_payload(selected),
-        "inline_markdown": out_mod.render(selected, notes, dropped_counts),
-        "inline_table": out_mod.render_table(selected, dropped_counts),
+        "surfaces": (out_mod.render_json_payload(selected, track="buyer")
+                     + out_mod.render_json_payload(authority_selected, track="authority")),
+        "inline_markdown": out_mod.render(
+            selected, notes, dropped_counts, authority_surfaces=authority_selected),
+        "inline_table": out_mod.render_table(
+            selected, dropped_counts, authority_surfaces=authority_selected),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -503,6 +539,62 @@ def _select_daily(candidates: list[dict[str, Any]], near_miss_pool: list[dict[st
             _take(c)
 
     return chosen
+
+
+def _select_authority(
+    authority_pool: list[dict[str, Any]],
+    buyer_ids: set[str],
+    weights: dict[str, Any],
+    dropped_counts: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Second-pass authority selection (dual-track surfaces).
+
+    Runs evaluate_authority_gate + compute_authority_score over the soft-reject
+    pool, drops anything the buyer track already surfaced (no double-surfacing),
+    dedups by (sub, title), sorts by authority score, and applies the INDEPENDENT
+    authority_track.cap. Gate rejections are folded into dropped_counts so the
+    footer can show authority disposition.
+
+    Returns [] when the authority track is disabled or empty. The selected
+    surfaces carry post["score_internal"] = the authority score (so the renderer
+    and persistence use the authority ranking, not the buyer ranking).
+    """
+    at_cfg = weights.get("authority_track", {}) or {}
+    if not at_cfg.get("enabled", False) or not authority_pool:
+        return []
+
+    cap = int(at_cfg.get("cap", 4))
+    if cap <= 0:
+        return []
+
+    qualified: list[dict[str, Any]] = []
+    for c in authority_pool:
+        post = c["post"]
+        # No double-surfacing: a buyer-selected post never appears in authority.
+        if post["id"] in buyer_ids:
+            continue
+        passes, areason = score.evaluate_authority_gate(
+            post, c["sub"], c.get("gate_reason", ""), weights,
+            c.get("bucket_kw", []), vet=c.get("vet"),
+        )
+        if not passes:
+            dropped_counts[areason] = dropped_counts.get(areason, 0) + 1
+            continue
+        post["score_internal"] = score.compute_authority_score(
+            post, c["sub"], c.get("blog_matches", []), weights, c.get("bucket_kw", []),
+        )
+        qualified.append(c)
+
+    # Dedup by (sub, title): a cross-post or duplicate keeps the higher score.
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for c in qualified:
+        key = (c["sub"]["name"].lower(), c["post"]["title"].strip().lower())
+        prev = by_key.get(key)
+        if prev is None or c["post"]["score_internal"] > prev["post"]["score_internal"]:
+            by_key[key] = c
+    deduped = list(by_key.values())
+    deduped.sort(key=lambda c: c["post"]["score_internal"], reverse=True)
+    return deduped[:cap]
 
 
 def _pain_summary(post: dict[str, Any], blog_matches: list[dict[str, Any]]) -> str:

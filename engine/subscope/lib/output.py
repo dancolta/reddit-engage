@@ -33,9 +33,16 @@ DROPPED_LABELS: dict[str, tuple[str, str]] = {
     "vendor_content": ("Content rules", "vendor / promo content"),
     "negative_topic": ("Content rules", "negative-topic blocklist"),
     "classifier_vendor": ("Content rules", "LLM flagged as vendor pitch"),
+    # Authority track (dual-track second pass over the soft-reject pool)
+    "authority_absolute_reject": ("Authority track", "failed an absolute reject"),
+    "authority_not_eligible_reason": ("Authority track", "not an on-topic near-miss"),
+    "authority_no_question": ("Authority track", "no question to answer"),
+    "authority_keyword_density": ("Authority track", "weak topical fit"),
+    "authority_career_identity": ("Authority track", "career / identity question"),
+    "authority_author_vet": ("Authority track", "OP did not pass vetting"),
 }
 
-GROUP_ORDER = ("Subreddit rules", "Author quality", "Content rules")
+GROUP_ORDER = ("Subreddit rules", "Author quality", "Content rules", "Authority track")
 
 
 def _humanize_unknown_key(key: str) -> str:
@@ -103,30 +110,76 @@ def _age_label(created_utc: int, now: int | None = None) -> str:
     return f"{delta_min // (24 * 60)}d ago"
 
 
+# Dual-track section headers. Buyer FIRST. No em dashes.
+BUYER_HEADER = "BUYER SIGNALS ({n})  someone is shopping, a reply moves a deal"
+AUTHORITY_HEADER = "AUTHORITY PLAYS ({n})  answer to build presence, no buyer yet"
+
+
+def _render_buyer_body(surfaces: list[dict[str, Any]], start_index: int = 0) -> list[str]:
+    """Render the tier-split buyer body (the historical render layout).
+
+    Returns the list of lines (tier headers + items). `start_index` offsets the
+    per-item numbering so a leading section header does not reset the count.
+    """
+    t1 = [s for s in surfaces if s["sub"]["tier"] == 1]
+    t2 = [s for s in surfaces if s["sub"]["tier"] == 2]
+    lines: list[str] = []
+    if t1:
+        lines.append(f"🟢 TIER 1, daily-scan ({len(t1)} surfaces)\n")
+        for i, s in enumerate(t1, start=start_index + 1):
+            lines.append(_render_item(i, s))
+            lines.append("")
+    if t2:
+        lines.append(f"🟡 TIER 2, opportunistic ({len(t2)} surfaces)\n")
+        offset = start_index + len(t1)
+        for i, s in enumerate(t2, start=offset + 1):
+            lines.append(_render_item(i, s))
+            lines.append("")
+    return lines
+
+
 def render(surfaces: list[dict[str, Any]], run_notes: str = "",
-           dropped_counts: dict[str, int] | None = None) -> str:
-    """Render the daily list. surfaces is the orchestrator's ranked output."""
-    if not surfaces:
+           dropped_counts: dict[str, int] | None = None,
+           authority_surfaces: list[dict[str, Any]] | None = None) -> str:
+    """Render the daily list. surfaces is the orchestrator's ranked buyer output.
+
+    Dual-track: when `authority_surfaces` is non-empty, the output gains two
+    labeled sections (buyer FIRST), each with a header line. When it is empty,
+    the output is the historical buyer-only layout byte-for-byte (so disabling
+    the authority track reverts to today's exact behavior). An empty authority
+    track never prints an authority header.
+    """
+    authority_surfaces = authority_surfaces or []
+
+    if not surfaces and not authority_surfaces:
         return "No qualifying posts today. Empty days are fine.\n" + (run_notes and f"\nStatus: {run_notes}\n" or "")
 
     t1 = [s for s in surfaces if s["sub"]["tier"] == 1]
     t2 = [s for s in surfaces if s["sub"]["tier"] == 2]
 
     lines: list[str] = []
-    if t1:
-        lines.append(f"🟢 TIER 1, daily-scan ({len(t1)} surfaces)\n")
-        for i, s in enumerate(t1, start=1):
+    if authority_surfaces:
+        # Two-section mode: label the buyer block, then the authority block.
+        lines.append(BUYER_HEADER.format(n=len(surfaces)))
+        lines.append("")
+        lines.extend(_render_buyer_body(surfaces))
+        lines.append(AUTHORITY_HEADER.format(n=len(authority_surfaces)))
+        lines.append("")
+        for i, s in enumerate(authority_surfaces, start=len(surfaces) + 1):
             lines.append(_render_item(i, s))
             lines.append("")
-    if t2:
-        lines.append(f"🟡 TIER 2, opportunistic ({len(t2)} surfaces)\n")
-        offset = len(t1)
-        for i, s in enumerate(t2, start=offset + 1):
-            lines.append(_render_item(i, s))
-            lines.append("")
+    else:
+        # Historical buyer-only layout (unchanged).
+        lines.extend(_render_buyer_body(surfaces))
 
     lines.append("──")
-    lines.append(f"{len(surfaces)} surfaces today ({len(t1)} Tier 1, {len(t2)} Tier 2).")
+    total = len(surfaces) + len(authority_surfaces)
+    summary = f"{len(surfaces)} surfaces today ({len(t1)} Tier 1, {len(t2)} Tier 2)."
+    if authority_surfaces:
+        summary = (f"{total} surfaces today: {len(surfaces)} buyer "
+                   f"({len(t1)} Tier 1, {len(t2)} Tier 2), "
+                   f"{len(authority_surfaces)} authority.")
+    lines.append(summary)
     if dropped_counts:
         footer = _build_dropped_footer(dropped_counts)
         if footer:
@@ -176,8 +229,35 @@ def _default_fit(sub: dict[str, Any], blog_matches: list[dict[str, Any]]) -> str
     return f"Topic-adjacent fit for r/{sub['name']}. No direct blog backing yet."
 
 
+_TABLE_HEADER = "| # | Tier | Sub | Title | ↑ | OP score | Open |\n|---|---|---|---|---|---|---|"
+
+
+def _render_buyer_table_body(surfaces: list[dict[str, Any]], start_index: int = 0) -> list[str]:
+    """Render the tier-split buyer table body (historical layout)."""
+    t1 = [s for s in surfaces if s["sub"]["tier"] == 1]
+    t2 = [s for s in surfaces if s["sub"]["tier"] == 2]
+    lines: list[str] = []
+    if t1:
+        lines.append(f"### TIER 1, daily-scan ({len(t1)})")
+        lines.append("")
+        lines.append(_TABLE_HEADER)
+        for i, s in enumerate(t1, start=start_index + 1):
+            lines.append(_render_table_row(i, s))
+        lines.append("")
+    if t2:
+        lines.append(f"### TIER 2, opportunistic ({len(t2)})")
+        lines.append("")
+        lines.append(_TABLE_HEADER)
+        offset = start_index + len(t1)
+        for i, s in enumerate(t2, start=offset + 1):
+            lines.append(_render_table_row(i, s))
+        lines.append("")
+    return lines
+
+
 def render_table(surfaces: list[dict[str, Any]],
-                 dropped_counts: dict[str, int] | None = None) -> str:
+                 dropped_counts: dict[str, int] | None = None,
+                 authority_surfaces: list[dict[str, Any]] | None = None) -> str:
     """Render the daily list as a compact Markdown table.
 
     Used as the default surface when ~/.config/subscope/surface.yml says so
@@ -185,32 +265,42 @@ def render_table(surfaces: list[dict[str, Any]],
     user clicks the URL column directly to open the thread.
 
     Columns: # | Tier | Sub | Title (truncated) | ↑ | OP score | Open
+
+    Dual-track: when `authority_surfaces` is non-empty, a labeled "BUYER SIGNALS"
+    block (with its tier sub-tables) comes FIRST, then an "AUTHORITY PLAYS" block.
+    When it is empty, the layout is the historical buyer-only table byte-for-byte
+    (so disabling the authority track reverts to today's exact behavior). An empty
+    authority track never prints an authority header.
     """
-    if not surfaces:
+    authority_surfaces = authority_surfaces or []
+
+    if not surfaces and not authority_surfaces:
         return "No qualifying posts today. Empty days are fine."
 
     t1 = [s for s in surfaces if s["sub"]["tier"] == 1]
     t2 = [s for s in surfaces if s["sub"]["tier"] == 2]
     lines: list[str] = []
-    header = "| # | Tier | Sub | Title | ↑ | OP score | Open |\n|---|---|---|---|---|---|---|"
 
-    if t1:
-        lines.append(f"### TIER 1, daily-scan ({len(t1)})")
+    if authority_surfaces:
+        lines.append(f"## {BUYER_HEADER.format(n=len(surfaces))}")
         lines.append("")
-        lines.append(header)
-        for i, s in enumerate(t1, start=1):
+        lines.extend(_render_buyer_table_body(surfaces))
+        lines.append(f"## {AUTHORITY_HEADER.format(n=len(authority_surfaces))}")
+        lines.append("")
+        lines.append(_TABLE_HEADER)
+        for i, s in enumerate(authority_surfaces, start=len(surfaces) + 1):
             lines.append(_render_table_row(i, s))
         lines.append("")
-    if t2:
-        lines.append(f"### TIER 2, opportunistic ({len(t2)})")
-        lines.append("")
-        lines.append(header)
-        offset = len(t1)
-        for i, s in enumerate(t2, start=offset + 1):
-            lines.append(_render_table_row(i, s))
-        lines.append("")
+    else:
+        lines.extend(_render_buyer_table_body(surfaces))
 
-    lines.append(f"{len(surfaces)} surfaces today ({len(t1)} Tier 1, {len(t2)} Tier 2).")
+    total = len(surfaces) + len(authority_surfaces)
+    if authority_surfaces:
+        lines.append(f"{total} surfaces today: {len(surfaces)} buyer "
+                     f"({len(t1)} Tier 1, {len(t2)} Tier 2), "
+                     f"{len(authority_surfaces)} authority.")
+    else:
+        lines.append(f"{len(surfaces)} surfaces today ({len(t1)} Tier 1, {len(t2)} Tier 2).")
     if dropped_counts:
         footer = _build_dropped_footer(dropped_counts)
         if footer:
@@ -243,14 +333,20 @@ def _render_table_row(index: int, s: dict[str, Any]) -> str:
             f"{title} | {upvotes} | {op_short} | [open]({url}) |")
 
 
-def render_json_payload(surfaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Compact representation for the orchestrator to push to Notion."""
+def render_json_payload(surfaces: list[dict[str, Any]],
+                        track: str | None = None) -> list[dict[str, Any]]:
+    """Compact representation for the orchestrator to push to Notion.
+
+    `track` ("buyer" | "authority") is stamped on every entry. When None, the
+    per-surface `track` field is used if present (default "buyer" for back-compat).
+    """
     out: list[dict[str, Any]] = []
     for s in surfaces:
         post = s["post"]
         sub = s["sub"]
         entry = {
             "post_id": post["id"],
+            "track": track or s.get("track", "buyer"),
             "tier": sub["tier"],
             "subreddit": post["subreddit"],
             "title": post["title"],

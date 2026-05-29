@@ -86,6 +86,28 @@ NEGATIVE_PHRASES = (
     "any meme", "meme template", "shitpost",
 )
 
+# Authority-track precision filter. The authority gate recovers brandless,
+# on-topic, answerable questions, so it loses the named-brand anchor that keeps
+# the buyer gate precise. Without a deterministic negative filter, career /
+# identity / meta questions ("should i switch careers into accounting", "is X a
+# good career", "what salary should i ask for") flood the authority track: they
+# hit keyword density and carry question intent, but there is no domain problem a
+# domain expert could credibly answer to build authority. This list IS the
+# deterministic precision mechanism for the keyless MVP (the brandless lexical
+# ceiling is ~50% precision per CLAUDE.md discovery notes; this filter is what
+# keeps the track from being a buyer-reject dump).
+AUTHORITY_NEGATIVE_PHRASES = (
+    "switch careers", "switching careers", "change careers", "career change",
+    "career advice", "good career", "bad career", "career path",
+    "into accounting", "into a career", "career in",
+    "should i major", "should i study", "which degree", "what degree",
+    "what major", "which major", "college degree", "go to college",
+    "get a job", "find a job", "land a job", "job hunting", "job search",
+    "salary", "how much should i charge", "how much do you make",
+    "how much do you earn", "pay range", "compensation",
+    "is it worth it as a career", "worth it as a career",
+)
+
 PAIN_PHRASES = (
     "too expensive", "expensive", "renewal", "price hike", "pricing",
     "frustrated", "frustrating", "tired of", "fed up", "stuck",
@@ -163,6 +185,17 @@ def has_pain_markers(title: str, body: str) -> bool:
 def has_negative_markers(title: str, body: str) -> bool:
     full = (title + " " + body[:400]).lower()
     return any(p in full for p in NEGATIVE_PHRASES)
+
+
+def has_authority_negative_markers(title: str, body: str) -> bool:
+    """Authority-track precision filter: career / identity / meta questions.
+
+    Scans title + first 400 chars of body for AUTHORITY_NEGATIVE_PHRASES. A hit
+    disqualifies a post from the authority track even when it has question intent
+    and keyword density. See AUTHORITY_NEGATIVE_PHRASES for the rationale.
+    """
+    full = (title + " " + body[:400]).lower()
+    return any(p in full for p in AUTHORITY_NEGATIVE_PHRASES)
 
 
 def age_hours(post: dict[str, Any], now: int | None = None) -> float:
@@ -401,6 +434,194 @@ def compute_score(
     # Tier 3 / weight=0 short-circuit: quarantined subs never compete in scoring.
     # The gate already filters these out; this guards against direct callers
     # bypassing the gate and protects against future float-rounding edge cases.
+    if int(sub.get("tier", 0)) >= 3 or float(sub.get("weight", 1.0)) == 0.0:
+        return 0.0
+
+    tw_cfg = scoring.get("tier_weight", {})
+    tier_mul = float(tw_cfg.get(f"tier_{sub['tier']}", 1.0))
+    sub_mul = float(sub.get("weight", 1.0))
+
+    return round(raw * sub_mul * tier_mul, 2)
+
+
+# === Authority track (DT-1 / DT-2) ===
+#
+# The authority track is a parallel SECOND pass over the soft-reject pool: posts
+# that failed the buyer gate ONLY because they named no SaaS brand or showed no
+# explicit buying intent, yet are topically on-target and answerable. These are
+# worth a reply to build authority / credibility, not to close a sale.
+#
+# Design contract (do NOT relax):
+# - This is a POSITIVE gate, not a buyer-reject dump. A post must independently
+#   EARN the authority track (question intent + keyword density + clean of
+#   career/identity noise + vetted author), on top of clearing every absolute
+#   reject the buyer gate enforces.
+# - The ONLY buyer-gate failures that feed this pass are no_saas_brand and
+#   no_intent. Any other reason (keyword density, post age, absolute rejects)
+#   is NOT authority-eligible. In particular a brandless keyword-density miss is
+#   NOT eligible, which preserves the _is_backfill_eligible leak fix: a post too
+#   thin to clear keyword density on the buyer gate carries the *_keyword_density
+#   reason, never *_no_saas_brand, so it can never reach this gate.
+
+# Buyer-gate failure reasons that make a post eligible for the authority pass.
+# Strictly the "on-topic but not a confirmed buyer" reasons.
+AUTHORITY_ELIGIBLE_REASONS = {
+    "tier1_no_saas_brand", "tier2_no_saas_brand", "tier2_no_intent",
+}
+
+
+def evaluate_authority_gate(
+    post: dict[str, Any],
+    sub: dict[str, Any],
+    buyer_reason: str,
+    weights: dict[str, Any],
+    bucket_keywords: list[str],
+    vet: dict[str, Any] | None = None,
+    now: int | None = None,
+) -> tuple[bool, str]:
+    """Second-pass authority gate. Returns (passes, reason).
+
+    `buyer_reason` is the reason the post failed the buyer gate (from
+    evaluate_gate). A post qualifies for the authority track when ALL hold:
+
+      1. It passed every ABSOLUTE reject (NSFW / vendor / negative / removed or
+         locked / tier3). Re-checked here, not inferred, so a direct caller
+         cannot bypass the non-negotiables.
+      2. It failed the buyer gate ONLY for no_saas_brand or no_intent (topically
+         on-target, just not a confirmed buyer).
+      3. has_question_intent is true (authority = answering questions).
+      4. Domain keyword density >= authority_track.min_keyword_density (proves
+         topical fit, the precision lever in place of the brand anchor).
+      5. It passes AUTHORITY_NEGATIVE_PHRASES (no career / identity / meta noise).
+      6. The author passes vetting (reuse author_vet verdict; pass when absent).
+
+    The reason string on failure names the first failing check so dropped_counts
+    can show authority disposition.
+    """
+    title = post.get("title", "")
+    body = post.get("body", "") or ""
+
+    # (1) Absolute rejects, re-checked. Mirror evaluate_gate's non-negotiables.
+    if post.get("over_18"):
+        return False, "authority_absolute_reject"
+    if post.get("subreddit", "").lower() in NSFW_SUB_BLOCKLIST:
+        return False, "authority_absolute_reject"
+    if post.get("removed") or post.get("locked"):
+        return False, "authority_absolute_reject"
+    if has_negative_markers(title, body):
+        return False, "authority_absolute_reject"
+    if has_vendor_content_markers(title, body):
+        return False, "authority_absolute_reject"
+    if int(sub.get("tier", 0)) >= 3 or float(sub.get("weight", 1.0)) == 0.0:
+        return False, "authority_absolute_reject"
+
+    # (2) Only the on-topic, not-a-buyer soft rejects feed this pass.
+    if buyer_reason not in AUTHORITY_ELIGIBLE_REASONS:
+        return False, "authority_not_eligible_reason"
+
+    # (3) Authority is about answering questions.
+    if not has_question_intent(title, body):
+        return False, "authority_no_question"
+
+    # (4) Topical-fit floor. Stricter than the buyer keyword gate by design:
+    # without the brand anchor, density is the proof the post is on-topic.
+    at_cfg = weights.get("authority_track", {}) or {}
+    min_density = int(at_cfg.get("min_keyword_density", 2))
+    n_hits, _ = count_keyword_hits(post, bucket_keywords)
+    if n_hits < min_density:
+        return False, "authority_keyword_density"
+
+    # (5) Career / identity / meta filter (deterministic precision mechanism).
+    if has_authority_negative_markers(title, body):
+        return False, "authority_career_identity"
+
+    # (6) Author vetting. The pipeline already vets authors before scoring and
+    # drops failures, so a candidate reaching here normally has verdict=pass.
+    # Re-honor it defensively when a vet dict is supplied.
+    if vet is not None and vet.get("verdict") == "fail":
+        return False, "authority_author_vet"
+
+    return True, "authority_pass"
+
+
+def compute_authority_score(
+    post: dict[str, Any],
+    sub: dict[str, Any],
+    blog_matches: list[dict[str, Any]],
+    weights: dict[str, Any],
+    bucket_keywords: list[str],
+    now: int | None = None,
+) -> float:
+    """Authority score. Reweight the SAME signals compute_score uses, do not
+    invent new ones.
+
+    Buyer scoring optimizes for buying-pain + freshness. Authority optimizes for
+    REACH (how many people see a helpful reply) and ANSWERABILITY (a real
+    question you can credibly answer, ideally backed by content you can cite):
+
+      - up-weight upvote_velocity + comment_velocity (reach)
+      - up-weight question intent + blog_coverage_bonus (answerability + citable
+        authority lever)
+      - down-weight pain markers (not the point of an authority reply)
+      - keep freshness decay (a dead thread is not worth answering)
+
+    Sub-weights live under authority_track.scoring in weights.yml. Defaults are
+    chosen so reach dominates and the buyer pain emphasis is dialed back.
+    """
+    at_cfg = weights.get("authority_track", {}) or {}
+    a = at_cfg.get("scoring", {}) or {}
+    scoring = weights.get("scoring", {})
+
+    ah = age_hours(post, now)
+    v = velocity_per_hour(post, now)
+    cv = comment_velocity(post, now)
+
+    # Freshness decay: kept (reuse the same window as buyer scoring).
+    f_cfg = scoring.get("freshness_decay", {})
+    zero_h = float(f_cfg.get("zero_hours", 30)) or 30.0
+    freshness = max(0.0, (zero_h - ah) / zero_h) * float(
+        a.get("freshness_max_points", f_cfg.get("max_points", 30))
+    )
+
+    # Reach: up-weighted upvote + comment velocity.
+    reach_mult = float(a.get("reach_weight", 1.5))
+    uv_cfg = scoring.get("upvote_velocity", {})
+    uv_score = min(float(uv_cfg.get("max_points", 20)) * reach_mult,
+                   v * float(uv_cfg.get("multiplier", 4)) * reach_mult)
+    cv_cfg = scoring.get("comment_velocity", {})
+    cv_score = min(float(cv_cfg.get("max_points", 15)) * reach_mult,
+                   cv * float(cv_cfg.get("multiplier", 6)) * reach_mult)
+
+    # Topical fit: keyword density still counts (proof of on-topic), but it is
+    # not the headline signal here, so reuse the buyer points-per-keyword.
+    kw_cfg = scoring.get("pain_keyword_match", {})
+    n_hits, _ = count_keyword_hits(post, bucket_keywords)
+    kw_score = min(float(kw_cfg.get("max_points", 30)),
+                   n_hits * float(kw_cfg.get("points_per_keyword", 6)))
+
+    # Answerability: blog coverage is a citable-authority lever, up-weighted.
+    answer_mult = float(a.get("answerability_weight", 1.5))
+    blog_mult = float(a.get("blog_weight", 1.5))
+    bc_cfg = scoring.get("blog_coverage_bonus", {})
+    bc_score = min(float(bc_cfg.get("max_points", 50)) * blog_mult,
+                   len(blog_matches) * float(bc_cfg.get("points_per_match", 25)) * blog_mult)
+
+    title = post.get("title", "")
+    body = post.get("body", "") or ""
+    intent_cfg = scoring.get("intent_bonus", {})
+    intent_score = 0.0
+    if has_question_intent(title, body):
+        intent_score += float(intent_cfg.get("question_bonus", 20)) * answer_mult
+    # Pain markers down-weighted: still a faint positive but not the point.
+    if has_pain_markers(title, body):
+        intent_score += float(intent_cfg.get("pain_bonus", 15)) * float(
+            a.get("pain_weight", 0.25)
+        )
+
+    raw = freshness + uv_score + cv_score + kw_score + bc_score + intent_score
+
+    # Quarantine short-circuit (mirror compute_score): tier3 / weight 0 never
+    # competes even if a direct caller bypasses the gate.
     if int(sub.get("tier", 0)) >= 3 or float(sub.get("weight", 1.0)) == 0.0:
         return 0.0
 
