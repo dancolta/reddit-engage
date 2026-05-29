@@ -1296,6 +1296,7 @@ def discover_subs_for_profile(
     deadline: float | None = None,
     extra_competitors: list[str] | None = None,
     fresh_window_hours: int = DISCOVERY_FRESH_WINDOW_HOURS,
+    skip_validation: bool = False,
 ) -> dict[str, Any]:
     """End-to-end discovery: derive → search (DFS + Reddit native) → rank → fallback.
 
@@ -1401,6 +1402,39 @@ def discover_subs_for_profile(
             "source_mix": source_mix,
             "phase_a_count": 0,
             "phase_b_skipped": True,
+        }
+
+    # ─── Skip-validation fast path (onboarding) ────────────────────────────
+    # Onboarding only needs sub NAMES + a relevance signal to confirm with the
+    # user; the real /subscope-run scan at the end validates by actually
+    # surfacing. So skip the per-sub Phase B freshness fetches (fewer Reddit
+    # calls, faster). Relevance is the Phase A match score normalized 0-100
+    # relative to the batch (no freshness => honestly lower ceiling, no chip
+    # implying a verified buyer thread).
+    if skip_validation:
+        cands = phase_a_candidates[:MAX_SUBS_RETURNED]
+        max_score = max((c.get("score", 0.0) for c in cands), default=0.0) or 1.0
+        subs_out = [{
+            "name": c["name"],
+            "relevance": max(1, min(100, round(c.get("score", 0.0) / max_score * 100))),
+            "score": round(c.get("score", 0.0), 2),
+            "why": c.get("why", ""),
+            "thread_count": c.get("thread_count", 0),
+            "sources": c.get("sources", []),
+            "noise_downranked": c.get("noise_downranked", False),
+            "validation_skipped": True,
+        } for c in cands]
+        return {
+            "subs": subs_out,
+            "dropped_subs": [],
+            "queries_used": queries,
+            "needs_clarification": False,
+            "clarifier_prompt": None,
+            "clarifier_reason": None,
+            "discovery_unreachable": discovery_unreachable,
+            "source_mix": source_mix,
+            "phase_a_count": phase_a_count,
+            "validation_skipped": True,
         }
 
     # ─── Phase B: per-candidate freshness + relevance validation ───────────

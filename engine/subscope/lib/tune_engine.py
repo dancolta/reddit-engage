@@ -30,7 +30,11 @@ from . import store
 # 2.0 ceiling.
 GOOD_NUDGE = 0.15
 BAD_NUDGE = -0.20         # bad slightly stronger than good (precision over recall)
-MEH_NUDGE = -0.05
+MEH_NUDGE = 0.0          # meh / skipped = NO signal, never a hidden down-weight.
+                         # /tune is targeted feedback: the user marks only what is
+                         # off (and any standouts); everything they skip is left
+                         # untouched. A nonzero meh penalty would silently punish
+                         # subs the user never rated, which is the opposite intent.
 WEIGHT_FLOOR = 0.1        # never drop a sub below this from /tune alone
 WEIGHT_CEILING = 2.0
 

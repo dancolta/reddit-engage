@@ -450,6 +450,44 @@ def test_e2e_thin_results_trigger_clarification():
     assert result["clarifier_prompt"] is not None
 
 
+def test_e2e_skip_validation_returns_phase_a_with_relevance():
+    """skip_validation=True (onboarding fast path): return Phase A candidates with
+    a relative relevance score, set validation_skipped, and NEVER run Phase B."""
+    c = _conn()
+    answers = {
+        "what_offering": "dental practice management software",
+        "who_to_reach": "dental practice owners",
+        "pain_quote": "dentrix keeps crashing, we want cloud-based",
+    }
+    resp = _reddit_search_response(
+        ("Dentistry", 40, 8, 2),
+        ("DentalAssistant", 20, 4, 3),
+        ("Dentists", 15, 3, 5),
+    )
+    called = {"phase_b": 0}
+
+    def spy_phase_b(*a, **k):
+        called["phase_b"] += 1
+        return {}
+
+    with patch.object(reddit, "fetch_feed", return_value=resp):
+        with patch.object(enrich, "detect_providers",
+                          return_value={"dataforseo": False, "firecrawl": False}):
+            with patch.object(discover, "validate_sub_freshness", side_effect=spy_phase_b):
+                result = discover.discover_subs_for_profile(
+                    answers, "", c, skip_validation=True,
+                )
+
+    assert result["validation_skipped"] is True
+    assert called["phase_b"] == 0, "Phase B must not run under skip_validation"
+    assert result["needs_clarification"] is False
+    assert len(result["subs"]) >= 1
+    for s in result["subs"]:
+        assert isinstance(s["relevance"], int) and 1 <= s["relevance"] <= 100
+        assert s["validation_skipped"] is True
+        assert "confidence" not in s  # Phase B confidence intentionally not computed
+
+
 def test_e2e_no_provider_response_flags_discovery_unreachable():
     """When fetch_json returns None for everything, discovery_unreachable=True."""
     c = _conn()

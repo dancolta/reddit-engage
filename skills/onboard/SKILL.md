@@ -121,8 +121,11 @@ print(json.dumps({
 }))" | PYTHONPATH=engine python3 -m subscope.cli discover \
   --homepage "$HOMEPAGE_URL" \
   --competitors "<COMMA_SEPARATED_COMPETITOR_BRANDS>" \
+  --skip-validation \
   --answers-json -
 ```
+
+`--skip-validation` keeps onboarding light: it returns the candidate subs plus a relative `relevance` score (0-100) WITHOUT the per-sub freshness fetches. Onboarding's job is to confirm the sub NAMES; the real `/subscope-run` scan at T7 validates by actually surfacing. This also means fewer Reddit calls during setup.
 
 Substitute:
 - `<T2_VALUE>`, `<T3_VALUE>`, `<T4_VALUE>` with the exact answers from the scratchpad
@@ -130,69 +133,58 @@ Substitute:
 
 The triple-quoted strings handle embedded apostrophes safely; `--answers-json -` reads the piped JSON from stdin.
 
-The engine returns JSON with these fields:
-- `subs`: ranked candidate subs (recall stage). Each entry has `name`, `confidence` (0-100), `relevance_path` ("competitor"/"noun"), `recent_thread_url`, `recent_thread_title`, `recent_thread_iso` (absolute UTC timestamp), `recent_thread_reason` (plain-English why-chosen line), `recent_thread_age_h`, `freshness_unverified`, `why`, `thread_count`, `sources`, `noise_downranked`
-- `dropped_subs`: subs that failed Phase B (reasons: `no_fresh_buyer_activity`, `below_floor`, `validation_unreachable`)
-- `needs_clarification`, `clarifier_reason` (`stale_only`/`thin_results`/`no_candidates`), `clarifier_prompt`, `discovery_unreachable`, `phase_a_count`, `phase_b_timed_out`
+The engine (run with `--skip-validation`) returns JSON with these fields:
+- `subs`: ranked candidate subs. Each entry has `name`, `relevance` (0-100, relative match-strength to the offer), `why` (plain-English why-chosen line), `relevance_path` ("competitor"/"noun"), `thread_count`, `sources`, `noise_downranked`, `validation_skipped: true`. (No per-sub freshness fields: validation is deferred to the first scan at T7.)
+- `needs_clarification`, `clarifier_reason` (`no_candidates`), `clarifier_prompt`, `discovery_unreachable`, `phase_a_count`, `validation_skipped`
 
-**Freshness guarantee:** every sub in `subs` has a buyer-intent thread in the last 7 days, with an absolute timestamp + clickable link the user can verify.
+The `relevance` score is a topical match estimate (how strongly the sub's threads match the user's competitors + offer vocabulary), not a verified-buyer guarantee. The first `/subscope-run` at T7 is what proves a sub, by actually surfacing.
 
-**MANDATORY relevance review (this is the precision step, do not skip).** The engine is the recall stage: it surfaces every sub with a fresh thread that passed the deterministic buyer-intent gate. The gate is lexical, so it cannot tell a real software buyer from a same-shaped non-buyer. Before rendering the T5 card, review each candidate sub's `recent_thread_reason` + `recent_thread_title` (open `recent_thread_url` if unsure) and DROP any where the evidence thread is not a genuine prospect for THIS user's product. Apply these rules:
+**MANDATORY relevance review (precision step, do not skip).** The engine is the recall stage: it surfaces every candidate above the floor, matched lexically. Lexical matching cannot tell a real buyer's community from a same-shaped one. Before rendering the T5 card, review each candidate's `name` + `why` against THIS user's offer and DROP the semantic false positives:
 
-- KEEP: someone comparing or shopping tools ("Buzzsprout vs Acast", "best tool for X", "alternative to Clio"), someone venting about a named competitor's price/UX, someone explicitly asking which software to buy.
-- DROP: career / "should I switch professions" questions (e.g. "Software Engineering vs Dentistry" for a dental-software seller, "Medical billing vs Coding for analytics"), self-promotion ("just published my new Substack"), generic life/work venting that merely contains a product word, news/changelog reposts about a competitor with no buyer signal, threads where the matched word means something unrelated to the product (e.g. "Clio" the car, "Anchor" the boat).
-- When in doubt, open the `recent_thread_url` and read it. A surfaced sub must have evidence a real buyer would recognize. Drop silently; do not show dropped candidates to the user.
+- KEEP: communities where people shop or compare tools, vent about a named competitor, or ask which software to buy in the user's category.
+- DROP: career / "should I switch professions" subs (e.g. a general careers thread for a dental-software seller), self-promotion hubs, brand-name collisions (the law tool "Clio" vs the Renault "Clio", "Anchor" the boat), and subs whose only match is an unrelated meaning of a product word.
+- When in doubt, keep a sub only if a real buyer for this product would plausibly post there. Drop silently; do not show dropped candidates to the user.
 
 After the review, you have the final sub list. If the review leaves fewer than 3 subs, treat it like a thin result (offer the clarifier / broaden). Never pad with generic founder subs.
 
-**If `needs_clarification` is true:** render T4.5 sub-turn with the engine's `clarifier_prompt` verbatim. The clarifier varies by reason:
-- `stale_only`: Phase A found candidates but none had fresh activity. Offers to broaden the freshness window or refine vertical.
-- `thin_results` / `no_candidates`: Phase A didn't find enough relevant subs. Asks for the vertical.
+**If `needs_clarification` is true** (under `--skip-validation` this is `no_candidates`: Phase A found nothing relevant): render the T4.5 sub-turn with the engine's `clarifier_prompt` verbatim, asking for the vertical. Wait for the reply, then re-run discover with `--vertical "<user reply>"` (keep `--skip-validation`). Ask only once; use the second result regardless.
 
-Wait for user reply. If they say "broaden", re-run discover with extra arg `--fresh-window-hours 720` (30 days; discovery already defaults to 7 days, so broadening means going wider). Otherwise re-run with `--vertical "<user reply>"`. Use the second result regardless of clarification status (we only ask once).
+**If `discovery_unreachable` is true:** the T5 card falls back to the archetype starter set (see the card rules below).
 
-**If `discovery_unreachable` is true:** the T5 card will show a one-line warning under the Subreddits row.
+## Turn 5: confirm the subreddits
 
-## Turn 5: confirm the scan card
-
-Build the card from WebFetch output + the three answers + the discovery result. Render exactly this shape (v3, with confidence chips + freshness evidence + batched dropped line):
+Build a short confirmation card from the three answers + the discovery result. Keep it tight: the user confirms sub NAMES and the offer summary, not a scan. Render this shape:
 
 ```
 SUBSCOPE ONBOARDING  ·  5 / 7
 ─────────────────────────────
 
-Here's what I'm scanning for. Confirm or correct.
+Here's what I'll watch. Confirm or correct.
 
 You sell       <one-liner from T2>
 Buyers         <titles from T3>
 Pain pattern   <theme from T4>
 
-Confidence:  ** 90+ trust   ++ 70-89 likely   ~~ 50-69 watch closely
+Subreddits  (relevance to your offer, 0-100)
+  [<rel>] r/<sub>   <short why, up to 45 chars>
+  [<rel>] r/<sub>   <short why>
+  [<rel>] r/<sub>   <short why>
 
-Subreddits (each verified by a real buyer thread in the last 7 days)
-** [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "<recent_thread_title truncated to 50 chars>"
-** [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
-++ [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
-~~ [<conf>] r/<sub>   buyer post <recent_thread_iso>  ·  "..."
-
-Dropped <N> subs (no buyer activity in 7 days): r/<a>, r/<b>, r/<c>
+I also read beyond these. Every /subscope-run judges each post against your
+offer, so a strong buyer in a sub that is not listed here can still surface.
 
 Competitors    <up to 6, inferred from WebFetch + DFS cache>
 
-Reply "go" to confirm, or tell me what to fix.
+Reply "go" to confirm, or tell me what to fix (add or drop a sub, edit a detail).
 ```
 
 Rendering rules:
-- Band prefix is determined by `confidence`: `**` for 90-100, `++` for 70-89, `~~` for 50-69. Subs below 50 are NOT in `subs` (already dropped by engine).
-- `[<conf>]` is the integer confidence padded to 2 digits (e.g. `[94]`, `[76]`, `[ 8]`, never shown since <50 dropped, but format-pad).
-- `<recent_thread_iso>` is each sub's `recent_thread_iso` field, the absolute UTC timestamp of the evidence thread (e.g. `2026-05-28 07:29 UTC`). Show it verbatim so the user can cross-check against what Reddit displays. The `recent_thread_url` is the clickable evidence link.
-- `<recent_thread_title>` comes from each sub's `recent_thread_title` field, truncated to 50 chars with `...` suffix if longer.
-- Discovery validates buyer activity over a 7-day window (onboarding picks subs to watch long-term). The daily `/subscope-run` scan uses a tighter 48h window for hot threads. Every timestamp is absolute, so "fresh" is never ambiguous.
-- "Dropped N subs" line: read `dropped_subs` from the engine, filter to `reason: "no_fresh_buyer_activity"`, list sub names comma-separated. Skip the entire line if no dropped subs.
-- If `discovery_unreachable` is true, replace the Subreddits block with the archetype-map output and append `(discovery thin, generic fallback)` to the first sub row.
-- If any sub has `freshness_unverified: true`, append `· freshness unverified` to that sub's row (Phase B couldn't reach Reddit for that sub).
-
-If the list is short (1-4 subs), still render what we have. Do not pad with generic founder subs.
+- One row per sub in `subs`, sorted by `relevance` descending. `[<rel>]` is the integer `relevance` right-padded to 3 (e.g. `[ 92]`, `[ 60]`).
+- `<short why>` comes from each sub's `why`, truncated to 45 chars. Omit it if empty; never invent one.
+- Always include the "I also read beyond these" line verbatim. It is the broader-audience disclaimer: subscope is not limited to the listed subs, the judge reads every post against the offer.
+- Do NOT show freshness timestamps, evidence links, a dropped-subs line, or a confidence-band legend. Validation happens at the first scan (T7), not here.
+- If `discovery_unreachable` is true, replace the Subreddits block with the archetype-map fallback and add one line: `(generic starting set, your first scan will refine it)`.
+- If the final list (after the relevance review above) is short (1-3 subs), render what you have. Never pad with generic founder subs.
 
 If the user replies with edits, apply silently and re-render the card. Do NOT re-render after a "go".
 

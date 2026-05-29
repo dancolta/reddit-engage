@@ -101,16 +101,16 @@ Generic SEO-style keywords don't work here. "buyer intent platform" is yours;
 
 Process. Validate. Diff. Confirm. Write.
 
-#### Section 3: Subreddit tiers (subreddits.yml)
+#### Section 3: Subreddit priority (subreddits.yml)
 
-Show current Tier 1 (daily) and Tier 2 (opportunistic) splits.
+Show the current subs grouped as Primary (scanned every run) and Secondary (opportunistic), each with its weight (relevance: higher = more prioritised). Remind the user that every run sorts results into Buyer signals and Authority plays, so a single sub can produce both.
 
 Ask:
 
 ```
 Which subs feel off?
 
-  [a] Move a sub between tiers (Tier 1 ↔ Tier 2)
+  [a] Re-prioritise a sub (Primary <-> Secondary)
   [b] Drop a sub that floods with noise
   [c] Add a sub I should be watching
   [d] Quarantine a sub (keep in config but skip on every scan)
