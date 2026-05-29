@@ -742,36 +742,38 @@ def _extract_noun_phrases(text: str) -> list[str]:
 
 
 def search_reddit(query: str, sleep_between: float = 0.5) -> list[dict[str, Any]]:
-    """Reddit native /search.json. Always available, no creds, no cost.
+    """Reddit native search via RSS (search.rss). Keyless, no cost, throttled.
 
-    Returns list of normalized threads: {sub, title, score, num_comments,
-    created_utc, source_query, source: "reddit_native", permalink}.
+    Reddit's edge 403-blocks unauthenticated /search.json, so discovery reads the
+    Atom search feed instead (same data minus engagement counts). Returns a list
+    of normalized threads: {sub, title, score, num_comments, created_utc,
+    source_query, source: "reddit_native", permalink}. RSS carries no score /
+    num_comments, so those are 0 (recall ranks on sub + freshness + buyer intent,
+    not engagement). Shares the global per-IP rate-limit throttle via fetch_feed.
     """
     if not query:
         return []
     encoded = urllib.parse.quote(query)
-    # `old.reddit.com` historically rate-limits /search.json less aggressively
-    # than the www subdomain. If old gives 403 too, fall back to www.
+    # old.reddit.com RSS first (historically lighter limiting), www fallback.
     primary = (
-        f"https://old.reddit.com/search.json?q={encoded}"
-        f"&restrict_sr=off&sort=relevance&limit=25&t=year"
+        f"https://old.reddit.com/search.rss?q={encoded}"
+        f"&restrict_sr=off&sort=relevance&limit=25"
     )
-    raw = reddit.fetch_json(primary)
-    if raw is None:
+    posts = reddit.fetch_feed(primary)
+    if posts is None:
         fallback = (
-            f"https://www.reddit.com/search.json?q={encoded}"
-            f"&restrict_sr=off&sort=relevance&limit=25&t=year"
+            f"https://www.reddit.com/search.rss?q={encoded}"
+            f"&restrict_sr=off&sort=relevance&limit=25"
         )
-        raw = reddit.fetch_json(fallback)
-    if not raw:
+        posts = reddit.fetch_feed(fallback)
+    if not posts:
         return []
     threads: list[dict[str, Any]] = []
-    for child in (raw.get("data") or {}).get("children", []):
-        d = child.get("data") or {}
-        sub = (d.get("subreddit") or "").strip()
+    for p in posts:
+        sub = (p.get("subreddit") or "").strip()
         if not sub or not _SUBNAME_RE.match(sub):
             continue
-        title = d.get("title", "")
+        title = p.get("title", "")
         # Intent gate (hybrid): noise-listed subs MUST have a buyer-intent
         # token in the title (otherwise wallstreetbets + venting subs leak in
         # via lexical match). Subs NOT in the denylist get a free pass; the
@@ -784,13 +786,15 @@ def search_reddit(query: str, sleep_between: float = 0.5) -> list[dict[str, Any]
         threads.append({
             "sub": sub,
             "title": title,
-            "score": int(d.get("score") or 0),
-            "num_comments": int(d.get("num_comments") or 0),
-            "created_utc": int(d.get("created_utc") or 0),
-            "permalink": d.get("permalink", ""),
+            "score": int(p.get("score") or 0),
+            "num_comments": int(p.get("num_comments") or 0),
+            "created_utc": int(p.get("created_utc") or 0),
+            "permalink": p.get("url", ""),
             "source_query": query,
             "source": "reddit_native",
         })
+    # fetch_feed already paces requests via the global throttle; keep the small
+    # extra gap only when a caller explicitly asks for one.
     if sleep_between > 0:
         time.sleep(sleep_between)
     return threads
@@ -988,48 +992,50 @@ def _sub_search_query(comp_tokens: set[str]) -> str:
 
 def _fetch_candidate_posts(sub: str, comp_tokens: set[str],
                            window_hours: int) -> tuple[list[dict], bool]:
-    """Fetch candidate posts for Phase B. Search-within-sub FIRST (finds buyer
-    threads anywhere in the window, not just the 25 newest), /new.json fallback
-    on empty/error. Dedup by post id. Returns (posts, reachable)."""
+    """Fetch candidate posts for Phase B via RSS. Search-within-sub FIRST
+    (search.rss finds buyer threads across the window, not just the newest 25),
+    /new/.rss fallback on empty. Dedup by post id. Returns (posts, reachable).
+
+    Reddit 403-blocks /search.json + /new.json, so RSS is the only keyless path.
+    Emits the legacy post-dict keys validate_sub_freshness reads (id, created_utc,
+    title, selftext, permalink); selftext/permalink map from the RSS body/url.
+    Freshness is enforced downstream by created_utc against the window, so the
+    old t= filter is unnecessary. Shares the global rate-limit throttle.
+    """
     posts: dict[str, dict] = {}
     reachable = False
 
-    # Map window to Reddit's t= filter (week covers the 7-day discovery window)
-    t_filter = "week" if window_hours <= 168 else "month"
+    def _ingest(feed_posts: list[dict]) -> None:
+        for p in feed_posts:
+            pid = p.get("id") or p.get("canonical_url") or p.get("url")
+            if pid:
+                posts[pid] = {
+                    "id": p.get("id", ""),
+                    "created_utc": int(p.get("created_utc") or 0),
+                    "title": p.get("title", ""),
+                    "selftext": p.get("body", ""),
+                    "permalink": p.get("url", ""),
+                }
 
-    # Primary: search within the sub for buyer-intent terms
+    # Primary: search within the sub for buyer-intent terms.
     q = urllib.parse.quote(_sub_search_query(comp_tokens))
-    search_url = (f"https://old.reddit.com/r/{sub}/search.json?q={q}"
-                  f"&restrict_sr=1&sort=new&t={t_filter}&limit=25")
-    try:
-        raw = reddit.fetch_json(search_url, timeout=10)
-        if raw is not None:
-            reachable = True
-            for child in (raw.get("data") or {}).get("children", []):
-                d = child.get("data") or {}
-                pid = d.get("id") or d.get("name") or d.get("permalink")
-                if pid:
-                    posts[pid] = d
-    except Exception:
-        pass
+    search_url = (f"https://old.reddit.com/r/{sub}/search.rss?q={q}"
+                  f"&restrict_sr=1&sort=new&limit=25")
+    got = reddit.fetch_feed(search_url, timeout=10)
+    if got is not None:
+        reachable = True
+        _ingest(got)
 
-    # Fallback: /new.json (only if search returned nothing)
+    # Fallback: /new/.rss (only if search returned nothing).
     if not posts:
-        new_url = f"https://old.reddit.com/r/{sub}/new.json?limit=25"
-        try:
-            raw = reddit.fetch_json(new_url, timeout=8)
-            if raw is None:
-                raw = reddit.fetch_json(
-                    f"https://www.reddit.com/r/{sub}/new.json?limit=25", timeout=8)
-            if raw is not None:
-                reachable = True
-                for child in (raw.get("data") or {}).get("children", []):
-                    d = child.get("data") or {}
-                    pid = d.get("id") or d.get("name") or d.get("permalink")
-                    if pid:
-                        posts[pid] = d
-        except Exception:
-            pass
+        got = reddit.fetch_feed(
+            f"https://old.reddit.com/r/{sub}/new/.rss?limit=25", timeout=8)
+        if got is None:
+            got = reddit.fetch_feed(
+                f"https://www.reddit.com/r/{sub}/new/.rss?limit=25", timeout=8)
+        if got is not None:
+            reachable = True
+            _ingest(got)
 
     return list(posts.values()), reachable
 

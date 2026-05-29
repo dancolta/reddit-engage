@@ -3,12 +3,12 @@
 Covers all five spec concerns in one file:
 1. derive_queries — query construction from interview answers + scrape + competitors
 2. search_dfs — DFS SERP harvest (mocks enrich.dfs_serp_advanced)
-3. search_reddit — Reddit native search (mocks reddit.fetch_json)
+3. search_reddit — Reddit native search (mocks reddit.fetch_feed)
 4. rank_subs — scoring, noise downrank, freshness cutoff
 5. fallback + e2e — needs_clarification triggers, discovery_unreachable, full flow
 
 Mocks are surgical: we patch the HTTP seams (enrich.dfs_serp_advanced /
-reddit.fetch_json) not the higher-level functions, so the test exercises the
+reddit.fetch_feed) not the higher-level functions, so the test exercises the
 real harvest + dedup + scoring code paths.
 """
 import json
@@ -37,20 +37,25 @@ def _conn():
     return c
 
 
-def _reddit_search_response(*threads_args) -> dict:
-    """Build a /search.json-shaped response. Titles include a buyer-intent
-    token by default so threads pass the intent gate."""
-    children = []
+def _reddit_search_response(*threads_args) -> list[dict]:
+    """Build a fetch_feed-shaped result: a list of normalized RSS posts (the
+    shape reddit.fetch_feed returns). Carries both the search-path keys
+    (subreddit/score/num_comments/url) and the Phase-B keys (id/title/body/
+    created_utc/url) so it works for both search_reddit and _fetch_candidate_posts.
+    Titles include a buyer-intent token so threads pass the intent gate."""
+    posts = []
     for sub, score, num_comments, age_days in threads_args:
-        children.append({"data": {
+        posts.append({
+            "id": f"t3_{sub}_{age_days}",
             "subreddit": sub,
             "title": f"alternative to thing in {sub}?",
             "score": score,
             "num_comments": num_comments,
             "created_utc": NOW - age_days * 86400,
-            "permalink": f"/r/{sub}/comments/abc123/",
-        }})
-    return {"data": {"children": children}}
+            "body": "",
+            "url": f"/r/{sub}/comments/abc123/",
+        })
+    return posts
 
 
 def _dfs_serp_response(*urls) -> dict:
@@ -176,18 +181,18 @@ def test_search_dfs_disabled_returns_empty():
 
 def test_search_reddit_extracts_threads():
     # Each thread needs a buyer-intent title or it's filtered out.
-    resp = {"data": {"children": [
-        {"data": {"subreddit": "microsaas", "title": "alternative to Mailchimp?",
-                  "score": 50, "num_comments": 12, "created_utc": NOW - 30 * 86400,
-                  "permalink": "/r/microsaas/comments/a/x/"}},
-        {"data": {"subreddit": "EntrepreneurRideAlong", "title": "switching from Apollo",
-                  "score": 80, "num_comments": 5, "created_utc": NOW - 60 * 86400,
-                  "permalink": "/r/Era/comments/b/y/"}},
-        {"data": {"subreddit": "SaaS", "title": "looking for cheaper CRM",
-                  "score": 200, "num_comments": 40, "created_utc": NOW - 14 * 86400,
-                  "permalink": "/r/SaaS/comments/c/z/"}},
-    ]}}
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    feed = [
+        {"subreddit": "microsaas", "title": "alternative to Mailchimp?",
+         "score": 50, "num_comments": 12, "created_utc": NOW - 30 * 86400,
+         "url": "/r/microsaas/comments/a/x/"},
+        {"subreddit": "EntrepreneurRideAlong", "title": "switching from Apollo",
+         "score": 80, "num_comments": 5, "created_utc": NOW - 60 * 86400,
+         "url": "/r/Era/comments/b/y/"},
+        {"subreddit": "SaaS", "title": "looking for cheaper CRM",
+         "score": 200, "num_comments": 40, "created_utc": NOW - 14 * 86400,
+         "url": "/r/SaaS/comments/c/z/"},
+    ]
+    with patch.object(reddit, "fetch_feed", return_value=feed):
         threads = discover.search_reddit("cold email expensive", sleep_between=0)
     subs = [t["sub"] for t in threads]
     assert subs == ["microsaas", "EntrepreneurRideAlong", "SaaS"]
@@ -198,21 +203,21 @@ def test_search_reddit_filters_non_intent_titles():
     """Thread titles without buyer-intent tokens (alternative/switch/replace/etc)
     must be dropped before harvest. This is the bigger fix from live smoke:
     r/wallstreetbets matched 'saas subscriptions too expensive' as stock chatter."""
-    resp = {"data": {"children": [
+    feed = [
         # Has intent → kept
-        {"data": {"subreddit": "microsaas", "title": "alternatives to Klaviyo?",
-                  "score": 10, "num_comments": 2, "created_utc": NOW - 30 * 86400,
-                  "permalink": "/x/"}},
+        {"subreddit": "microsaas", "title": "alternatives to Klaviyo?",
+         "score": 10, "num_comments": 2, "created_utc": NOW - 30 * 86400,
+         "url": "/x/"},
         # No intent token → dropped (stock analysis lexical match)
-        {"data": {"subreddit": "wallstreetbets", "title": "SaaS subscriptions are too expensive, sell SF",
-                  "score": 5000, "num_comments": 800, "created_utc": NOW - 7 * 86400,
-                  "permalink": "/y/"}},
+        {"subreddit": "wallstreetbets", "title": "SaaS subscriptions are too expensive, sell SF",
+         "score": 5000, "num_comments": 800, "created_utc": NOW - 7 * 86400,
+         "url": "/y/"},
         # No intent token → dropped (venting)
-        {"data": {"subreddit": "mildlyinfuriating", "title": "my saas keeps raising prices",
-                  "score": 100, "num_comments": 30, "created_utc": NOW - 3 * 86400,
-                  "permalink": "/z/"}},
-    ]}}
-    with patch.object(reddit, "fetch_json", return_value=resp):
+        {"subreddit": "mildlyinfuriating", "title": "my saas keeps raising prices",
+         "score": 100, "num_comments": 30, "created_utc": NOW - 3 * 86400,
+         "url": "/z/"},
+    ]
+    with patch.object(reddit, "fetch_feed", return_value=feed):
         threads = discover.search_reddit("saas subscriptions expensive", sleep_between=0)
     subs = [t["sub"] for t in threads]
     assert subs == ["microsaas"]
@@ -242,22 +247,22 @@ def test_search_reddit_rejects_bad_sub_names():
     """Sub names that don't match Reddit's rules must be dropped."""
     # All titles include a buyer-intent token so the intent gate isn't the
     # discriminator; this test is specifically about sub-name validation.
-    resp = {"data": {"children": [
-        {"data": {"subreddit": "fine_sub", "title": "alternative to Mailchimp?", "score": 1,
-                  "num_comments": 0, "created_utc": NOW - 86400, "permalink": "/r/fine_sub/c/x/"}},
-        {"data": {"subreddit": "this-has-dashes-too-long-for-reddit",
-                  "title": "switching from Apollo",
-                  "score": 1, "num_comments": 0, "created_utc": NOW, "permalink": ""}},
-        {"data": {"subreddit": "", "title": "looking for cheaper CRM", "score": 0,
-                  "num_comments": 0, "created_utc": NOW, "permalink": ""}},
-    ]}}
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    feed = [
+        {"subreddit": "fine_sub", "title": "alternative to Mailchimp?", "score": 1,
+         "num_comments": 0, "created_utc": NOW - 86400, "url": "/r/fine_sub/c/x/"},
+        {"subreddit": "this-has-dashes-too-long-for-reddit",
+         "title": "switching from Apollo",
+         "score": 1, "num_comments": 0, "created_utc": NOW, "url": ""},
+        {"subreddit": "", "title": "looking for cheaper CRM", "score": 0,
+         "num_comments": 0, "created_utc": NOW, "url": ""},
+    ]
+    with patch.object(reddit, "fetch_feed", return_value=feed):
         threads = discover.search_reddit("x", sleep_between=0)
     assert [t["sub"] for t in threads] == ["fine_sub"]
 
 
 def test_search_reddit_network_failure_returns_empty():
-    with patch.object(reddit, "fetch_json", return_value=None):
+    with patch.object(reddit, "fetch_feed", return_value=None):
         threads = discover.search_reddit("anything", sleep_between=0)
     assert threads == []
 
@@ -400,7 +405,7 @@ def test_e2e_dan_case_returns_subs_and_no_clarification():
             "error": None,
         }
 
-    with patch.object(reddit, "fetch_json", side_effect=fake_fetch_json):
+    with patch.object(reddit, "fetch_feed", side_effect=fake_fetch_json):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False,
                                                                     "firecrawl": False}):
             with patch.object(discover, "validate_sub_freshness", side_effect=fake_phase_b):
@@ -437,7 +442,7 @@ def test_e2e_thin_results_trigger_clarification():
         ("SaaS", 50, 10, 14),
         ("Entrepreneur", 30, 5, 21),
     )
-    with patch.object(reddit, "fetch_json", return_value=noise_resp):
+    with patch.object(reddit, "fetch_feed", return_value=noise_resp):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False,
                                                                     "firecrawl": False}):
             result = discover.discover_subs_for_profile(answers, "", c)
@@ -453,7 +458,7 @@ def test_e2e_no_provider_response_flags_discovery_unreachable():
         "who_to_reach": "ops leaders",
         "pain_quote": "manual work is killing us",
     }
-    with patch.object(reddit, "fetch_json", return_value=None):
+    with patch.object(reddit, "fetch_feed", return_value=None):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False,
                                                                     "firecrawl": False}):
             result = discover.discover_subs_for_profile(answers, "", c)
@@ -470,7 +475,7 @@ def test_e2e_vertical_param_suppresses_second_clarification():
         "pain_quote": "it costs",
     }
     noise_resp = _reddit_search_response(("SaaS", 50, 10, 14))
-    with patch.object(reddit, "fetch_json", return_value=noise_resp):
+    with patch.object(reddit, "fetch_feed", return_value=noise_resp):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False,
                                                                     "firecrawl": False}):
             result = discover.discover_subs_for_profile(
@@ -498,18 +503,21 @@ def test_normalize_query_word_boundary_trim():
 # ─── v3: Phase B validation tests ─────────────────────────────────────
 
 
-def _new_json_response(*posts) -> dict:
-    """Build a /r/<sub>/new.json shaped response from
-    (title, body, age_hours) tuples."""
-    children = []
+def _new_json_response(*posts) -> list[dict]:
+    """Build a fetch_feed-shaped result (normalized RSS posts) from
+    (title, body, age_hours) tuples. _fetch_candidate_posts maps the post body
+    to selftext and url to permalink for validate_sub_freshness."""
+    out = []
     for title, body, age_h in posts:
-        children.append({"data": {
+        slug = title[:20].replace(" ", "_")
+        out.append({
+            "id": f"t3_{slug}",
             "title": title,
-            "selftext": body,
+            "body": body,
             "created_utc": int(time.time() - age_h * 3600),
-            "permalink": f"/r/foo/comments/abc/{title[:20].replace(' ', '_')}/",
-        }})
-    return {"data": {"children": children}}
+            "url": f"/r/foo/comments/abc/{slug}/",
+        })
+    return out
 
 
 def test_phase_b_pass_when_fresh_intent_and_relevance():
@@ -519,7 +527,7 @@ def test_phase_b_pass_when_fresh_intent_and_relevance():
         ("Just venting about prices", "ugh", 5.0),  # no intent
         ("Old thread", "switching from X", 240.0),  # too old (>48h)
     )
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    with patch.object(reddit, "fetch_feed", return_value=resp):
         result = discover.validate_sub_freshness(
             "salesforce", user_vocab={"salesforce", "automation"},
             competitors=["Salesforce", "HubSpot"],
@@ -537,7 +545,7 @@ def test_phase_b_fail_when_no_fresh_posts():
         ("Looking for alternative to Salesforce", "switching", 100.0),
         ("Cheaper option needed", "help", 200.0),
     )
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    with patch.object(reddit, "fetch_feed", return_value=resp):
         result = discover.validate_sub_freshness(
             "salesforce", user_vocab={"salesforce"}, competitors=["Salesforce"],
         )
@@ -551,7 +559,7 @@ def test_phase_b_fail_when_no_buyer_intent():
         ("Just saying hi", "first post here", 5.0),
         ("Random thought", "thinking about salesforce stuff", 10.0),
     )
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    with patch.object(reddit, "fetch_feed", return_value=resp):
         result = discover.validate_sub_freshness(
             "salesforce", user_vocab={"salesforce"}, competitors=["Salesforce"],
         )
@@ -564,7 +572,7 @@ def test_phase_b_fail_when_no_relevance():
     resp = _new_json_response(
         ("Looking for alternative cosmetics", "want to switch brands", 5.0),
     )
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    with patch.object(reddit, "fetch_feed", return_value=resp):
         result = discover.validate_sub_freshness(
             "salesforce", user_vocab={"crm", "salesforce"},
             competitors=["Salesforce"],
@@ -577,7 +585,7 @@ def test_phase_b_fail_when_no_relevance():
 
 
 def test_phase_b_timed_out_when_fetch_returns_none():
-    with patch.object(reddit, "fetch_json", return_value=None):
+    with patch.object(reddit, "fetch_feed", return_value=None):
         result = discover.validate_sub_freshness(
             "foo", user_vocab={"x"}, competitors=[],
         )
@@ -598,7 +606,7 @@ def test_phase_b_competitor_first_word_match():
     resp = _new_json_response(
         ("Switching from drake", "looking for cheaper option", 5.0),
     )
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    with patch.object(reddit, "fetch_feed", return_value=resp):
         result = discover.validate_sub_freshness(
             "accounting", user_vocab={"accounting"},
             competitors=["Drake Software"],
@@ -683,7 +691,7 @@ def test_e2e_stale_only_clarifier_fires():
             "passed": False, "timed_out": False, "error": None,
         }
 
-    with patch.object(reddit, "fetch_json", side_effect=fake_search):
+    with patch.object(reddit, "fetch_feed", side_effect=fake_search):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False, "firecrawl": False}):
             with patch.object(discover, "validate_sub_freshness", side_effect=stale_phase_b):
                 result = discover.discover_subs_for_profile(
@@ -727,7 +735,7 @@ def test_e2e_recall_surfaces_gate_passer_with_low_confidence():
             "passed": True, "timed_out": False, "error": None,
         }
 
-    with patch.object(reddit, "fetch_json", side_effect=fake_search):
+    with patch.object(reddit, "fetch_feed", side_effect=fake_search):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False, "firecrawl": False}):
             with patch.object(discover, "validate_sub_freshness", side_effect=thin_phase_b):
                 result = discover.discover_subs_for_profile(
@@ -948,7 +956,7 @@ def test_fresh_window_hours_threads_through_to_phase_b():
             "passed": False, "timed_out": False, "error": None,
         }
 
-    with patch.object(reddit, "fetch_json",
+    with patch.object(reddit, "fetch_feed",
                       side_effect=lambda u, timeout=15: _reddit_search_response(("HVAC", 5, 2, 5))):
         with patch.object(enrich, "detect_providers", return_value={"dataforseo": False, "firecrawl": False}):
             with patch.object(discover, "validate_sub_freshness", side_effect=capture_window):
@@ -961,12 +969,11 @@ def test_fresh_window_hours_threads_through_to_phase_b():
 def test_future_dated_post_not_counted_fresh():
     """Clock-skew guard: a post dated in the future must not count as fresh."""
     future = int(time.time()) + 10 * 86400  # 10 days ahead
-    resp = {"data": {"children": [
-        {"data": {"subreddit": "test", "title": "alternative to Clio tool?",
-                  "selftext": "switching", "created_utc": future,
-                  "permalink": "/r/test/comments/x/"}},
-    ]}}
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    resp = [
+        {"id": "t3_future", "subreddit": "test", "title": "alternative to Clio tool?",
+         "body": "switching", "created_utc": future, "url": "/r/test/comments/x/"},
+    ]
+    with patch.object(reddit, "fetch_feed", return_value=resp):
         result = discover.validate_sub_freshness(
             "LawFirm", user_vocab=set(), competitors=["Clio"])
     assert result["fresh_post_count"] == 0
@@ -978,7 +985,7 @@ def test_evidence_has_absolute_timestamp():
     resp = _new_json_response(
         ("Switching from Clio, need software for trust accounting", "", 6.0),
     )
-    with patch.object(reddit, "fetch_json", return_value=resp):
+    with patch.object(reddit, "fetch_feed", return_value=resp):
         result = discover.validate_sub_freshness(
             "LawFirm", user_vocab=set(), competitors=["Clio"])
     assert result["passed"] is True

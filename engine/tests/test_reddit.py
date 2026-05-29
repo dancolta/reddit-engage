@@ -40,6 +40,33 @@ def _first_entry(feed_xml: str) -> ET.Element:
     return root.find("{http://www.w3.org/2005/Atom}entry")
 
 
+# ─── fetch_feed (discovery RSS port) ──────────────────────────────────
+
+def test_fetch_feed_returns_normalized_posts(monkeypatch):
+    """fetch_feed parses every Atom entry into a normalized post via
+    parse_atom_entry. Used by discover.py for keyless search.rss."""
+    monkeypatch.setattr(reddit, "fetch_xml", lambda url, timeout=15: ET.fromstring(ATOM_FEED))
+    posts = reddit.fetch_feed("https://www.reddit.com/search.rss?q=x")
+    assert posts is not None and len(posts) == 1
+    assert posts[0]["subreddit"] == "SaaS"
+    assert posts[0]["id"] == "1tqxd2g"
+    assert posts[0]["url"].startswith("https://www.reddit.com/r/SaaS/comments/")
+
+
+def test_fetch_feed_none_when_unreachable(monkeypatch):
+    """fetch_xml returning None (edge block / network error) -> fetch_feed None,
+    so callers can distinguish unreachable from empty."""
+    monkeypatch.setattr(reddit, "fetch_xml", lambda url, timeout=15: None)
+    assert reddit.fetch_feed("https://www.reddit.com/search.rss?q=x") is None
+
+
+def test_fetch_feed_empty_list_for_empty_feed(monkeypatch):
+    """A reachable but empty feed yields [] (distinct from None)."""
+    empty = '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>empty</title></feed>'
+    monkeypatch.setattr(reddit, "fetch_xml", lambda url, timeout=15: ET.fromstring(empty))
+    assert reddit.fetch_feed("https://www.reddit.com/search.rss?q=x") == []
+
+
 # ─── parse_atom_entry (STORY-1 / STORY-5) ─────────────────────────────
 
 def test_parse_atom_entry_extracts_id():

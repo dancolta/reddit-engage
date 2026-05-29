@@ -515,6 +515,26 @@ def parse_atom_entry(entry: ET.Element) -> dict[str, Any] | None:
     }
 
 
+def fetch_feed(url: str, timeout: int = 15) -> list[dict[str, Any]] | None:
+    """Fetch any Reddit RSS/Atom feed URL, return normalized posts.
+
+    Returns None when the feed was UNREACHABLE (so callers can distinguish
+    unreachable from empty), and [] for a reachable-but-empty feed. Shares the
+    global request throttle, x-ratelimit pacing, and 429 backoff via fetch_xml,
+    so discovery search calls draw from the same per-IP rate-limit budget as the
+    daily scan. Used by discover.py for keyless search.rss / search-within-sub.
+    """
+    root = fetch_xml(url, timeout=timeout)
+    if root is None:
+        return None
+    posts: list[dict[str, Any]] = []
+    for entry in root.findall(f"{_ATOM_NS}entry"):
+        p = parse_atom_entry(entry)
+        if p:
+            posts.append(p)
+    return posts
+
+
 def fetch_subreddit_new(sub: str, limit: int = 25,
                         timeout: int = 15) -> list[dict[str, Any]]:
     """Fetch /r/<sub>/new/.rss and return normalized posts (newest-first).
