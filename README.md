@@ -12,7 +12,7 @@ Run it whenever you want. Each scan returns 5 to 12 ranked threads in your Claud
 
 Keyless. No OAuth, no API key, no Reddit account. It reads Reddit's public RSS feeds. Free, MIT, local.
 
-**It never posts for you.** Not an alert firehose, not a Reddit growth bot, not a $200 a month listening suite. subscope finds the thread. You write the reply.
+**It never posts for you.** Not an alert firehose, not a Reddit growth bot, not a $20 to $100 a month alert subscription. subscope finds the thread. You write the reply.
 
 ```bash
 /plugin install dancolta/subscope
@@ -136,9 +136,11 @@ When you onboard, subscope does not hand you a generic list of r/SaaS and r/Entr
 
 ## subscope vs the alternatives
 
+GummySearch was the go-to for Reddit buyer research. It shut down in November 2025. subscope is the free, keyless tool that does the high-intent part it was loved for.
+
 |  | subscope | GummySearch | Syften / F5Bot | Manual |
 |---|:---:|:---:|:---:|:---:|
-| Free, open source (MIT) | ✓ | ✗ | partial | ✓ |
+| Price | Free, MIT | shut down 2025 (was $29 to $199/mo) | Syften from $19.95/mo, F5Bot free | Free |
 | Keyless: no OAuth, no API key, no account | ✓ | ✗ | ✗ | partial |
 | Ranked, author-vetted shortlist (not raw alerts) | ✓ | partial | ✗ | ✗ |
 | Buyer-signal vs authority-play split | ✓ | ✗ | ✗ | ✗ |
@@ -147,7 +149,7 @@ When you onboard, subscope does not hand you a generic list of r/SaaS and r/Entr
 | Runs inside Claude Code, reply in context | ✓ | ✗ | ✗ | ✗ |
 | Freshness-boosted first-mover surfacing | ✓ | partial | partial | ✗ |
 
-Comparison reflects subscope's design. Verify competitor cells against their current plans before relying on them.
+Pricing current as of May 2026: GummySearch closed Nov 30 2025, Syften plans run $19.95 to $99.95/mo, F5Bot's core is free. Verify before relying on competitor cells.
 
 ---
 
@@ -159,8 +161,11 @@ subscope is a free, open-source Claude Code plugin that finds Reddit threads whe
 **How does subscope work without a Reddit API key?**
 subscope is keyless by design. It reads Reddit's public RSS and Atom feeds instead of the authenticated JSON API, which Reddit edge-blocked for unauthenticated access. All processing happens locally in a SQLite database, with zero telemetry.
 
-**How is subscope different from GummySearch, Syften, or F5Bot?**
-subscope runs inside Claude Code as a local plugin rather than as a paid SaaS, and it is free and MIT-licensed. Unlike GummySearch and Syften it needs no account or plan. Unlike F5Bot it ranks threads by buying intent and splits them into buyer signals and authority plays, instead of alerting on every keyword match.
+**Is subscope a GummySearch alternative?**
+Yes. GummySearch, the go-to for Reddit buyer research, shut down on November 30, 2025. subscope is a free, open-source, keyless tool that covers the high-intent discovery GummySearch was used for, and it runs inside Claude Code instead of as a paid SaaS.
+
+**How is subscope different from Syften or F5Bot?**
+Syften is a paid alert service (plans from $19.95/mo) and F5Bot is a free keyword-alert tool. Both stop at "someone mentioned your keyword." subscope ranks threads by buying intent, vets the author, and splits results into buyer signals and authority plays, all keyless and local, instead of piping every match to your inbox.
 
 **Does subscope post to Reddit automatically?**
 No. subscope is strictly human-in-the-loop. It never auto-posts, never drafts replies, and has no account rotation. The plugin finds and ranks threads. You read them and write any reply yourself.
