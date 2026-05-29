@@ -137,6 +137,20 @@ When you onboard, subscope does not hand you a generic list of r/SaaS and r/Entr
 
 </details>
 
+<details>
+<summary>Under the hood: how a post gets surfaced</summary>
+
+The Claude-side skills run the conversation. A small Python engine does the mechanical work, and it is deliberately keyless.
+
+1. **Keyless fetch, with failover.** subscope reads Reddit's public RSS feeds. No OAuth, no API key, no account. If the primary Reddit host returns a 403 or a network blip, it fails over to a second Reddit host automatically, so one bad response does not kill the run. A genuine rate-limit (HTTP 429) is respected and reported, not worked around.
+2. **A recall pre-filter, not a verdict.** The engine drops only the clear-cut rejects (NSFW, removed, vendor self-promo, off-topic subs) and passes everything else through as a candidate, tagged with plain features: which of your competitor brands it names, which of your keywords it hits, whether it reads as a question or a complaint, and how fresh it is.
+3. **Claude judges each candidate against your offer.** This is the part that decides what you see. Claude reads every candidate against what you sell, who buys it, and the pain you described, then sorts each one into BUYER (a reply could move a deal), AUTHORITY (a helpful reply builds credibility, no buyer yet), or dropped. A post that only name-drops a brand but is really a patient or career question gets dropped. Every surfaced post carries a one-line reason. Keywords are the net that gathers candidates, not the thing that decides relevance.
+4. **A quiet day is never a dead end.** When nothing clears the bar you get the count of what was scanned, the closest near-misses, and how to widen, not a blank "nothing found."
+
+Everything runs on your machine. The engine writes only to local SQLite, sends nothing anywhere, and the JSON it emits could pipe into any orchestrator, not just Claude Code.
+
+</details>
+
 ---
 
 ## subscope vs the alternatives
